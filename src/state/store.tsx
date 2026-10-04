@@ -13,7 +13,7 @@ import { LocalStorageRepository, type Repository } from '../storage/repository';
 import { reducer, type Action, type Stamp } from './reducer';
 import { playChime } from './chime';
 
-export type EditSection = 'type' | 'size' | 'rooms' | 'people' | 'pets' | 'state' | 'style' | 'energy' | 'goals';
+export type EditSection = 'type' | 'size' | 'rooms' | 'people' | 'pets' | 'state' | 'style' | 'energy' | 'goals' | 'focus';
 
 export type Sheet =
   | { kind: 'task'; id: string; task?: Task }
@@ -22,6 +22,7 @@ export type Sheet =
   | { kind: 'five' }
   | { kind: 'timebox' }
   | { kind: 'emergency' }
+  | { kind: 'roughDay' }
   | { kind: 'taskForm'; editId?: string }
   | { kind: 'reschedule'; task: Task }
   | { kind: 'editHome'; section: EditSection };

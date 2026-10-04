@@ -4,7 +4,10 @@ import { dueInfo, FREQ_LABEL } from '../../domain/schedule';
 import { coveredNeeds, NEED_LABEL } from '../../domain/supplies';
 import type { Task } from '../../domain/types';
 import { useApp } from '../../state/store';
-import { I, ROOM_ICON } from '../../ui/icons';
+import { DOMAIN_ICON, I, ROOM_ICON } from '../../ui/icons';
+import { isLife } from '../../domain/scoring';
+import { DOMAIN_LABEL, LIFE_LEVELS, TIME_LABEL } from '../../domain/options';
+import { SAFETY_LINE } from '../../domain/lifeCatalog';
 import { Button, Dots, PriorityTag, ProgressBar, Sheet, Tag } from '../../ui/primitives';
 import { lowerFrequency } from '../../domain/learning';
 import { DIFF_LABEL } from './TaskCard';
@@ -59,8 +62,10 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
   if (!task) return <Sheet title="Task" onClose={closeSheet}><p>This task is no longer in your plan.</p></Sheet>;
   const st = data.taskStates[task.id];
   const info = dueInfo(task, st, today);
-  const RoomIcon = ROOM_ICON[task.roomKind];
-  const ephemeral = task.id.startsWith('five:');
+  const life = isLife(task);
+  const RoomIcon = life ? DOMAIN_ICON[task.domain!] : ROOM_ICON[task.roomKind];
+  const ephemeral = task.id.startsWith('five:') || task.id.startsWith('rough:');
+  const safety = task.domain ? SAFETY_LINE[task.domain as 'fitness' | 'breathing'] : undefined;
   const lower = lowerFrequency(task.frequency);
   const missing = task.needs.filter((n) => !supplies.has(n));
   const alreadyDone = !!st?.done;
@@ -77,7 +82,9 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
       <div className="row wrap" style={{ gap: 8 }}>
         <PriorityTag p={task.priority} />
         <Tag><RoomIcon size={12} aria-hidden /> {task.roomName}</Tag>
-        <Tag>{task.category}</Tag>
+        <Tag>{life ? DOMAIN_LABEL[task.domain!] : task.category}</Tag>
+        {task.subcategory && <Tag>{task.subcategory}</Tag>}
+        {task.challenge && <Tag kind="lav">Challenge</Tag>}
         {task.tier === 'deep' && <Tag kind="lav">Deep clean</Tag>}
         {task.tier === 'reset' && <Tag kind="green">Reset step</Tag>}
         {task.backlog && <Tag>Backlog</Tag>}
@@ -90,12 +97,30 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
         <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}>{alreadyDone ? 'Done' : info.due ? formatDay(info.due, today) : 'Not scheduled'}</div><div className="l">{info.overdue ? 'Was due (no rush)' : 'Next up'}</div></div>
       </div>
 
+      {life && task.description && <p>{task.description}</p>}
+
+      {life && (
+        <div className="row wrap" style={{ gap: 6 }} aria-label="Task details">
+          {task.intensity && <Tag>Intensity: {task.intensity}</Tag>}
+          {task.lowImpact && <Tag kind="green">Low impact</Tag>}
+          {task.beginner && <Tag kind="green">Beginner-friendly</Tag>}
+          <Tag>{task.equipment === 'basic' ? 'Needs a little equipment' : 'No equipment'}</Tag>
+          {task.setting && task.setting !== 'either' && <Tag>{task.setting === 'outdoor' ? 'Outdoors' : 'Indoors'}</Tag>}
+          {task.timeOfDay && task.timeOfDay !== 'anytime' && <Tag>{TIME_LABEL[task.timeOfDay]}{task.routine ? ' routine' : ''}</Tag>}
+          {task.repeatable && <Tag>Can repeat today</Tag>}
+          {task.level && <Tag>Level {task.level}: {LIFE_LEVELS[task.level].label}</Tag>}
+          {task.tags?.map((g) => <Tag key={g}>{g}</Tag>)}
+        </div>
+      )}
+
       <div className="card soft">
         <div className="row" style={{ gap: 8, marginBottom: 4 }}><I.info size={18} aria-hidden style={{ color: 'var(--primary)' }} /><h3>Why this task</h3></div>
         <p className="small">{task.reason}</p>
       </div>
 
       {task.notes && <div className="card soft"><h3>Your notes</h3><p className="small" style={{ marginTop: 4 }}>{task.notes}</p></div>}
+
+      {safety && <div className="hint"><I.shield size={18} aria-hidden /><div>{safety}</div></div>}
 
       <Steps key={`${task.id}-${plan.microSteps}`} task={task} micro={plan.microSteps} />
 

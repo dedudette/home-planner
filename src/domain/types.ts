@@ -101,6 +101,12 @@ export interface Preferences {
   goals: Goal[];
   /** Learned: shrink chunk size below what the user asked for. */
   learnedSessionCap: number | null;
+  /** What to improve. Always contains at least 'home' for data created before the life layer existed. */
+  focus: LifeFocus[];
+  fitnessLevel: FitnessLevel;
+  equipment: EquipmentNeed;
+  /** Progressive discipline: 1 = tiny steps, 3 = fuller habits. Raised/lowered only with the user's consent. */
+  lifeLevel: LifeLevel;
 }
 
 export interface User { id: string; name: string; createdAt: string; demo: boolean }
@@ -122,6 +128,24 @@ export interface Room {
   sleeps?: boolean;
   virtual?: boolean;
 }
+
+// ───────────────────────── Life domains ─────────────────────────
+
+/** Where a task lives. 'home' is the original cleaning plan; the rest are the personal-discipline layer. */
+export type Domain =
+  | 'home' | 'fitness' | 'breathing' | 'care' | 'mind' | 'digital' | 'admin' | 'learning' | 'outdoor' | 'sleep';
+export type LifeDomain = Exclude<Domain, 'home'>;
+
+/** What the user wants to improve. Chosen in onboarding, multi-select. */
+export type LifeFocus =
+  | 'home' | 'active' | 'discipline' | 'morning' | 'evening' | 'focus' | 'phone' | 'selfcare' | 'study'
+  | 'organize' | 'healthy' | 'consistent';
+
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'anytime';
+export type Intensity = 'gentle' | 'moderate' | 'vigorous';
+export type EquipmentNeed = 'none' | 'basic';
+export type FitnessLevel = 'beginner' | 'intermediate' | 'advanced';
+export type LifeLevel = 1 | 2 | 3;
 
 export type Frequency =
   | 'daily' | 'twice-weekly' | 'weekly' | 'biweekly' | 'monthly' | 'seasonal' | 'deep' | 'once';
@@ -169,10 +193,28 @@ export interface Task {
   topics: ProblemArea[];
   /** Pushed out of the weekly plan to respect the user's time budget. */
   backlog?: boolean;
+
+  // ── Life-layer metadata (all optional; home tasks only set `domain`) ──
+  domain?: Domain;
+  subcategory?: string;
+  description?: string;
+  tags?: string[]; // focus areas such as 'core', 'lower-body', 'cardio'
+  equipment?: EquipmentNeed;
+  intensity?: Intensity;
+  lowImpact?: boolean; // joint-friendly option
+  beginner?: boolean; // suitable for a complete beginner
+  setting?: 'indoor' | 'outdoor' | 'either';
+  timeOfDay?: TimeOfDay;
+  routine?: boolean; // belongs to a morning / afternoon / evening routine
+  repeatable?: boolean; // can sensibly be done more than once a day
+  level?: LifeLevel; // progression step
+  challenge?: boolean; // above the user's current level: optional, never scheduled automatically
 }
 
 export interface CustomTask {
   id: string;
+  /** Defaults to 'home'. For other domains `roomId` is ignored. */
+  domain?: Domain;
   name: string;
   roomId: string; // room id or 'other'
   frequency: Frequency; // 'once' allowed
@@ -214,6 +256,7 @@ export interface SessionEntry {
   actualMinutes: number;
   outcome: EntryOutcome;
   via: EntryVia;
+  domain?: Domain;
 }
 
 /** A "bout" of cleaning: entries less than 45 minutes apart belong together. */
@@ -269,6 +312,8 @@ export interface Progress {
   last7: { date: ISODate; minutes: number; tasks: number }[];
   weeks: { label: string; tasks: number; minutes: number }[];
   rooms: { kind: RoomKind; name: string; tasks: number; minutes: number }[];
+  /** Life-layer areas (fitness, mind, …). Home work stays in `rooms`. */
+  areas: { domain: LifeDomain; name: string; tasks: number; minutes: number }[];
   roomsRefreshedThisWeek: number;
 }
 

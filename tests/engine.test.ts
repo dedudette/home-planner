@@ -11,10 +11,11 @@ const has = (p: ReturnType<typeof plan>, re: RegExp) => p.tasks.some((t) => re.t
 const count = (p: ReturnType<typeof plan>, id: string) => p.tasks.filter((t) => t.templateId === id).length;
 
 describe('demo profiles produce clearly different plans', () => {
-  const plans = Object.fromEntries(DEMO_PROFILES.map((d) => [d.id, plan(demo(d.id))]));
+  const HOME_DEMOS = DEMO_PROFILES.filter((d) => ['A', 'B', 'C', 'D'].includes(d.id));
+  const plans = Object.fromEntries(HOME_DEMOS.map((d) => [d.id, plan(demo(d.id))]));
 
   it('have different sizes, rhythms and task sets', () => {
-    const counts = DEMO_PROFILES.map((d) => plans[d.id].stats.recurringCount);
+    const counts = HOME_DEMOS.map((d) => plans[d.id].stats.recurringCount);
     expect(new Set(counts).size).toBe(4);
     expect(plans.A.stats.resetCount).toBeGreaterThan(plans.B.stats.resetCount); // very messy vs mostly clean
     expect(plans.B.stats.resetCount).toBe(0);

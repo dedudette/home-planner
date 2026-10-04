@@ -5,6 +5,10 @@ import {
   ROOM_MODE_LABEL, SECTION_LABEL, availableRoomModes, roomTasks, sectionId, sectionTasks, type SectionId,
 } from '../../domain/view';
 import { WEEKDAY_SHORT } from '../../domain/dates';
+import { DOMAIN_SHORT, TIME_LABEL } from '../../domain/options';
+import { SAFETY_LINE } from '../../domain/lifeCatalog';
+import type { Domain } from '../../domain/types';
+import { DOMAIN_ICON } from '../../ui/icons';
 import type { RoomKind, Task } from '../../domain/types';
 import { useApp } from '../../state/store';
 import { I, ROOM_ICON } from '../../ui/icons';
@@ -21,6 +25,8 @@ const SECTION_HELP: Record<SectionId, string> = {
   biweekly: 'Done every second week.',
   monthly: 'Once a month. Light but easy to forget.',
   seasonal: 'About every three months.',
+  routine: 'Habits that belong to a morning, afternoon or evening routine.',
+  challenge: 'Optional. One small step above your current level. They are never added to your schedule unless you choose.',
   deep: 'Bigger one-off jobs. Pick a room, and do them when you have the energy.',
   backlog: 'Tasks that did not fit into your weekly time. Add any of them to your week whenever you like.',
 };
@@ -37,9 +43,9 @@ const DoneRow = ({ task }: { task: Task }) => {
   );
 };
 
-const groupByRoom = (tasks: Task[]): [string, Task[]][] => {
+const groupBy = (tasks: Task[], key: (t: Task) => string): [string, Task[]][] => {
   const m = new Map<string, Task[]>();
-  for (const t of tasks) m.set(t.roomName, [...(m.get(t.roomName) ?? []), t]);
+  for (const t of tasks) m.set(key(t), [...(m.get(key(t)) ?? []), t]);
   return [...m.entries()];
 };
 
@@ -47,11 +53,16 @@ const Overview = () => {
   const { view, plan, data, openSheet } = useApp();
   const [section, setSection] = useState<SectionId>('today');
   const [showWhy, setShowWhy] = useState(false);
-  const counts = useMemo(() => Object.fromEntries(sectionId.map((s) => [s, s === 'deep' ? sectionTasks(view, s).length : sectionTasks(view, s).length])) as Record<SectionId, number>, [view]);
+  const [domain, setDomain] = useState<Domain | 'all'>('all');
+  const domains = useMemo(() => [...new Set(view.tasks.map((t) => t.domain ?? 'home'))] as Domain[], [view]);
+  const activeDomain = domain === 'all' || domains.includes(domain) ? domain : 'all';
+  const counts = useMemo(() => Object.fromEntries(sectionId.map((s) => [s, sectionTasks(view, s, activeDomain).length])) as Record<SectionId, number>, [view, activeDomain]);
   const ids = sectionId.filter((s) => counts[s] > 0 || s === 'today' || s === 'daily');
   const current = ids.includes(section) ? section : 'today';
-  const tasks = sectionTasks(view, current);
-  const grouped = ['weekly', 'biweekly', 'monthly', 'seasonal', 'backlog', 'reset'].includes(current);
+  const tasks = sectionTasks(view, current, activeDomain);
+  const grouped = ['weekly', 'biweekly', 'monthly', 'seasonal', 'backlog', 'reset', 'routine', 'challenge'].includes(current);
+  const groupName = (t: Task) => (current === 'routine' ? TIME_LABEL[t.timeOfDay ?? 'anytime'] : current === 'challenge' ? DOMAIN_SHORT[t.domain ?? 'home'] : t.roomName);
+  const showSafety = tasks.some((t) => t.domain && SAFETY_LINE[t.domain as 'fitness' | 'breathing']);
   const days = [...plan.activeDays].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => WEEKDAY_SHORT[d]).join(', ');
   const weekMinutes = Math.round(view.tasks.filter((t) => t.tier === 'maintenance' && !t.backlog && t.frequency !== 'once').reduce((s, t) => s + t.minutes * occurrencesPerWeek(t.frequency, plan.activeDays.length, t.habit), 0));
   return (
@@ -74,18 +85,25 @@ const Overview = () => {
         )}
       </div>
 
+      {domains.length > 1 && (
+        <div className="chips scroll" role="group" aria-label="Filter by area">
+          <Chip small on={activeDomain === 'all'} onClick={() => setDomain('all')}>All areas</Chip>
+          {domains.map((d) => { const Ic = DOMAIN_ICON[d]; return <Chip small key={d} on={activeDomain === d} onClick={() => setDomain(d)}><Ic size={14} aria-hidden /> {DOMAIN_SHORT[d]}</Chip>; })}
+        </div>
+      )}
       <div className="chips scroll" role="tablist" aria-label="Plan sections">
         {ids.map((s) => (
           <Chip key={s} role="tab" on={current === s} onClick={() => setSection(s)} aria-selected={current === s}>{SECTION_LABEL[s].toUpperCase()} <span style={{ opacity: 0.75 }}>{counts[s]}</span></Chip>
         ))}
       </div>
       <p className="small muted">{SECTION_HELP[current]}</p>
+      {showSafety && <div className="hint"><I.shield size={18} aria-hidden /><div>Exercise and breathing tasks are general guidance, not medical advice. Go at your own pace, and stop if anything hurts or feels wrong.</div></div>}
       <div className="stack">
         {tasks.length === 0 && <Empty title="Nothing here right now">{current === 'today' ? 'No tasks are scheduled today.' : 'Nothing in this section.'}</Empty>}
         {grouped
-          ? groupByRoom(tasks).map(([room, ts]) => (
+          ? groupBy(tasks, groupName).map(([room, ts]) => (
             <div className="stack" key={room}>
-              <div className="group-title">{(() => { const R = ROOM_ICON[ts[0].roomKind]; return <R size={16} aria-hidden />; })()} {room}</div>
+              <div className="group-title">{(() => { const R = ts[0].domain && ts[0].domain !== 'home' ? DOMAIN_ICON[ts[0].domain] : ROOM_ICON[ts[0].roomKind]; return <R size={16} aria-hidden />; })()} {room}</div>
               <div className="tasklist">{ts.map((t) => <DoneRow key={t.id} task={t} />)}</div>
             </div>
           ))
@@ -100,6 +118,7 @@ const ByRoom = () => {
   const { view, data, today } = useApp();
   const modes = availableRoomModes(view);
   const [mode, setMode] = useState<RoomKind>(modes[0] ?? 'kitchen');
+  if (!view.tasks.some((t) => (t.domain ?? 'home') === 'home')) return <Empty title="No home tasks in your plan">Room view is for your cleaning plan. Add "Keep my home clean" under My Home to use it.</Empty>;
   const current = modes.includes(mode) ? mode : modes[0];
   const tasks = roomTasks(view, current);
   const upcoming = tasks.filter((t) => t.tier !== 'deep' && !t.backlog);

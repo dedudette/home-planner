@@ -12,6 +12,7 @@ import { More } from './features/settings/More';
 import { JustFiveSheet } from './features/modes/JustFive';
 import { TimeBoxSheet } from './features/modes/TimeBox';
 import { EmergencySheet } from './features/modes/Emergency';
+import { RoughDaySheet } from './features/modes/RoughDay';
 import { TaskDetailSheet, RescheduleSheet } from './features/tasks/TaskDetail';
 import { TaskFormSheet } from './features/tasks/TaskForm';
 import { TimerBar, TimerPickSheet, TimerSheet } from './features/tasks/TimerSheet';
@@ -44,6 +45,7 @@ const SheetHost = () => {
     case 'five': return <JustFiveSheet />;
     case 'timebox': return <TimeBoxSheet />;
     case 'emergency': return <EmergencySheet />;
+    case 'roughDay': return <RoughDaySheet />;
     case 'taskForm': return <TaskFormSheet editId={top.editId} />;
     case 'reschedule': return <RescheduleSheet task={top.task} />;
     case 'editHome': return <EditHomeSheet section={top.section} />;

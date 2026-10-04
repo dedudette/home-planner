@@ -34,7 +34,7 @@ export const Welcome = ({ onStart, onDemo }: { onStart: () => void; onDemo: () =
 
       <section className="hero" style={{ paddingTop: 36, maxWidth: 860, width: '100%' }} aria-labelledby="demo-h">
         <h2 id="demo-h">Just looking? Try a demo home</h2>
-        <p className="muted">Four very different homes, each with its own generated plan.</p>
+        <p className="muted">Seven very different people, each with their own generated plan.</p>
         <label className="row small" style={{ gap: 8 }}>
           <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} style={{ width: 20, height: 20 }} />
           Include three weeks of sample progress

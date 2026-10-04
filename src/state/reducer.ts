@@ -61,10 +61,11 @@ export const logEntry = (data: AppData, entry: SessionEntry): AppData => {
 
 const entryFor = (task: Task, stamp: Stamp, outcome: EntryOutcome, via: EntryVia, minutes: number): SessionEntry => ({
   id: uid('e'), at: stamp.now, date: stamp.today, taskId: task.id, name: task.name, roomKind: task.roomKind, roomName: task.roomName,
-  category: task.category, plannedMinutes: task.minutes, actualMinutes: Math.max(0, Math.round(minutes)), outcome, via,
+  category: task.category, plannedMinutes: task.minutes, actualMinutes: Math.max(0, Math.round(minutes)), outcome, via, domain: task.domain,
 });
 
-const isEphemeral = (task: Task) => task.id.startsWith('five:');
+/** Tasks generated on the fly (Just 5 Minutes, rough-day reset) have no schedule of their own. */
+const isEphemeral = (task: Task) => task.id.startsWith('five:') || task.id.startsWith('rough:');
 
 /**
  * Before a profile edit, pin the *current* schedule into task state so that
@@ -115,7 +116,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
       let next = logEntry(data, entryFor(task, stamp, 'completed', a.via, a.minutes ?? task.minutes));
       if (!isEphemeral(task)) {
         next = { ...next, taskStates: { ...next.taskStates, [task.id]: markComplete(task, next.taskStates[task.id], stamp.today) } };
-      } else next = { ...next, fiveRecent: [task.id, ...next.fiveRecent].slice(0, 8) };
+      } else if (task.id.startsWith('five:')) next = { ...next, fiveRecent: [task.id, ...next.fiveRecent].slice(0, 8) };
       if (a.via === 'reset' && next.resetRun && !next.resetRun.doneIds.includes(task.id)) {
         next = { ...next, resetRun: { ...next.resetRun, doneIds: [...next.resetRun.doneIds, task.id] } };
       }

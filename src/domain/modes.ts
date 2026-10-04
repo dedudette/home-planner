@@ -28,7 +28,7 @@ export const timeBox = (v: PlanView, minutes: number): TimeBoxResult => {
   const pool: { task: Task; value: number }[] = [];
   for (const task of v.tasks) {
     const st = v.states[task.id];
-    if (st?.done || doneToday.has(task.id)) continue;
+    if (st?.done || task.challenge || (doneToday.has(task.id) && !task.repeatable)) continue;
     if (task.tier === 'deep' && minutes < 45) continue;
     const info = dueInfo(task, st, v.today);
     let w = 0.55; // not due soon

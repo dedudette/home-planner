@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { uid } from '../../domain/appdata';
 import { FREQ_LABEL } from '../../domain/schedule';
-import type { CustomTask, Frequency, Priority } from '../../domain/types';
+import { DOMAIN_LABEL } from '../../domain/options';
+import type { CustomTask, Domain, Frequency, Priority } from '../../domain/types';
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
 import { Button, Chip, Sheet } from '../../ui/primitives';
@@ -14,6 +15,7 @@ export const TaskFormSheet = ({ editId }: { editId?: string }) => {
   const { data, plan, today, closeSheet, dispatch, toast } = useApp();
   const existing = data.customTasks.find((c) => c.id === editId);
   const [name, setName] = useState(existing?.name ?? '');
+  const [domain, setDomain] = useState<Domain>(existing?.domain ?? 'home');
   const [roomId, setRoomId] = useState(existing?.roomId ?? 'other');
   const [frequency, setFrequency] = useState<Frequency>(existing?.frequency ?? 'once');
   const [minutes, setMinutes] = useState(String(existing?.minutes ?? 10));
@@ -32,7 +34,7 @@ export const TaskFormSheet = ({ editId }: { editId?: string }) => {
     setTouched(true);
     if (!valid) return;
     const t: CustomTask = {
-      id: existing?.id ?? uid('c'), name: name.trim(), roomId, frequency, minutes: Math.round(mins), priority, notes: notes.trim(),
+      id: existing?.id ?? uid('c'), domain, name: name.trim(), roomId: domain === 'home' ? roomId : 'other', frequency, minutes: Math.round(mins), priority, notes: notes.trim(),
       startDate: startDate || today, createdAt: existing?.createdAt ?? today,
     };
     dispatch({ type: 'CUSTOM_SAVE', task: t });
@@ -48,12 +50,20 @@ export const TaskFormSheet = ({ editId }: { editId?: string }) => {
         {touched && errors.name && <span className="small" style={{ color: 'var(--clay-ink)' }} role="alert">{errors.name}</span>}
       </div>
       <div className="field">
-        <label htmlFor="t-room">Room</label>
-        <select id="t-room" className="select" value={roomId} onChange={(e) => setRoomId(e.target.value)}>
-          {plan.rooms.filter((r) => !r.virtual).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          <option value="other">Other / whole home</option>
+        <label htmlFor="t-area">Area of life</label>
+        <select id="t-area" className="select" value={domain} onChange={(e) => setDomain(e.target.value as Domain)}>
+          {(Object.keys(DOMAIN_LABEL) as Domain[]).map((d) => <option key={d} value={d}>{DOMAIN_LABEL[d]}</option>)}
         </select>
       </div>
+      {domain === 'home' && (
+        <div className="field">
+          <label htmlFor="t-room">Room</label>
+          <select id="t-room" className="select" value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+            {plan.rooms.filter((r) => !r.virtual).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            <option value="other">Other / whole home</option>
+          </select>
+        </div>
+      )}
       <div className="field">
         <label htmlFor="t-freq">How often?</label>
         <select id="t-freq" className="select" value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)}>

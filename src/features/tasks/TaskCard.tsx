@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { FREQ_LABEL } from '../../domain/schedule';
 import type { Task } from '../../domain/types';
 import { useApp } from '../../state/store';
-import { I, ROOM_ICON } from '../../ui/icons';
+import { DOMAIN_ICON, I, ROOM_ICON, TIME_ICON } from '../../ui/icons';
+import { isLife } from '../../domain/scoring';
+import { TIME_LABEL } from '../../domain/options';
 import { Button, Dots, PriorityTag, cx } from '../../ui/primitives';
 
 export const DIFF_LABEL = ['', 'Easy', 'Medium', 'Hard'];
@@ -49,7 +51,9 @@ interface Props {
 export const TaskCard = ({ task, done, overdue, dueLabel, hideTimer, hideMenu, compact, note, onComplete, via }: Props) => {
   const { complete, openSheet, plan } = useApp();
   const [menu, setMenu] = useState(false);
-  const RoomIcon = ROOM_ICON[task.roomKind];
+  const life = isLife(task);
+  const RoomIcon = life ? DOMAIN_ICON[task.domain!] : ROOM_ICON[task.roomKind];
+  const TodIcon = TIME_ICON[task.timeOfDay ?? 'anytime'];
   const toggle = () => { if (done) return; if (onComplete) onComplete(); else complete(task, { via: via ?? 'checkoff' }); };
   return (
     <article className={cx('task', done && 'done')} aria-label={task.name}>
@@ -64,10 +68,13 @@ export const TaskCard = ({ task, done, overdue, dueLabel, hideTimer, hideMenu, c
           {!compact && <span className="m" title={`Difficulty: ${DIFF_LABEL[task.difficulty]}`}><Dots n={task.difficulty} /> <span className="sr-only">Difficulty {DIFF_LABEL[task.difficulty]}</span>{DIFF_LABEL[task.difficulty]}</span>}
           <span className="m"><I.repeat size={14} aria-hidden /> {task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency]}</span>
           {dueLabel && <span className="m"><I.cal size={14} aria-hidden /> {dueLabel}</span>}
+          {life && task.timeOfDay && task.timeOfDay !== 'anytime' && <span className="m"><TodIcon size={14} aria-hidden /> {TIME_LABEL[task.timeOfDay]}</span>}
         </div>
         <div className="row wrap" style={{ marginTop: 8, gap: 6 }}>
           <PriorityTag p={task.priority} />
           {overdue && <span className="tag lav">Whenever you're ready</span>}
+          {task.challenge && <span className="tag lav">Challenge</span>}
+          {life && task.intensity && task.domain === 'fitness' && <span className="tag">{task.intensity === 'gentle' ? 'Gentle' : task.intensity === 'moderate' ? 'Moderate' : 'Vigorous'}{task.lowImpact ? ' · low impact' : ''}</span>}
           {task.part && <span className="tag green">Part {task.part.index} of {task.part.of}</span>}
           {plan.microSteps && (task.tinySteps.length || task.substeps.length) > 1 && !compact && <span className="tag green">{(task.tinySteps.length || task.substeps.length)} tiny step{(task.tinySteps.length || task.substeps.length) === 1 ? '' : 's'}</span>}
         </div>

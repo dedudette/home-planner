@@ -9,9 +9,9 @@ import type { Frequency, ISODate, RoomKind } from './types';
  * did. Nothing changes silently. Every adaptation is offered as a suggestion.
  */
 
-export type InsightActionId = 'shorter' | 'smaller' | 'less-often' | 'move' | 'remove' | 'keep' | 'dismiss';
+export type InsightActionId = 'shorter' | 'smaller' | 'less-often' | 'move' | 'remove' | 'keep' | 'dismiss' | 'level-up' | 'level-down';
 
-export interface InsightAction { id: InsightActionId; label: string; minutes?: number; frequency?: Frequency }
+export interface InsightAction { id: InsightActionId; label: string; minutes?: number; frequency?: Frequency; level?: 1 | 2 | 3 }
 
 export interface Insight {
   id: string;
@@ -72,9 +72,30 @@ export const computeInsights = (v: PlanView): Insight[] => {
     });
   }
 
+  // 2b. Progressive discipline: offer a step up when habits are steady, an easier week when they are not.
+  const level = v.data.preferences.lifeLevel ?? 1;
+  const lifeEntries = entries.filter((e) => e.domain && e.domain !== 'home' && e.date >= addDays(today, -14));
+  const lifeDone = lifeEntries.filter((e) => e.outcome === 'completed');
+  const lifeMissed = lifeEntries.filter((e) => e.outcome === 'skipped' || e.outcome === 'snoozed');
+  if (level < 3 && lifeDone.length >= 12 && lifeMissed.length / Math.max(1, lifeEntries.length) <= 0.15 && !dismissed('level-up', 21)) {
+    out.push({
+      id: 'level-up', tone: 'celebrate', title: 'Ready for a small step up?',
+      body: `You've completed ${lifeDone.length} habits in the last two weeks and rarely skipped. If you like, CleanFlow can make your routines a little fuller. You can always go back.`,
+      actions: [{ id: 'level-up', label: 'Yes, a small step up', level: (level + 1) as 2 | 3 }, { id: 'dismiss', label: 'Stay where I am' }],
+    });
+  }
+  if (level > 1 && lifeEntries.length >= 6 && lifeMissed.length / lifeEntries.length >= 0.6 && !dismissed('level-down', 14)) {
+    out.push({
+      id: 'level-down', tone: 'suggest', title: 'Want an easier stretch?',
+      body: 'A lot of your recent habits were skipped, which usually just means they were too big for this week. Want to go back to gentler, shorter versions?',
+      actions: [{ id: 'level-down', label: 'Yes, make it gentler', level: (level - 1) as 1 | 2 }, { id: 'dismiss', label: 'Keep as is' }],
+    });
+  }
+
   // 3. Rooms that go smoothly → keep as is (positive reinforcement).
   const byKind = new Map<RoomKind, { done: number; missed: number }>();
   for (const e of entries) {
+    if (e.domain && e.domain !== 'home') continue;
     const k = e.roomKind;
     const cur = byKind.get(k) ?? { done: 0, missed: 0 };
     if (e.outcome === 'completed') cur.done++; else if (e.outcome === 'skipped') cur.missed++;

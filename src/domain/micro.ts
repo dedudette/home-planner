@@ -1,5 +1,6 @@
 import { deriveContext, type Ctx } from './context';
-import type { AppData, ProblemArea, Room, RoomKind, Task } from './types';
+import { DOMAIN_SHORT } from './options';
+import type { AppData, LifeDomain, LifeFocus, ProblemArea, Room, RoomKind, Task } from './types';
 
 /**
  * "Just 5 Minutes": a pool of genuinely tiny actions. The picker chooses ONE
@@ -16,6 +17,8 @@ interface Micro {
   topics?: ProblemArea[];
   steps: string[];
   when?: (c: Ctx) => boolean;
+  /** Life-layer micro-task: only offered when the user picked one of these focus areas. */
+  life?: { domain: LifeDomain; focus: LifeFocus[] };
 }
 
 const M = (m: Micro): Micro => m;
@@ -53,13 +56,36 @@ export const MICRO: Micro[] = [
   M({ id: 'windowsill', name: 'Wipe one windowsill', rooms: ['living', 'bedroom', 'kitchen'], category: 'Windows', impact: 4, effort: 1, topics: ['windows', 'dust'], steps: ['Clear the sill', 'Wipe it', 'Put things back'] }),
 ];
 
+
+// Life-layer micro tasks. Each takes about five minutes or less and needs no equipment.
+const lm = (id: string, name: string, domain: LifeDomain, focus: LifeFocus[], impact: number, steps: string[], category = DOMAIN_SHORT[domain]): Micro =>
+  M({ id, name, rooms: [], category, impact, effort: 1, steps, life: { domain, focus } });
+
+export const LIFE_MICRO: Micro[] = [
+  lm('l-breathe', 'Take 5 slow breaths', 'breathing', ['selfcare', 'focus', 'discipline'], 6, ['Relax your shoulders', 'Breathe in slowly through your nose', 'Breathe out a little more slowly. Repeat 5 times']),
+  lm('l-water', 'Drink a glass of water', 'care', ['selfcare', 'healthy', 'discipline'], 6, ['Fill a glass', 'Drink it slowly']),
+  lm('l-stretch', 'Stretch for 5 minutes', 'fitness', ['active', 'healthy', 'selfcare'], 6, ['Reach up tall and roll your shoulders', 'Gently stretch your back, legs and arms, about 20 seconds each', 'Stop if anything hurts']),
+  lm('l-walk', 'Walk for 5 minutes', 'fitness', ['active', 'healthy', 'discipline'], 7, ['Put your shoes on', 'Walk at an easy pace around the block or your home', 'Stop if you feel unwell']),
+  lm('l-squats', 'Do 8 chair squats', 'fitness', ['active', 'discipline'], 5, ['Stand in front of a sturdy chair', 'Sit back until you lightly touch it, then stand', 'Repeat 8 times at your own pace. Stop if anything hurts']),
+  lm('l-top3', "Write today's top 3 priorities", 'mind', ['focus', 'discipline', 'organize', 'consistent'], 7, ['Grab a notebook or your notes app', 'Write the three things that matter most', 'Circle the first one']),
+  lm('l-good', 'Write down one thing that went well today', 'mind', ['selfcare', 'consistent', 'evening'], 4, ['Think of one good thing, however small', 'Write it in a sentence']),
+  lm('l-read', 'Read 5 pages', 'mind', ['focus', 'study', 'phone', 'evening'], 5, ['Pick up your book', 'Put your phone away', 'Read 5 pages']),
+  lm('l-calendar', 'Check your calendar', 'admin', ['organize', 'consistent', 'discipline'], 5, ['Open your calendar', 'Look at today and tomorrow', 'Note anything to prepare']),
+  lm('l-reply', 'Answer one message you have been avoiding', 'admin', ['organize', 'discipline'], 6, ['Open the message', 'Write a short reply', 'Send it']),
+  lm('l-notify', 'Turn off 3 notifications', 'digital', ['phone', 'focus', 'organize'], 5, ['Open your notification settings', 'Find 3 apps that ping you for no good reason', 'Switch them off']),
+  lm('l-nophone', 'Leave your phone in another room for 5 minutes', 'digital', ['phone', 'focus', 'discipline'], 6, ['Put your phone in another room', 'Do something screen-free', 'Come back after 5 minutes']),
+  lm('l-study', 'Study for 5 minutes', 'learning', ['study', 'consistent'], 6, ['Pick one small topic', 'Set a 5-minute timer', 'Study only that until it rings']),
+  lm('l-clothes', "Lay out tomorrow's clothes", 'sleep', ['evening', 'organize', 'morning'], 5, ['Choose an outfit', 'Put it where you will see it in the morning']),
+  lm('l-outside', 'Step outside for 5 minutes', 'outdoor', ['healthy', 'selfcare', 'active'], 6, ['Step outside', 'Look around and take a few slow breaths', 'Come back in after 5 minutes']),
+];
+
 const toTask = (m: Micro, room: Room | null, c: Ctx): Task => ({
   id: `five:${m.id}:${room?.id ?? 'home'}`,
   templateId: `five:${m.id}`,
   name: m.name,
-  roomId: room?.id ?? 'home',
+  roomId: room?.id ?? (m.life ? `life-${m.life.domain}` : 'home'),
   roomKind: room?.kind ?? 'home',
-  roomName: room?.name ?? 'Whole home',
+  roomName: room?.name ?? (m.life ? DOMAIN_SHORT[m.life.domain] : 'Whole home'),
   category: m.category,
   minutes: 5,
   difficulty: 1,
@@ -78,6 +104,7 @@ const toTask = (m: Micro, room: Room | null, c: Ctx): Task => ({
   floor: room?.floor ?? 0,
   startDate: null,
   needs: [],
+  domain: m.life?.domain ?? 'home',
   topics: m.topics ?? [],
   notes: c.microSteps ? 'Just the first step is enough.' : undefined,
 });
@@ -85,6 +112,10 @@ const toTask = (m: Micro, room: Room | null, c: Ctx): Task => ({
 export const microCandidates = (data: AppData): { task: Task; micro: Micro }[] => {
   const c = deriveContext(data.home, data.preferences);
   const out: { task: Task; micro: Micro }[] = [];
+  for (const m of LIFE_MICRO) {
+    if (m.life && m.life.focus.some((f) => c.focus.has(f))) out.push({ task: toTask(m, null, c), micro: m });
+  }
+  if (!c.focus.has('home')) return out;
   for (const m of MICRO) {
     if (m.when && !m.when(c)) continue;
     const match = (k: RoomKind): Room[] => c.rooms.filter((r) => r.kind === k || (k === 'bedroom' && r.sleeps) || (k === 'living' && r.sleeps && r.kind === 'bedroom'));
@@ -107,6 +138,7 @@ export const pickJustFive = (data: AppData, exclude: string[] = []): Task | null
     let s = micro.impact * 10;
     const hits = (micro.topics ?? []).filter((t) => c.problems.has(t)).length;
     s += hits * 12;
+    if (micro.life) s += micro.life.focus.filter((f) => c.focus.has(f)).length * 10 - 8;
     if (c.mess >= 3 && ['trash', 'dishes', 'clutter'].some((k) => micro.category.toLowerCase().startsWith(k.slice(0, 4)))) s += 10;
     if (c.energyLow && micro.effort === 2) s -= 12;
     const idx = recent.indexOf(task.id);

@@ -1,4 +1,5 @@
 import { addDays, diffDays, weekday } from './dates';
+import { DOMAIN_SHORT } from './options';
 import type {
   Cadence, CustomTask, Frequency, ISODate, Priority, Room, Task, TaskState,
 } from './types';
@@ -142,7 +143,7 @@ export const applyOverride = (task: Task, state: TaskState | undefined, active: 
   const t = { ...task };
   if (o.frequency && o.frequency !== task.frequency) {
     t.frequency = o.frequency;
-    t.cadence = cadenceFor(o.frequency, active, task.habit);
+    t.cadence = cadenceFor(o.frequency, task.domain && task.domain !== 'home' ? ALL : active, task.habit);
   }
   if (o.smaller) {
     t.minutes = Math.max(2, o.minutes ?? Math.ceil(task.minutes / 2));
@@ -156,19 +157,21 @@ const SCORE: Record<Priority, number> = { URGENT: 92, HIGH: 72, MEDIUM: 52, LOW:
 const IMPACT: Record<Priority, number> = { URGENT: 9, HIGH: 7, MEDIUM: 5, LOW: 3 };
 
 export const customToTask = (ct: CustomTask, rooms: Room[], active: number[]): Task => {
-  const room = rooms.find((r) => r.id === ct.roomId);
+  const domain = ct.domain ?? 'home';
+  const room = domain === 'home' ? rooms.find((r) => r.id === ct.roomId) : undefined;
+  const label = domain === 'home' ? (room?.name ?? 'Other') : DOMAIN_SHORT[domain];
   return {
     id: ct.id,
     templateId: null,
     name: ct.name,
-    roomId: room?.id ?? 'other',
-    roomKind: room?.kind ?? 'other',
-    roomName: room?.name ?? 'Other',
+    roomId: room?.id ?? (domain === 'home' ? 'other' : `life-${domain}`),
+    roomKind: room?.kind ?? (domain === 'home' ? 'other' : 'home'),
+    roomName: label,
     category: 'Custom',
     minutes: Math.max(1, ct.minutes),
     difficulty: 1,
     frequency: ct.frequency,
-    cadence: cadenceFor(ct.frequency, active, false),
+    cadence: cadenceFor(ct.frequency, domain === 'home' ? active : ALL, false),
     priority: ct.priority,
     score: SCORE[ct.priority],
     impact: IMPACT[ct.priority],
@@ -182,6 +185,7 @@ export const customToTask = (ct: CustomTask, rooms: Room[], active: number[]): T
     floor: room?.floor ?? 0,
     startDate: ct.startDate,
     needs: [],
+    domain,
     custom: true,
     notes: ct.notes,
     topics: [],

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { WEEKDAY_SHORT, formatMinutes, weekday } from '../../domain/dates';
 import { computeProgress } from '../../domain/progress';
 import { useApp } from '../../state/store';
-import { I, ROOM_ICON } from '../../ui/icons';
+import { DOMAIN_ICON, I, ROOM_ICON } from '../../ui/icons';
 import { BarChart, Empty, PageHead, RingStat } from '../../ui/primitives';
 import { InsightCard, useInsights } from '../today/Insights';
 
@@ -11,6 +11,7 @@ export const Progress = () => {
   const p = useMemo(() => computeProgress(view), [view]);
   const insights = useInsights();
   const maxRoom = Math.max(1, ...p.rooms.map((r) => r.tasks));
+  const maxArea = Math.max(1, ...p.areas.map((a) => a.tasks));
   const empty = p.tasksCompleted === 0;
   const msg = p.streak >= 3 ? `${p.streak} days in a row. Rest days don't break it.` : p.streak > 0 ? 'You have momentum. Keep it gentle.' : 'Every task you finish starts the count.';
   return (
@@ -55,6 +56,21 @@ export const Progress = () => {
             );
           })}
         </section>
+        {p.areas.length > 0 && (
+          <section className="card stack" aria-labelledby="areas">
+            <h3 id="areas">Life areas</h3>
+            {p.areas.map((a) => {
+              const Ic = DOMAIN_ICON[a.domain];
+              return (
+                <div className="hbar" key={a.domain}>
+                  <span className="row" style={{ gap: 6 }}><Ic size={16} aria-hidden />{a.name}</span>
+                  <div className="track"><div className="fill" style={{ width: `${(a.tasks / maxArea) * 100}%` }} /></div>
+                  <span className="small strong">{a.tasks}</span>
+                </div>
+              );
+            })}
+          </section>
+        )}
       </div>
 
       <section className="stack" aria-labelledby="learn">

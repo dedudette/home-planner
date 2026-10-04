@@ -1,4 +1,5 @@
 import type {
+  Domain, EquipmentNeed, FitnessLevel, LifeFocus, LifeLevel, TimeOfDay,
   Blocker, Cleanliness, CleaningStyle, Energy, GarageSize, Goal, HomeType, PetFeature, PetType,
   ProblemArea, RoomCounts, SizeBand, SizeLevel, SupplyCategory,
 } from './types';
@@ -224,3 +225,50 @@ export const GARAGE_SIZES: Option<GarageSize>[] = [
   { value: '2-car', label: '2-car' },
   { value: 'large', label: 'Large' },
 ];
+
+// ───────── Life layer ─────────
+
+export const FOCUS_OPTIONS: (Option<LifeFocus> & { hint: string })[] = [
+  { value: 'home', label: 'Keep my home clean', hint: 'Your room-by-room cleaning plan' },
+  { value: 'active', label: 'Become more physically active', hint: 'Walks, stretching and bodyweight moves' },
+  { value: 'discipline', label: 'Build discipline', hint: 'Small, doable actions that add up' },
+  { value: 'morning', label: 'Improve my morning routine', hint: 'A gentle start to the day' },
+  { value: 'evening', label: 'Improve my evening routine', hint: 'Wind down and prepare for tomorrow' },
+  { value: 'focus', label: 'Focus better', hint: 'Priorities and focused work blocks' },
+  { value: 'phone', label: 'Spend less time on my phone', hint: 'Breaks, notifications and phone-free time' },
+  { value: 'selfcare', label: 'Take better care of myself', hint: 'Water, meals, hygiene and calm' },
+  { value: 'study', label: 'Study more consistently', hint: 'Short regular study and practice' },
+  { value: 'organize', label: 'Organize my life', hint: 'Calendar, admin, money and documents' },
+  { value: 'healthy', label: 'Build healthier routines', hint: 'Movement, meals, daylight and sleep' },
+  { value: 'consistent', label: 'Become more consistent', hint: 'Tiny habits that stick' },
+];
+
+export const FITNESS_LEVELS: (Option<FitnessLevel> & { hint: string })[] = [
+  { value: 'beginner', label: 'Beginner', hint: 'New to exercise, or coming back after a break' },
+  { value: 'intermediate', label: 'Intermediate', hint: 'Comfortable with regular movement' },
+  { value: 'advanced', label: 'Advanced', hint: 'Exercise regularly and want a challenge' },
+];
+
+export const EQUIPMENT_OPTIONS: (Option<EquipmentNeed> & { hint: string })[] = [
+  { value: 'none', label: 'No equipment', hint: 'Bodyweight only (a chair, wall or sofa is fine)' },
+  { value: 'basic', label: 'A little equipment', hint: 'Mat, backpack, water bottles or a skipping rope' },
+];
+
+export const LIFE_LEVELS: Record<LifeLevel, { label: string; hint: string }> = {
+  1: { label: 'Gentle start', hint: 'Tiny steps and short sessions' },
+  2: { label: 'Building', hint: 'Slightly longer, a little more challenge' },
+  3: { label: 'Strong habits', hint: 'Fuller routines for people who are consistent' },
+};
+
+export const DOMAIN_LABEL: Record<Domain, string> = {
+  home: 'Home & cleaning', fitness: 'Fitness & movement', breathing: 'Breathing & reset', care: 'Personal care', mind: 'Mind & focus',
+  digital: 'Digital discipline', admin: 'Life admin', learning: 'Learning', outdoor: 'Outdoors & lifestyle', sleep: 'Sleep routine',
+};
+
+export const DOMAIN_SHORT: Record<Domain, string> = {
+  home: 'Home', fitness: 'Fitness', breathing: 'Breathing', care: 'Personal care', mind: 'Mind & focus', digital: 'Digital', admin: 'Life admin',
+  learning: 'Learning', outdoor: 'Outdoors', sleep: 'Sleep',
+};
+
+export const TIME_LABEL: Record<TimeOfDay, string> = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', anytime: 'Any time' };
+export const TIME_ORDER: TimeOfDay[] = ['morning', 'afternoon', 'evening', 'anytime'];

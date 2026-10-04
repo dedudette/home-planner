@@ -1,8 +1,10 @@
 import { PHASE_ORDER } from './catalog';
 import { addDays, endOfMonth, startOfMonth } from './dates';
 import type { Plan } from './engine';
+import { isLife } from './scoring';
+import { TIME_ORDER } from './options';
 import { applyOverride, customToTask, dueInfo, projectDates, type DueInfo } from './schedule';
-import type { AppData, ISODate, RoomKind, SessionEntry, Task, TaskState } from './types';
+import type { AppData, Domain, ISODate, RoomKind, SessionEntry, Task, TaskState } from './types';
 
 /**
  * A PlanView is the plan *as the user currently experiences it*:
@@ -61,10 +63,13 @@ export interface TodayPlan {
   isActiveDay: boolean;
   budget: number;
   focus: DueItem[];
+  /** Life-layer habits due today (separate time budget from home cleaning). */
+  life: DueItem[];
   extra: DueItem[];
   catchUp: DueItem[];
   done: SessionEntry[];
   plannedMinutes: number;
+  lifeMinutes: number;
   doneMinutes: number;
   energy: 'low' | 'ok' | 'high';
 }
@@ -78,8 +83,13 @@ export const todayPlan = (v: PlanView): TodayPlan => {
 
   const items = dueItems(v);
   const done = entriesOn(data, today).filter((e) => e.outcome === 'completed');
-  const catchUp = items.filter((i) => i.overdue).sort((a, b) => b.task.score - a.task.score).slice(0, 2);
-  const eligible = items.filter((i) => !i.overdue).sort(compareForToday);
+  const catchUp = items.filter((i) => i.overdue && !isLife(i.task)).sort((a, b) => b.task.score - a.task.score).slice(0, 2);
+  const eligible = items.filter((i) => !i.overdue && !isLife(i.task)).sort(compareForToday);
+  // Life habits have their own (small) budget, so they never crowd out or get crowded out by cleaning.
+  const lifeAll = items.filter((i) => isLife(i.task) && !i.task.challenge);
+  const todRank = (t: Task) => TIME_ORDER.indexOf(t.timeOfDay ?? 'anytime');
+  const lifeEasy = (t: Task) => energy !== 'low' || (t.intensity !== 'vigorous' && t.difficulty <= 2);
+  const life = lifeAll.filter((i) => lifeEasy(i.task)).sort((a, b) => todRank(a.task) - todRank(b.task) || b.task.score - a.task.score);
 
   const easy = (t: Task) => t.difficulty <= 2 && t.minutes <= Math.max(10, plan.chunkLimit);
   const focus: DueItem[] = eligible.filter((i) => i.task.habit);
@@ -94,9 +104,11 @@ export const todayPlan = (v: PlanView): TodayPlan => {
       used += it.task.minutes;
     } else extra.push(it);
   }
+  extra.push(...lifeAll.filter((i) => !lifeEasy(i.task)));
   return {
-    isActiveDay, budget, focus, extra, catchUp, done,
+    isActiveDay, budget, focus, life, extra, catchUp, done,
     plannedMinutes: used,
+    lifeMinutes: life.reduce((s, i) => s + i.task.minutes, 0),
     doneMinutes: done.reduce((s, e) => s + e.actualMinutes, 0),
     energy,
   };
@@ -121,7 +133,7 @@ export const tasksOnDate = (v: PlanView, date: ISODate): Task[] => {
 };
 
 export const dayPlan = (v: PlanView, date: ISODate): DayPlan => {
-  const tasks = date === v.today ? todayPlan(v).focus.map((f) => f.task) : tasksOnDate(v, date);
+  const tasks = date === v.today ? (() => { const t = todayPlan(v); return [...t.focus, ...t.life].map((f) => f.task); })() : tasksOnDate(v, date);
   return { date, tasks, minutes: tasks.reduce((s, t) => s + t.minutes, 0), done: entriesOn(v.data, date).filter((e) => e.outcome === 'completed') };
 };
 
@@ -140,20 +152,20 @@ export const overdueItems = (v: PlanView): DueItem[] => dueItems(v).filter((i) =
 
 // ───────────────────────── Sections & rooms ─────────────────────────
 
-export const sectionId = ['today', 'quick', 'reset', 'daily', 'weekly', 'biweekly', 'monthly', 'seasonal', 'deep', 'backlog'] as const;
+export const sectionId = ['today', 'quick', 'routine', 'reset', 'daily', 'weekly', 'biweekly', 'monthly', 'seasonal', 'challenge', 'deep', 'backlog'] as const;
 export type SectionId = (typeof sectionId)[number];
 
 export const SECTION_LABEL: Record<SectionId, string> = {
-  today: 'Today', quick: 'Quick wins', reset: 'Reset & one-time', daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 weeks',
+  today: 'Today', quick: 'Quick wins', routine: 'Routines', challenge: 'Challenges', reset: 'Reset & one-time', daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 weeks',
   monthly: 'Monthly', seasonal: 'Seasonal', deep: 'Deep clean', backlog: 'Backlog',
 };
 
-const live = (v: PlanView, t: Task) => !v.states[t.id]?.done && !t.backlog;
+const live = (v: PlanView, t: Task) => !v.states[t.id]?.done && !t.backlog && !t.challenge;
 
 export const quickWins = (v: PlanView, limit = 8): Task[] => {
   const doneToday = new Set(entriesOn(v.data, v.today).filter((e) => e.outcome === 'completed').map((e) => e.taskId));
   const cands = v.tasks
-    .filter((t) => t.tier !== 'deep' && live(v, t) && !doneToday.has(t.id) && t.minutes <= 10 && (t.quickWin || t.minutes <= 5) && t.frequency !== 'seasonal')
+    .filter((t) => t.tier !== 'deep' && live(v, t) && !doneToday.has(t.id) && !t.challenge && t.minutes <= 10 && (t.quickWin || t.minutes <= 5) && t.frequency !== 'seasonal')
     .sort((a, b) => b.impact / b.minutes - a.impact / a.minutes || b.score - a.score);
   const perRoom = new Map<string, number>();
   const out: Task[] = [];
@@ -167,13 +179,20 @@ export const quickWins = (v: PlanView, limit = 8): Task[] => {
   return out;
 };
 
-export const sectionTasks = (v: PlanView, id: SectionId): Task[] => {
+export const sectionTasks = (v: PlanView, id: SectionId, domain: Domain | 'all' = 'all'): Task[] => {
+  const inDomain = (t: Task) => domain === 'all' || (t.domain ?? 'home') === domain;
+  return sectionTasksRaw(v, id).filter(inDomain);
+};
+
+const sectionTasksRaw = (v: PlanView, id: SectionId): Task[] => {
   const byScore = (a: Task, b: Task) => b.score - a.score;
   const m = (t: Task) => t.tier === 'maintenance' && live(v, t);
   switch (id) {
-    case 'today': return todayPlan(v).focus.map((f) => f.task);
+    case 'today': { const t = todayPlan(v); return [...t.focus, ...t.life].map((f) => f.task); }
+    case 'routine': return v.tasks.filter((t) => t.routine && live(v, t)).sort((a, b) => TIME_ORDER.indexOf(a.timeOfDay ?? 'anytime') - TIME_ORDER.indexOf(b.timeOfDay ?? 'anytime') || b.score - a.score);
+    case 'challenge': return v.tasks.filter((t) => t.challenge).sort((a, b) => b.score - a.score);
     case 'quick': return quickWins(v, 12);
-    case 'reset': return v.tasks.filter((t) => t.frequency === 'once' && !v.states[t.id]?.done && !t.custom).sort((a, b) => phaseRank(a) - phaseRank(b) || b.score - a.score);
+    case 'reset': return v.tasks.filter((t) => t.frequency === 'once' && !v.states[t.id]?.done && !t.custom && !isLife(t)).sort((a, b) => phaseRank(a) - phaseRank(b) || b.score - a.score);
     case 'daily': return v.tasks.filter((t) => m(t) && t.frequency === 'daily').sort(byScore);
     case 'weekly': return v.tasks.filter((t) => m(t) && (t.frequency === 'weekly' || t.frequency === 'twice-weekly')).sort(byScore);
     case 'biweekly': return v.tasks.filter((t) => m(t) && t.frequency === 'biweekly').sort(byScore);
@@ -195,7 +214,7 @@ export const ROOM_MODE_ORDER: RoomKind[] = ['kitchen', 'bathroom', 'bedroom', 'l
 
 /** Room modes the home actually has. "Other" always exists (dining, storage, whole-home tasks). */
 export const availableRoomModes = (v: PlanView): RoomKind[] => {
-  const kinds = new Set<RoomKind>(v.tasks.map((t) => (OTHER_KINDS.includes(t.roomKind) ? 'other' : t.roomKind)));
+  const kinds = new Set<RoomKind>(v.tasks.filter((t) => !isLife(t)).map((t) => (OTHER_KINDS.includes(t.roomKind) ? 'other' : t.roomKind)));
   kinds.add('other');
   // studio/dorm main rooms double as bedroom/living
   return ROOM_MODE_ORDER.filter((k) => kinds.has(k) || (k === 'bedroom' && v.plan.rooms.some((r) => r.sleeps)) || (k === 'living' && v.plan.rooms.some((r) => r.sleeps)));
@@ -203,6 +222,7 @@ export const availableRoomModes = (v: PlanView): RoomKind[] => {
 
 export const roomTasks = (v: PlanView, kind: RoomKind): Task[] =>
   v.tasks
+    .filter((t) => !isLife(t))
     .filter((t) => {
       const k = OTHER_KINDS.includes(t.roomKind) ? 'other' : t.roomKind;
       const sleepsMatch = (kind === 'bedroom' || kind === 'living') && v.plan.rooms.some((r) => r.id === t.roomId && r.sleeps);

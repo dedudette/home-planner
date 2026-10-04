@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
 import { Button } from '../../ui/primitives';
-import { STEPS } from './steps';
+import { stepsFor } from './steps';
 
 const KEY = 'cleanflow:onb-step';
 const BUILD_LINES = ['Mapping your rooms…', 'Matching tasks to your people and pets…', 'Fitting it to your time and energy…', 'Choosing a gentle starting point…'];
 
 export const Onboarding = ({ onDone, onExit }: { onDone: () => void; onExit: () => void }) => {
   const { data, dispatch, stamp } = useApp();
+  const STEPS = stepsFor(data.preferences.focus);
   const [step, setStep] = useState<number>(() => {
     try { const n = Number(window.localStorage.getItem(KEY)); return Number.isFinite(n) && n >= 0 && n <= STEPS.length ? n : 0; } catch { return 0; }
   });

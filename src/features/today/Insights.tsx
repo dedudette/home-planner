@@ -40,6 +40,10 @@ export const InsightCard = ({ insight }: { insight: Insight }) => {
       case 'remove':
         if (task) { dispatch({ type: 'TASK_PATCH', id: task.id, patch: { hidden: true, skipStreak: 0 } }); toast('Removed. You can restore it in Settings.'); }
         break;
+      case 'level-up':
+      case 'level-down':
+        if (a.level) { dispatch({ type: 'SET_PREFS', patch: { lifeLevel: a.level }, stamp: st }); toast(a.id === 'level-up' ? 'Done. Your routines are a little fuller now.' : 'Done. Back to gentler, shorter versions.'); }
+        break;
       default: break;
     }
     dispatch({ type: 'DISMISS_INSIGHT', id: insight.id, stamp: st });

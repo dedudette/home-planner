@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { addDays, formatMinutes, formatLong } from '../../domain/dates';
 import { needsFreshStart } from '../../domain/learning';
 import { dayPlan, todayPlan } from '../../domain/view';
+import { TIME_LABEL, TIME_ORDER } from '../../domain/options';
+import type { TimeOfDay } from '../../domain/types';
+import { TIME_ICON } from '../../ui/icons';
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
 import { Button, Chip, Empty, IconButton, PageHead, ProgressBar } from '../../ui/primitives';
@@ -39,11 +42,30 @@ export const Today = () => {
   const tomorrow = dayPlan(view, addDays(today, 1));
   const name = data.user.name.trim();
 
-  const focusLeft = t.focus.length;
+  const homeOn = data.preferences.focus.includes('home') || data.preferences.focus.length === 0;
+  const lifeOn = data.preferences.focus.some((f) => f !== 'home');
+  const focusLeft = t.focus.length + t.life.length;
   const doneN = t.done.length;
   const totalN = focusLeft + doneN;
   const nonHabitFocus = t.focus.filter((f) => !f.task.habit);
-  const restDay = !t.isActiveDay;
+  const restDay = homeOn && !t.isActiveDay;
+  const plannedMinutes = t.plannedMinutes + t.lifeMinutes;
+  const lifeGroups = TIME_ORDER.map((tod) => [tod, t.life.filter((i) => (i.task.timeOfDay ?? 'anytime') === tod)] as const).filter(([, l]) => l.length);
+
+  const lifeSection = t.life.length > 0 && (
+    <section aria-labelledby="life-h" className="stack">
+      <div className="section-title"><h2 id="life-h">Habits &amp; routine</h2><span className="small muted">{t.life.length} · about {formatMinutes(t.lifeMinutes)}</span></div>
+      {lifeGroups.map(([tod, items]) => {
+        const Ic = TIME_ICON[tod as TimeOfDay];
+        return (
+          <div className="stack" key={tod}>
+            <div className="group-title"><Ic size={16} aria-hidden /> {TIME_LABEL[tod as TimeOfDay]}</div>
+            <div className="tasklist">{items.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
+          </div>
+        );
+      })}
+    </section>
+  );
   const showEnergy = data.preferences.energy === 'varies' || t.energy !== 'ok';
 
   return (
@@ -61,13 +83,13 @@ export const Today = () => {
         <h2 style={{ marginTop: 4 }}>
           {totalN === 0 ? (restDay ? 'Nothing planned. Enjoy it.' : 'Nothing due today.')
             : focusLeft === 0 ? 'All done for today. Nice work.'
-            : restDay ? `Just ${focusLeft} tiny daily habit${focusLeft === 1 ? '' : 's'}`
-            : `${focusLeft} thing${focusLeft === 1 ? '' : 's'} left · about ${formatMinutes(t.plannedMinutes)}`}
+            : restDay && t.life.length === 0 ? `Just ${focusLeft} tiny daily habit${focusLeft === 1 ? '' : 's'}`
+            : `${focusLeft} thing${focusLeft === 1 ? '' : 's'} left · about ${formatMinutes(plannedMinutes)}`}
         </h2>
         {totalN > 0 && (
           <div style={{ marginTop: 14 }}>
             <ProgressBar value={totalN ? doneN / totalN : 0} label="Today's progress" />
-            <p className="small" style={{ marginTop: 8, opacity: 0.92 }}>{doneN} done{t.doneMinutes ? ` · ${formatMinutes(t.doneMinutes)} cleaned` : ''}{!restDay && t.budget ? ` · session goal ${plan.sessionMinutes} min` : ''}</p>
+            <p className="small" style={{ marginTop: 8, opacity: 0.92 }}>{doneN} done{t.doneMinutes ? ` · ${formatMinutes(t.doneMinutes)} cleaned` : ''}{homeOn && !restDay && t.budget ? ` · session goal ${plan.sessionMinutes} min` : ''}</p>
           </div>
         )}
         {restDay && <p className="small" style={{ marginTop: 10, opacity: 0.92 }}>It's not one of your cleaning days. If you're feeling it anyway, try one of the quick options below.</p>}
@@ -88,6 +110,13 @@ export const Today = () => {
         </button>
       </section>
 
+      {lifeOn && (
+        <button className="card soft row between" style={{ textAlign: 'left', width: '100%' }} onClick={() => openSheet({ kind: 'roughDay' })}>
+          <span className="row" style={{ gap: 12 }}><I.heart size={22} aria-hidden style={{ color: 'var(--primary)' }} /><span><b>Rough day?</b><br /><span className="small muted">A few tiny, gentle things to get back on track. No catching up.</span></span></span>
+          <I.right size={20} aria-hidden />
+        </button>
+      )}
+
       {showEnergy && (
         <div className="card soft row between wrap" role="group" aria-label="Energy today">
           <div><p className="strong">How's your energy today?</p><p className="small muted">We'll adjust today's list.</p></div>
@@ -101,6 +130,9 @@ export const Today = () => {
 
       {insights.map((i) => <InsightCard key={i.id} insight={i} />)}
 
+      {lifeSection}
+
+      {(homeOn || t.focus.length > 0) && (
       <section aria-labelledby="today-h" className="stack">
         <div className="section-title"><h2 id="today-h">{restDay ? 'Daily basics' : 'Your list for today'}</h2>{nonHabitFocus.length > 0 && <span className="small muted">{nonHabitFocus.length} task{nonHabitFocus.length === 1 ? '' : 's'}</span>}</div>
         {t.focus.length === 0 ? (
@@ -111,6 +143,7 @@ export const Today = () => {
           <div className="tasklist">{t.focus.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
         )}
       </section>
+      )}
 
       {t.catchUp.length > 0 && (
         <section aria-labelledby="catch-h" className="stack">

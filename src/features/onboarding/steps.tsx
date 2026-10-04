@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { effectiveCounts, homeArea } from '../../domain/context';
 import {
+  EQUIPMENT_OPTIONS, FITNESS_LEVELS, FOCUS_OPTIONS, LIFE_LEVELS,
   BLOCKERS, CLEANLINESS, ENERGY, GARAGE_SIZES, GOALS, HOME_TYPES, PET_CHOICES, PET_FEATURES, PET_TYPES, PROBLEM_AREAS, SESSION_LENGTHS,
   SIZE_BANDS, SIZE_LEVELS, STYLES, countLabel, isRoomFieldVisible, sessionLabel, type RoomField,
 } from '../../domain/options';
-import type { Home, PetChoice, PetType, RoomCounts } from '../../domain/types';
+import type { Home, LifeFocus, LifeLevel, PetChoice, PetType, RoomCounts } from '../../domain/types';
 import { useApp } from '../../state/store';
 import { I, type IconType } from '../../ui/icons';
 import { Chip, Hint } from '../../ui/primitives';
@@ -38,6 +39,52 @@ const NumPills = ({ max, value, onChange, label, min = 0 }: { max: number; value
   <Pills label={label} value={Math.min(value, max)} onChange={onChange as (v: never) => void}
     options={Array.from({ length: max - min + 1 }, (_, i) => ({ value: min + i, label: countLabel(min + i, max) }))} />
 );
+
+// ───────────── Step: What to improve (life layer) ─────────────
+const FOCUS_ICON: Record<LifeFocus, IconType> = {
+  home: I.home, active: I.dumbbell, discipline: I.flame, morning: I.sunrise, evening: I.sunset, focus: I.brain, phone: I.phone,
+  selfcare: I.heart, study: I.cap, organize: I.clipboard, healthy: I.leaf, consistent: I.repeat,
+};
+
+export const StepFocus = () => {
+  const { data, dispatch, stamp } = useApp();
+  const p = data.preferences;
+  const set = (patch: Partial<typeof p>) => dispatch({ type: 'SET_PREFS', patch, stamp: stamp() });
+  const life = p.focus.some((f) => f !== 'home');
+  return (
+    <div className="stack-lg">
+      <div className="choice-grid single" role="group" aria-label="What to improve">
+        {FOCUS_OPTIONS.map((o) => (
+          <Choice key={o.value} multi on={p.focus.includes(o.value)} icon={FOCUS_ICON[o.value]} label={o.label} hint={o.hint}
+            onClick={() => set({ focus: toggle(p.focus, o.value) })} />
+        ))}
+      </div>
+      {p.focus.length === 0 && <Hint>Pick at least one. You can change this any time in My Home.</Hint>}
+      {!p.focus.includes('home') && p.focus.length > 0 && <Hint icon={I.home}>No cleaning plan this time. We'll skip the questions about your home. You can add it later.</Hint>}
+      {p.focus.includes('active') && (
+        <>
+          <Group label="How would you describe your fitness?" hint="This keeps exercises at a sensible level. Nothing here is medical advice.">
+            <div className="choice-grid single" role="radiogroup" aria-label="Fitness level">
+              {FITNESS_LEVELS.map((o) => <Choice key={o.value} on={p.fitnessLevel === o.value} label={o.label} hint={o.hint} onClick={() => set({ fitnessLevel: o.value })} />)}
+            </div>
+          </Group>
+          <Group label="Do you have exercise equipment?">
+            <div className="choice-grid single" role="radiogroup" aria-label="Equipment">
+              {EQUIPMENT_OPTIONS.map((o) => <Choice key={o.value} on={p.equipment === o.value} label={o.label} hint={o.hint} onClick={() => set({ equipment: o.value })} />)}
+            </div>
+          </Group>
+        </>
+      )}
+      {life && (
+        <Group label="Where would you like to start?" hint="Tasks get a little bigger over time, only when you're ready.">
+          <div className="choice-grid single" role="radiogroup" aria-label="Starting pace">
+            {([1, 2] as LifeLevel[]).map((l) => <Choice key={l} on={p.lifeLevel === l} label={LIFE_LEVELS[l].label} hint={LIFE_LEVELS[l].hint} onClick={() => set({ lifeLevel: l })} />)}
+          </div>
+        </Group>
+      )}
+    </div>
+  );
+};
 
 // ───────────── Step 1: Home type ─────────────
 const TYPE_ICON: Record<string, IconType> = {
@@ -285,20 +332,22 @@ export const StepStyle = () => {
   const set = (patch: Partial<typeof p>) => dispatch({ type: 'SET_PREFS', patch, stamp: stamp() });
   return (
     <div className="stack-lg">
-      <Group label="How do you prefer to clean?">
-        <div className="choice-grid single" role="radiogroup" aria-label="Cleaning style">
-          {STYLES.map((o) => (
-            <Choice key={o.value} on={p.style === o.value} label={o.label} hint={o.hint}
-              onClick={() => set({ style: o.value, ...(p.daysTouched ? {} : { daysPerWeek: o.days }) })} />
-          ))}
-        </div>
-      </Group>
-      <Group label="How long can you realistically clean at once?" hint="Be honest. Shorter sessions you actually do beat longer ones you skip.">
+      {p.focus.includes('home') && (
+        <Group label="How do you prefer to clean?">
+          <div className="choice-grid single" role="radiogroup" aria-label="Cleaning style">
+            {STYLES.map((o) => (
+              <Choice key={o.value} on={p.style === o.value} label={o.label} hint={o.hint}
+                onClick={() => set({ style: o.value, ...(p.daysTouched ? {} : { daysPerWeek: o.days }) })} />
+            ))}
+          </div>
+        </Group>
+      )}
+      <Group label={p.focus.includes('home') ? 'How long can you realistically clean at once?' : 'How much time can you give this each day?'} hint="Be honest. Shorter sessions you actually do beat longer ones you skip.">
         <div className="chips" role="radiogroup" aria-label="Session length">
           {SESSION_LENGTHS.map((m) => <Chip key={m} role="radio" on={p.sessionMinutes === m} onClick={() => set({ sessionMinutes: m })}>{sessionLabel(m)}</Chip>)}
         </div>
       </Group>
-      <Group label="How many days per week do you want to clean?">
+      <Group label={p.focus.includes('home') ? 'How many days per week do you want to clean?' : 'How many days a week?'}>
         <div className="chips" role="radiogroup" aria-label="Days per week">
           {[1, 2, 3, 4, 5, 6, 7].map((n) => <Chip key={n} role="radio" on={p.daysPerWeek === n} onClick={() => set({ daysPerWeek: n, daysTouched: true })}>{n}</Chip>)}
         </div>
@@ -361,13 +410,26 @@ export interface StepDef {
   skippable?: boolean;
 }
 
-export const STEPS: StepDef[] = [
+const FOCUS_STEP: StepDef = { key: 'focus', title: 'What do you want to improve?', sub: 'Choose as many as you like. You only get tasks for what you pick.', Component: StepFocus, required: (d) => d.preferences.focus.length > 0 };
+const HOME_STEPS: StepDef[] = [
   { key: 'type', title: 'What type of home do you live in?', sub: "This decides which questions come next, so we never ask about a garage in a dorm room.", Component: StepHomeType, required: (d) => d.home.type !== null },
   { key: 'size', title: 'How large is your home?', sub: 'Pick whatever feels closest.', Component: StepSize, required: (d) => d.home.sizeBand !== null || d.home.exactSizeM2 !== null, skippable: true },
   { key: 'rooms', title: 'How many rooms does your home have?', sub: "Tell us what's really there and we'll plan around it.", Component: StepRooms, required: () => true },
   { key: 'people', title: 'Who lives in your home?', sub: 'People and pets change how fast things get messy.', Component: StepPeople, required: () => true },
   { key: 'state', title: 'How would you describe your home right now?', sub: 'No judgement. This only helps us pick the right starting point.', Component: StepState, required: (d) => d.home.cleanliness !== null, skippable: true },
-  { key: 'style', title: 'How do you prefer to clean?', sub: 'Your rhythm and time budget shape the whole plan.', Component: StepStyle, required: (d) => !!d.preferences.style && !!d.preferences.sessionMinutes && !!d.preferences.daysPerWeek, skippable: true },
-  { key: 'energy', title: 'How is your energy usually?', sub: 'And what gets in the way. We use this to make tasks easier to start.', Component: StepEnergy, required: (d) => d.preferences.energy !== null, skippable: true },
-  { key: 'goals', title: 'What do you want CleanFlow to help you achieve?', sub: 'Pick as many as you like.', Component: StepGoals, required: () => true },
 ];
+
+/** The onboarding path adapts to what the user wants to improve. Home questions are skipped when they don't want a cleaning plan. */
+export const stepsFor = (focus: LifeFocus[]): StepDef[] => {
+  const home = focus.includes('home');
+  return [
+    FOCUS_STEP,
+    ...(home ? HOME_STEPS : []),
+    {
+      key: 'style', title: home ? 'How do you prefer to clean?' : 'How much time do you have?', sub: home ? 'Your rhythm and time budget shape the whole plan.' : 'A small, realistic amount beats an ambitious one.', Component: StepStyle,
+      required: (d) => (d.preferences.focus.includes('home') ? !!d.preferences.style : true) && !!d.preferences.sessionMinutes && !!d.preferences.daysPerWeek, skippable: home,
+    },
+    { key: 'energy', title: 'How is your energy usually?', sub: 'And what gets in the way. We use this to make tasks easier to start.', Component: StepEnergy, required: (d) => d.preferences.energy !== null, skippable: true },
+    ...(home ? [{ key: 'goals', title: 'What do you want CleanFlow to help you achieve at home?', sub: 'Pick as many as you like.', Component: StepGoals, required: () => true } as StepDef] : []),
+  ];
+};

@@ -2,18 +2,18 @@ import { useMemo, type ReactNode } from 'react';
 import { effectiveCounts, homeArea } from '../../domain/context';
 import { formatMinutes } from '../../domain/dates';
 import { occurrencesPerWeek } from '../../domain/engine';
-import { BLOCKERS, CLEANLINESS, ENERGY, GOALS, HOME_TYPES, PROBLEM_AREAS, SIZE_BANDS, STYLES, sessionLabel } from '../../domain/options';
+import { BLOCKERS, CLEANLINESS, ENERGY, FITNESS_LEVELS, FOCUS_OPTIONS, GOALS, HOME_TYPES, LIFE_LEVELS, PROBLEM_AREAS, SIZE_BANDS, STYLES, sessionLabel } from '../../domain/options';
 import { useApp, type EditSection } from '../../state/store';
 import { I, ROOM_ICON, type IconType } from '../../ui/icons';
 import { Button, PageHead, Sheet } from '../../ui/primitives';
 import { navigate } from '../../ui/router';
 import {
-  StepEnergy, StepGoals, StepHomeType, StepPeople, StepRooms, StepSize, StepState, StepStyle,
+  StepEnergy, StepFocus, StepGoals, StepHomeType, StepPeople, StepRooms, StepSize, StepState, StepStyle,
 } from '../onboarding/steps';
 
 const SECTION_TITLE: Record<EditSection, string> = {
   type: 'Home type', size: 'Home size', rooms: 'Rooms', people: 'People', pets: 'Pets', state: 'Current state', style: 'Cleaning rhythm',
-  energy: 'Energy', goals: 'Goals',
+  energy: 'Energy', goals: 'Goals', focus: 'What to improve',
 };
 
 export const EditHomeSheet = ({ section }: { section: EditSection }) => {
@@ -28,6 +28,7 @@ export const EditHomeSheet = ({ section }: { section: EditSection }) => {
       case 'style': return <StepStyle />;
       case 'energy': return <StepEnergy />;
       case 'goals': return <StepGoals />;
+      case 'focus': return <StepFocus />;
     }
   })();
   return (
@@ -85,6 +86,11 @@ export const MyHome = ({ isNew }: { isNew: boolean }) => {
       {isNew && <Button size="lg" block icon={I.arrow} onClick={() => navigate('today')}>See my plan for today</Button>}
 
       <div className="profile-grid">
+        <Card icon={I.flame} title="What I'm improving" section="focus">
+          <div className="row wrap" style={{ gap: 6 }}>{p.focus.length ? p.focus.map((f) => <span key={f} className="tag green">{FOCUS_OPTIONS.find((x) => x.value === f)?.label}</span>) : <span className="muted small">Nothing picked yet</span>}</div>
+          {p.focus.some((f) => f !== 'home') && <p className="small muted">Starting pace: {LIFE_LEVELS[p.lifeLevel].label}{p.focus.includes('active') ? ` · ${FITNESS_LEVELS.find((x) => x.value === p.fitnessLevel)?.label.toLowerCase()} fitness · ${p.equipment === 'none' ? 'no equipment' : 'basic equipment'}` : ''}</p>}
+        </Card>
+        {p.focus.includes('home') && (<>
         <Card icon={I.home} title="Home type" section="type"><div className="big">{type}</div></Card>
         <Card icon={I.layers} title="Approximate size" section="size"><div className="big">{area} m²</div><p className="small muted">{h.exactSizeM2 ? 'Exact size you entered' : bandLabel === "I don't know" ? 'Estimated from your rooms' : bandLabel ?? 'Not set'}</p></Card>
         <Card icon={I.door} title="Number of rooms" section="rooms">
@@ -101,11 +107,12 @@ export const MyHome = ({ isNew }: { isNew: boolean }) => {
         <Card icon={I.layers} title="Number of floors" section="rooms"><div className="big">{eff.floors}</div><p className="small muted">{eff.floors > 1 ? `Tasks are grouped by floor: ${plan.zones.filter((z) => z !== 'Outside & utility spaces').join(', ')}` : 'Single level'}</p></Card>
         <Card icon={I.users} title="People" section="people"><div className="big">{people}</div></Card>
         <Card icon={I.paw} title="Pets" section="pets"><div className="big" style={{ textTransform: 'capitalize' }}>{petText}</div>{h.pets.features.length > 0 && h.pets.choice !== 'none' && <p className="small muted">{h.pets.features.join(', ')}</p>}</Card>
+        </>)}
         <Card icon={I.repeat} title="Cleaning frequency" section="style"><div className="big">{p.daysPerWeek ? `${p.daysPerWeek} day${p.daysPerWeek === 1 ? '' : 's'} a week` : 'Not set'}</div><p className="small muted">{style ?? 'Style not set (the app decides)'}</p></Card>
         <Card icon={I.clock} title="Available cleaning time" section="style"><div className="big">{p.sessionMinutes ? sessionLabel(p.sessionMinutes) : 'Not set'}</div><p className="small muted">per session{p.learnedSessionCap ? ` · learned cap ${p.learnedSessionCap} min` : ''}</p></Card>
         <Card icon={I.battery} title="Energy level" section="energy"><div className="big">{energy ?? 'Not set'}</div>{p.blockers.length > 0 && <p className="small muted">{p.blockers.slice(0, 3).map((b) => BLOCKERS.find((x) => x.value === b)?.label).join(' · ')}{p.blockers.length > 3 ? ` +${p.blockers.length - 3}` : ''}</p>}</Card>
-        <Card icon={I.sparkles} title="Current cleanliness" section="state"><div className="big" style={{ fontSize: '1.2rem' }}>{clean ?? 'Not set'}</div>{h.problemAreas.length > 0 && <p className="small muted">Focus: {h.problemAreas.map((a) => PROBLEM_AREAS.find((x) => x.value === a)?.label).join(', ')}</p>}</Card>
-        <Card icon={I.sprout} title="Goals" section="goals"><div className="row wrap" style={{ gap: 6 }}>{p.goals.length ? p.goals.map((g) => <span key={g} className="tag green">{GOALS.find((x) => x.value === g)?.label}</span>) : <span className="muted small">No goals picked</span>}</div></Card>
+        {p.focus.includes('home') && <Card icon={I.sparkles} title="Current cleanliness" section="state"><div className="big" style={{ fontSize: '1.2rem' }}>{clean ?? 'Not set'}</div>{h.problemAreas.length > 0 && <p className="small muted">Focus: {h.problemAreas.map((a) => PROBLEM_AREAS.find((x) => x.value === a)?.label).join(', ')}</p>}</Card>}
+        {p.focus.includes('home') && <Card icon={I.sprout} title="Home goals" section="goals"><div className="row wrap" style={{ gap: 6 }}>{p.goals.length ? p.goals.map((g) => <span key={g} className="tag green">{GOALS.find((x) => x.value === g)?.label}</span>) : <span className="muted small">No goals picked</span>}</div></Card>}
       </div>
 
       <section className="card stack" aria-labelledby="adapt">

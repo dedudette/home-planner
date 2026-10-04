@@ -12,7 +12,17 @@ const click = (t, o) => page.getByRole('button', { name: t, ...o }).first().clic
 
 await page.goto('http://127.0.0.1:5173/');
 await page.evaluate(() => localStorage.clear()); await page.reload();
-await step('welcome→onboarding', async () => { await click('Build my plan'); await page.waitForSelector('text=What type of home'); });
+await step('welcome→onboarding', async () => { await click('Build my plan'); await page.waitForSelector('text=What do you want to improve'); });
+await step('step0 focus', async () => {
+  // home is pre-selected; add two life goals and answer the fitness follow-ups
+  await page.getByRole('checkbox', { name: /Build discipline/ }).click();
+  await page.getByRole('checkbox', { name: /Become more physically active/ }).click();
+  await page.waitForSelector('text=How would you describe your fitness');
+  await page.getByRole('radio', { name: /Beginner/ }).click();
+  await page.getByRole('radio', { name: /No equipment/ }).click();
+  await page.screenshot({ path: './e2e-shots/00-focus.png', fullPage: true });
+  await click('Continue');
+});
 await step('step1', async () => { await page.getByRole('radio', { name: 'House', exact: true }).click(); await click('Continue'); });
 await step('step2 exact size', async () => { await page.fill('#exact', '150'); await page.waitForSelector('text=Using your exact size'); await click('Continue'); });
 await step('step3 rooms', async () => {
@@ -34,6 +44,26 @@ await step('step7 energy', async () => { await page.getByRole('radio', { name: '
 await step('step8 goals', async () => { await page.getByRole('checkbox', { name: /Build a daily routine/ }).click(); await click('Review'); await page.waitForSelector('text=Ready when you are'); await page.fill('#name', 'Dee'); await click('Build my plan'); });
 await step('my home', async () => { await page.waitForSelector('text=Here\'s your home', { timeout: 8000 }); await page.screenshot({ path: `${OUT}/10-myhome.png`, fullPage: true }); });
 await step('today', async () => { await click('See my plan for today'); await page.waitForSelector('text=Your list for today'); await page.screenshot({ path: `${OUT}/11-today.png`, fullPage: true }); });
+await step('today has life habits', async () => {
+  await page.waitForSelector('text=Habits & routine');
+  await page.getByText('Make the bed').first().waitFor().catch(() => {});
+  await page.screenshot({ path: './e2e-shots/11b-today-life.png', fullPage: true });
+});
+await step('life task detail shows safety + metadata', async () => {
+  await page.locator('.task-body', { hasText: /walk/i }).first().click();
+  await page.waitForSelector('text=Intensity');
+  await page.waitForSelector('text=not medical advice');
+  await page.screenshot({ path: './e2e-shots/11c-life-detail.png' });
+  await page.getByRole('button', { name: 'Close' }).click();
+});
+await step('rough day sheet', async () => {
+  await page.getByRole('button', { name: /Rough day/ }).click();
+  await page.waitForSelector('text=Bad day? That happens.');
+  await page.getByRole('dialog').getByRole('button', { name: /^Mark .* complete$/ }).first().click();
+  await page.waitForSelector('text=1 of');
+  await page.screenshot({ path: './e2e-shots/11d-rough.png' });
+  await page.getByRole('button', { name: 'Close' }).click();
+});
 await step('complete task + undo', async () => { await page.getByRole('button', { name: /^Mark .* complete$/ }).first().click(); await page.waitForSelector('.toast'); await page.screenshot({ path: `${OUT}/12-toast.png` }); await page.getByRole('button', { name: 'Undo' }).click(); });
 await step('timer', async () => {
   await page.getByRole('button', { name: 'Start timer' }).first().click();
@@ -49,6 +79,12 @@ await step('timer', async () => {
 await step('just 5', async () => { await page.locator('.qa.five').click(); await page.waitForSelector('text=Just one small thing'); await page.screenshot({ path: `${OUT}/15-five.png` }); await click('I did it'); await page.waitForSelector('text=Nice. You made progress.'); await page.screenshot({ path: `${OUT}/16-five-done.png` }); await click('Do another 5 minutes'); await page.waitForSelector('text=Just one small thing'); await page.getByRole('button',{name:'Close',exact:true}).click(); });
 await step('timebox', async () => { await page.locator('.qa.time').click(); await page.locator('.time-btn', { hasText: '30' }).click(); await page.waitForSelector('text=Change time'); await page.screenshot({ path: `${OUT}/17-timebox.png` }); await page.getByRole('button',{name:'Close',exact:true}).click(); });
 await step('emergency', async () => { await page.locator('.qa.mess').click(); await click('Start the reset'); await page.waitForSelector('text=Home reset'); await page.screenshot({ path: `${OUT}/18-emergency.png` }); await page.getByRole('button',{name:'Close',exact:true}).click(); });
+await step('plan: domain filter + challenge', async () => {
+  await page.evaluate(() => (location.hash = '#/plan'));
+  await page.getByRole('group', { name: 'Filter by area' }).getByRole('button', { name: /Fitness/ }).click();
+  await page.getByRole('tab', { name: /CHALLENGES/ }).click();
+  await page.screenshot({ path: './e2e-shots/19-plan-life.png', fullPage: true });
+});
 for (const [n, hash] of [['plan', 'plan'], ['rooms', 'plan?tab=rooms'], ['deep', 'plan?tab=deep'], ['schedule', 'schedule'], ['progress', 'progress'], ['supplies', 'supplies'], ['settings', 'settings'], ['more', 'more']]) {
   await step('page ' + n, async () => { await page.evaluate((h) => (location.hash = '#/' + h), hash); await page.waitForTimeout(400); await page.screenshot({ path: `${OUT}/20-${n}.png`, fullPage: true }); });
 }

@@ -1,6 +1,7 @@
 import { CLEANLINESS, EMPTY_ROOMS, ROOM_DEFAULTS, SIZE_BANDS, STYLES, isRoomFieldVisible } from './options';
 import type {
-  Blocker, Energy, Goal, Home, HomeType, Preferences, ProblemArea, Room, RoomCounts, RoomKind,
+  Blocker, Energy, EquipmentNeed, FitnessLevel, Goal, Home, HomeType, LifeFocus, LifeLevel, Preferences, ProblemArea, Room,
+  RoomCounts, RoomKind,
 } from './types';
 
 export const emptyHome = (): Home => ({
@@ -29,6 +30,10 @@ export const emptyPreferences = (): Preferences => ({
   blockers: [],
   goals: [],
   learnedSessionCap: null,
+  focus: ['home'],
+  fitnessLevel: 'beginner',
+  equipment: 'none',
+  lifeLevel: 1,
 });
 
 /** Apply the home type's room defaults (used until the user edits counts by hand). */
@@ -197,6 +202,12 @@ export interface Ctx {
   problems: Set<ProblemArea>;
   goals: Set<Goal>;
   blockers: Set<Blocker>;
+  focus: Set<LifeFocus>;
+  lifeLevel: LifeLevel;
+  fitnessLevel: FitnessLevel;
+  equipment: EquipmentNeed;
+  /** True when the user picked at least one non-home focus area. */
+  lifeActive: boolean;
   energy: Energy;
   energyLow: boolean;
   microSteps: boolean; // overwhelm-friendly presentation
@@ -256,6 +267,8 @@ export const deriveContext = (home: Home, prefs: Preferences): Ctx => {
   const energyLow = energy === 'very-low' || energy === 'low';
   const blockers = new Set(prefs.blockers);
   const goals = new Set(prefs.goals);
+  // Data saved before the life layer existed has no focus: treat it as the original home-cleaning app.
+  const focus = new Set<LifeFocus>(prefs.focus?.length ? prefs.focus : ['home']);
   const microSteps =
     blockers.has('overwhelming') || blockers.has('where-to-start') || blockers.has('too-many-things') ||
     goals.has('less-overwhelm') || energy === 'very-low' || mess >= 5;
@@ -287,7 +300,8 @@ export const deriveContext = (home: Home, prefs: Preferences): Ctx => {
   return {
     home, prefs, rooms, zones: model.zones, floors: model.floors, area, sizeClass, minimal,
     shared: home.type === 'shared', people, adults, children, occTier, kidTier, pets, mess,
-    problems: new Set(home.problemAreas), goals, blockers, energy, energyLow, microSteps, lean,
+    problems: new Set(home.problemAreas), goals, blockers, focus, lifeLevel: prefs.lifeLevel ?? 1,
+    fitnessLevel: prefs.fitnessLevel ?? 'beginner', equipment: prefs.equipment ?? 'none', lifeActive: [...focus].some((f) => f !== 'home'), energy, energyLow, microSteps, lean,
     style: resolvedStyle, sessionMinutes, daysPerWeek, activeDays,
     weeklyCapacity: sessionMinutes * daysPerWeek, chunkLimit: chunk,
     count: countKind,
