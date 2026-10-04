@@ -86,8 +86,10 @@ export const seedHistory = (data: AppData, today: string): AppData => {
   for (let back = 21; back >= 1; back--) {
     const date = addDays(today, -back);
     const isActive = plan.activeDays.includes(weekday(date));
-    if (!isActive && rand() > 0.3) continue;
-    if (rand() < 0.22) continue; // a rest / missed day, no pressure
+    // a few rest / missed days further back, but always some recent activity so the demo feels current
+    if (back > 2 && !isActive && rand() > 0.3) continue;
+    if (back > 2 && rand() < 0.22) continue;
+    if (back <= 2 && !isActive && back === 2) continue;
     const entries: SessionEntry[] = [];
     let used = 0;
     const candidates = [...pool].sort(() => rand() - 0.5).sort((a, b) => b.score - a.score + (rand() - 0.5) * 30);

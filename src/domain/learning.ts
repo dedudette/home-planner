@@ -40,8 +40,9 @@ export const computeInsights = (v: PlanView): Insight[] => {
   };
 
   // 1. Long sessions keep getting skipped → suggest shorter ones.
-  const long = entries.filter((e) => e.plannedMinutes >= 30);
-  const longMissed = long.filter((e) => e.outcome !== 'completed');
+  const long = entries.filter((e) => e.plannedMinutes >= 30 && e.outcome !== 'moved');
+  // Rescheduling ("moved") is planning, not avoidance, so only skips, snoozes and abandoned timers count.
+  const longMissed = long.filter((e) => e.outcome === 'skipped' || e.outcome === 'snoozed' || e.outcome === 'stopped');
   const currentCap = v.data.preferences.learnedSessionCap ?? v.plan.sessionMinutes;
   if (longMissed.length >= 3 && longMissed.length / long.length >= 0.5 && currentCap > 10 && !dismissed('shorter')) {
     const cap = currentCap > 30 ? 20 : currentCap > 15 ? 15 : 10;

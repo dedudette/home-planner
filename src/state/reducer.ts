@@ -1,7 +1,7 @@
 import { uid } from '../domain/appdata';
 import { applyTypeDefaults } from '../domain/context';
 import { appDataForDemo, type DemoProfile } from '../domain/demo';
-import { generatePlan } from '../domain/engine';
+import { buildResetTasks, generatePlan } from '../domain/engine';
 import {
   dueInfo, markComplete, markMove, markSkip, markSnooze, resetStates,
 } from '../domain/schedule';
@@ -171,7 +171,18 @@ export const reducer = (data: AppData, a: Action): AppData => {
     }
     case 'SUPPLY_DELETE': return { ...data, supplies: data.supplies.filter((s) => s.id !== a.id) };
     case 'SUPPLY_STARTERS': return { ...data, supplies: [...data.supplies, ...a.supplies.map((s) => ({ ...s, id: uid('sup') }))] };
-    case 'RESET_RUN_START': return { ...data, resetRun: data.resetRun && !data.resetRun.finishedAt ? data.resetRun : { startedAt: a.stamp.now, doneIds: [] } };
+    case 'RESET_RUN_START': {
+      if (data.resetRun && !data.resetRun.finishedAt) return data;
+      // A fresh run after a finished one starts from a clean slate.
+      let states = data.taskStates;
+      if (data.resetRun?.finishedAt) {
+        states = { ...states };
+        for (const t of buildResetTasks(data.home, data.preferences)) {
+          if (states[t.id]) states[t.id] = { ...states[t.id], done: false };
+        }
+      }
+      return { ...data, taskStates: states, resetRun: { startedAt: a.stamp.now, doneIds: [] } };
+    }
     case 'RESET_RUN_FINISH': return data.resetRun ? { ...data, resetRun: { ...data.resetRun, finishedAt: a.stamp.now } } : data;
     case 'FIVE_SEEN': return { ...data, fiveRecent: [a.id, ...data.fiveRecent.filter((x) => x !== a.id)].slice(0, 8) };
     case 'DAY_ENERGY': return { ...data, dayEnergy: { date: a.stamp.today, level: a.level } };
