@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react';
 import { addDays, formatDay, formatMinutes } from '../../domain/dates';
 import { occurrencesPerWeek } from '../../domain/engine';
 import {
-  ROOM_MODE_LABEL, SECTION_LABEL, availableRoomModes, roomTasks, sectionId, sectionTasks, type SectionId,
+  ROOM_MODE_LABEL, SECTION_LABEL, availableRoomModes, groupVisual, roomTasks, sectionId, sectionTasks, type SectionId,
 } from '../../domain/view';
 import { WEEKDAY_SHORT } from '../../domain/dates';
 import { DOMAIN_SHORT, TIME_LABEL } from '../../domain/options';
 import { SAFETY_LINE } from '../../domain/lifeCatalog';
 import type { Domain } from '../../domain/types';
-import { DOMAIN_ICON } from '../../ui/icons';
+import { DOMAIN_ICON, TIME_ICON } from '../../ui/icons';
 import type { RoomKind, Task } from '../../domain/types';
 import { useApp } from '../../state/store';
 import { I, ROOM_ICON } from '../../ui/icons';
@@ -41,6 +41,12 @@ const DoneRow = ({ task }: { task: Task }) => {
       <div><Button size="sm" variant="ghost" icon={I.undo} onClick={() => dispatch({ type: 'TASK_PATCH', id: task.id, patch: { done: false, due: null } })}>Do it again</Button></div>
     </div>
   );
+};
+
+const GroupTitle = ({ section, task, label }: { section: SectionId; task: Task; label: string }) => {
+  const v = groupVisual(section, task);
+  const Icon = v.kind === 'time' ? TIME_ICON[v.time] : v.kind === 'domain' ? DOMAIN_ICON[v.domain] : ROOM_ICON[v.room];
+  return <div className="group-title" data-group-icon={`${v.kind}:${v.kind === 'time' ? v.time : v.kind === 'domain' ? v.domain : v.room}`}><Icon size={16} aria-hidden /> {label}</div>;
 };
 
 const groupBy = (tasks: Task[], key: (t: Task) => string): [string, Task[]][] => {
@@ -103,7 +109,7 @@ const Overview = () => {
         {grouped
           ? groupBy(tasks, groupName).map(([room, ts]) => (
             <div className="stack" key={room}>
-              <div className="group-title">{(() => { const R = ts[0].domain && ts[0].domain !== 'home' ? DOMAIN_ICON[ts[0].domain] : ROOM_ICON[ts[0].roomKind]; return <R size={16} aria-hidden />; })()} {room}</div>
+              <GroupTitle section={current} task={ts[0]} label={room} />
               <div className="tasklist">{ts.map((t) => <DoneRow key={t.id} task={t} />)}</div>
             </div>
           ))

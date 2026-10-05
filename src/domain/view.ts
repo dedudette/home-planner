@@ -4,7 +4,7 @@ import type { Plan } from './engine';
 import { isLife } from './scoring';
 import { TIME_ORDER } from './options';
 import { applyOverride, customToTask, dueInfo, projectDates, type DueInfo } from './schedule';
-import type { AppData, Domain, ISODate, RoomKind, SessionEntry, Task, TaskState } from './types';
+import type { AppData, Domain, ISODate, LifeDomain, RoomKind, SessionEntry, Task, TaskState, TimeOfDay } from './types';
 
 /**
  * A PlanView is the plan *as the user currently experiences it*:
@@ -239,4 +239,19 @@ export const projectRemaining = (v: PlanView, from: ISODate, to: ISODate): numbe
     n += projectDates(task, v.states[task.id], from, to, v.today).length;
   }
   return n;
+};
+
+/**
+ * Which icon a group header in the Plan should use. For Routines the header is the time of day itself,
+ * so its icon is fixed per group and never borrowed from whichever task happens to come first.
+ */
+export type GroupVisual =
+  | { kind: 'time'; time: TimeOfDay }
+  | { kind: 'domain'; domain: LifeDomain }
+  | { kind: 'room'; room: RoomKind };
+
+export const groupVisual = (section: SectionId, t: Task): GroupVisual => {
+  if (section === 'routine') return { kind: 'time', time: t.timeOfDay ?? 'anytime' };
+  if (isLife(t)) return { kind: 'domain', domain: t.domain as LifeDomain };
+  return { kind: 'room', room: t.roomKind };
 };

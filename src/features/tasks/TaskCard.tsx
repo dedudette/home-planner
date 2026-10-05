@@ -65,15 +65,14 @@ export const TaskCard = ({ task, done, overdue, dueLabel, hideTimer, hideMenu, c
         <div className="task-meta">
           <span className="m"><RoomIcon size={14} aria-hidden /> {task.roomName}</span>
           <span className="m"><I.clock size={14} aria-hidden /> {task.minutes} min</span>
-          {!compact && <span className="m" title={`Difficulty: ${DIFF_LABEL[task.difficulty]}`}><Dots n={task.difficulty} /> <span className="sr-only">Difficulty {DIFF_LABEL[task.difficulty]}</span>{DIFF_LABEL[task.difficulty]}</span>}
+          {!compact && <span className="m" title={task.challenge ? 'Optional stretch' : `Difficulty: ${DIFF_LABEL[task.difficulty]}`}><Dots n={task.difficulty} /> {!task.challenge && <span className="sr-only">Difficulty </span>}{task.challenge ? 'Stretch' : DIFF_LABEL[task.difficulty]}</span>}
           <span className="m"><I.repeat size={14} aria-hidden /> {task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency]}</span>
           {dueLabel && <span className="m"><I.cal size={14} aria-hidden /> {dueLabel}</span>}
           {life && task.timeOfDay && task.timeOfDay !== 'anytime' && <span className="m"><TodIcon size={14} aria-hidden /> {TIME_LABEL[task.timeOfDay]}</span>}
         </div>
         <div className="row wrap" style={{ marginTop: 8, gap: 6 }}>
-          <PriorityTag p={task.priority} />
+          {task.challenge ? <span className="tag lav"><I.trophy size={12} aria-hidden /> Optional challenge</span> : <PriorityTag p={task.priority} />}
           {overdue && <span className="tag lav">Whenever you're ready</span>}
-          {task.challenge && <span className="tag lav">Challenge</span>}
           {life && task.intensity && task.domain === 'fitness' && <span className="tag">{task.intensity === 'gentle' ? 'Gentle' : task.intensity === 'moderate' ? 'Moderate' : 'Vigorous'}{task.lowImpact ? ' · low impact' : ''}</span>}
           {task.part && <span className="tag green">Part {task.part.index} of {task.part.of}</span>}
           {plan.microSteps && (task.tinySteps.length || task.substeps.length) > 1 && !compact && <span className="tag green">{(task.tinySteps.length || task.substeps.length)} tiny step{(task.tinySteps.length || task.substeps.length) === 1 ? '' : 's'}</span>}

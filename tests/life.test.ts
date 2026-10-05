@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { deriveContext } from '../src/domain/context';
 import { computeInsights } from '../src/domain/learning';
 import { LIFE_DOMAINS, LIFE_TEMPLATES, SAFETY_LINE } from '../src/domain/lifeCatalog';
-import { roughDayTasks } from '../src/domain/life';
+import { roughDayTasks, servesGoal } from '../src/domain/life';
 import { resetSequence, timeBox } from '../src/domain/modes';
 import { pickJustFive } from '../src/domain/micro';
 import { computeProgress } from '../src/domain/progress';
 import { isLife } from '../src/domain/scoring';
 import { checkTasks } from '../src/domain/supplies';
 import type { AppData, LifeFocus, Preferences, Task } from '../src/domain/types';
-import { availableRoomModes, quickWins, roomTasks, sectionTasks, todayPlan } from '../src/domain/view';
+import { availableRoomModes, groupVisual, quickWins, roomTasks, sectionTasks, todayPlan } from '../src/domain/view';
 import { reducer } from '../src/state/reducer';
 import { normalizeAppData } from '../src/storage/repository';
 import { custom, demo, plan, TODAY, view } from './helpers';
@@ -281,5 +281,154 @@ describe('completion, progression and the rough-day reset', () => {
     const p = plan(d);
     expect(p.tasks.some((t) => t.domain === 'digital')).toBe(true);
     expect(p.tasks.some((t) => !isLife(t))).toBe(true);
+  });
+});
+
+// ───────────────────────── Fix: routine goals must be served by the task's real time of day ─────────────────────────
+
+describe('morning / evening goal coverage', () => {
+  const routine = (d: AppData, when: 'morning' | 'evening') =>
+    scheduled(d).filter((t) => t.routine && t.timeOfDay === when && t.domain !== 'home');
+
+  it('a morning task that merely lists "evening" among its goals does not satisfy the evening goal', () => {
+    const teeth = LIFE_TEMPLATES.find((t) => t.id === 'c-teeth')!;
+    expect(teeth.focus).toContain('evening'); // the trap: it is tagged for evening…
+    expect(teeth.time).toBe('morning'); // …but it is a morning task
+    expect(servesGoal('evening', { t: teeth, matches: ['evening'] })).toBe(false);
+    expect(servesGoal('morning', { t: teeth, matches: ['morning'] })).toBe(true);
+    const planTomorrow = LIFE_TEMPLATES.find((t) => t.id === 'a-plan-tomorrow')!;
+    expect(servesGoal('evening', { t: planTomorrow, matches: ['evening'] })).toBe(true);
+    expect(servesGoal('evening', { t: planTomorrow, matches: [] })).toBe(false); // must also match the user's goals
+  });
+
+  it('selecting the evening routine goal always yields a genuine evening LIFE habit, at every time budget', () => {
+    for (const minutes of [5, 8, 10, 15, 20, 30, 60]) {
+      const d = withPrefs(['evening'], { sessionMinutes: minutes });
+      const evening = routine(d, 'evening');
+      expect(evening.length, `${minutes} min`).toBeGreaterThanOrEqual(1);
+      for (const t of evening) { expect(isLife(t)).toBe(true); expect(t.challenge).toBeUndefined(); expect(t.frequency).toBe('daily'); }
+      // not by raising the budget: the real daily load stays inside the budget
+      const load = scheduled(d).filter((t) => t.frequency === 'daily').reduce((a, t) => a + t.minutes, 0);
+      expect(load, `${minutes} min`).toBeLessThanOrEqual(minutes * 1.05 + 0.01);
+    }
+  });
+
+  it('it shows up on Today, as an evening task', () => {
+    const d = withPrefs(['evening'], { sessionMinutes: 10 });
+    const t = todayPlan(view(d));
+    expect(t.life.some((i) => i.task.timeOfDay === 'evening' && i.task.routine)).toBe(true);
+  });
+
+  it('the exact scenario from the UI review: home + active + discipline + morning + evening + focus, 30 min', () => {
+    const d = withPrefs(['home', 'active', 'discipline', 'morning', 'evening', 'focus'], { sessionMinutes: 30, daysPerWeek: 7, style: 'several-short' });
+    expect(plan(d).stats.lifeDayBudget).toBe(12); // budget is NOT increased to make room
+    expect(routine(d, 'evening').length).toBeGreaterThanOrEqual(1);
+    expect(routine(d, 'morning').length).toBeGreaterThanOrEqual(1);
+    expect(scheduled(d).reduce((a, t) => a + (t.frequency === 'daily' ? t.minutes : 0), 0)).toBeLessThanOrEqual(12.6);
+  });
+
+  it('morning and evening together are both served even on a very small budget', () => {
+    for (const minutes of [5, 10]) {
+      const d = withPrefs(['morning', 'evening', 'active', 'study', 'focus'], { sessionMinutes: minutes });
+      expect(routine(d, 'morning').length, `morning @${minutes}`).toBeGreaterThanOrEqual(1);
+      expect(routine(d, 'evening').length, `evening @${minutes}`).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('selected goals are covered before optional filler (every non-home goal has a serving task)', () => {
+    const goals: LifeFocus[] = ['active', 'phone', 'study', 'selfcare', 'evening'];
+    const d = withPrefs(goals, { sessionMinutes: 20 });
+    const chosen = scheduled(d);
+    for (const g of goals) {
+      const served = chosen.some((t) => LIFE_TEMPLATES.find((x) => x.id === t.templateId)!.focus.includes(g) && (g !== 'evening' || (t.routine && t.timeOfDay === 'evening')));
+      expect(served, g).toBe(true);
+    }
+  });
+
+  it('without the evening goal nothing forces evening tasks (behaviour is goal-driven)', () => {
+    const d = withPrefs(['study'], { sessionMinutes: 20 });
+    expect(routine(d, 'evening').some((t) => t.templateId === 'a-plan-tomorrow')).toBe(false);
+  });
+});
+
+// ───────────────────────── Fix: Make the bed stays a daily morning habit ─────────────────────────
+
+describe('morning routine keeps "Make the bed" daily', () => {
+  const bed = (d: AppData) => plan(d).tasks.find((t) => t.templateId === 'br-bed' && t.roomId === 'bedroom-1')!;
+  const tight = { sessionMinutes: 10, daysPerWeek: 3, style: 'several-short' as const };
+
+  it('with a morning goal and a home plan it is a daily habit, even under a tight cleaning budget', () => {
+    const b = bed(withPrefs(['home', 'morning'], tight));
+    expect(b.frequency).toBe('daily');
+    expect(b.habit).toBe(true);
+    expect(b.cadence).toEqual({ kind: 'days', days: [0, 1, 2, 3, 4, 5, 6] });
+    expect(b.timeOfDay).toBe('morning');
+    expect(b.routine).toBe(true);
+    expect(b.backlog).toBeFalsy();
+  });
+
+  it('it appears on Today on a day that is not a cleaning day', () => {
+    const d = withPrefs(['home', 'morning'], tight);
+    const tue = '2026-10-06'; // 3 days/week → Mon/Wed/Sat, so Tuesday is a rest day
+    const t = todayPlan(view(d, tue));
+    expect(t.isActiveDay).toBe(false);
+    expect(t.focus.some((f) => f.task.id === bed(d).id)).toBe(true);
+  });
+
+  it('it also survives the "essentials only" lean mode', () => {
+    const b = bed(withPrefs(['home', 'morning'], { ...tight, style: 'only-necessary' }));
+    expect(b).toBeTruthy();
+    expect(b.frequency).toBe('daily');
+  });
+
+  it('without a morning goal nothing changes: the bed is still an ordinary, fit-to-time task', () => {
+    const d = withPrefs(['home'], tight);
+    const b = bed(d);
+    expect(b.habit).toBe(false);
+    expect(b.reason).not.toMatch(/morning routine/i);
+    // existing demo plans are untouched
+    for (const id of ['A', 'B', 'C', 'D'] as const) {
+      expect(plan(demo(id)).tasks.find((t) => t.templateId === 'br-bed' && t.roomId === 'bedroom-1')?.habit ?? false).toBe(false);
+    }
+  });
+
+  it('the rest of the weekly scheduling still works: other home tasks are still fitted, stretched or parked', () => {
+    const p = plan(withPrefs(['home', 'morning'], tight));
+    expect(p.stats.weeklyMinutes).toBeLessThanOrEqual(p.stats.weeklyCapacity);
+    expect(p.tasks.find((t) => t.templateId === 'b-toilet')!.frequency).toBe('weekly'); // essentials unchanged
+    expect(p.tasks.filter((t) => !isLife(t) && t.templateId !== 'br-bed' && t.frequency === 'daily' && !t.habit).every((t) => t.templateId)).toBe(true);
+    expect(p.stats.stretched + p.stats.backlogCount).toBeGreaterThan(0); // fitting logic still ran
+  });
+
+  it('only the user\'s own bed is protected in a shared apartment', () => {
+    const p = plan(custom('shared', {}, { bedrooms: 3 }, { focus: ['home', 'morning'], sessionMinutes: 10, daysPerWeek: 3, style: 'several-short' }));
+    expect(p.tasks.filter((t) => t.templateId === 'br-bed')).toHaveLength(1);
+  });
+});
+
+// ───────────────────────── Fix: routine group headers have fixed icons ─────────────────────────
+
+describe('plan group header visuals', () => {
+  const v = view(withPrefs(['morning', 'evening', 'active'], { sessionMinutes: 30 }));
+  it('Routines groups use their own time-of-day visual, whatever the first task is', () => {
+    const r = sectionTasks(v, 'routine');
+    expect(r.length).toBeGreaterThan(2);
+    for (const t of r) expect(groupVisual('routine', t)).toEqual({ kind: 'time', time: t.timeOfDay });
+    // same time of day, different domains → same visual
+    const morning = r.filter((t) => t.timeOfDay === 'morning');
+    const domains = new Set(morning.map((t) => t.domain));
+    expect(domains.size).toBeGreaterThanOrEqual(1);
+    expect(new Set(morning.map((t) => JSON.stringify(groupVisual('routine', t)))).size).toBe(1);
+    // and a home task and a life task in the same evening group still map to the same icon
+    const homeEvening = { ...r.find((t) => t.timeOfDay === 'morning')!, domain: 'home' as const, roomKind: 'kitchen' as const, timeOfDay: 'evening' as const };
+    const lifeEvening = { ...homeEvening, domain: 'mind' as const, roomKind: 'home' as const };
+    expect(groupVisual('routine', homeEvening)).toEqual(groupVisual('routine', lifeEvening));
+    expect(groupVisual('routine', homeEvening)).toEqual({ kind: 'time', time: 'evening' });
+  });
+  it('other sections keep room / area icons', () => {
+    const life = lifeTasks(withPrefs(['active']))[0];
+    expect(groupVisual('weekly', life)).toEqual({ kind: 'domain', domain: life.domain });
+    const home = plan(demo('B')).tasks.find((t) => t.roomKind === 'bathroom')!;
+    expect(groupVisual('weekly', home)).toEqual({ kind: 'room', room: 'bathroom' });
   });
 });

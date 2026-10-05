@@ -7,7 +7,8 @@ const page = await ctx.newPage();
 const errors = []; page.setDefaultTimeout(6000);
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error' && !/ERR_CERT|Failed to load resource/.test(m.text())) errors.push(m.text()); });
-const step = async (n, fn) => { try { await fn(); console.log('ok  ', n); } catch (e) { console.log('FAIL', n, e.message.split('\n').slice(0,6).join(' | ')); await page.screenshot({ path: `${OUT}/fail-${n.replace(/\W+/g,'_')}.png` }); } };
+const check = (name, cond, detail = '') => { if (!cond) throw new Error(`assertion failed: ${name} ${detail}`); };
+const step = async (n, fn) => { try { await fn(); console.log('ok  ', n); } catch (e) { process.exitCode = 1; console.log('FAIL', n, e.message.split('\n').slice(0,6).join(' | ')); await page.screenshot({ path: `${OUT}/fail-${n.replace(/\W+/g,'_')}.png` }); } };
 const click = (t, o) => page.getByRole('button', { name: t, ...o }).first().click();
 
 await page.goto('http://127.0.0.1:5173/');
@@ -17,6 +18,8 @@ await step('step0 focus', async () => {
   // home is pre-selected; add two life goals and answer the fitness follow-ups
   await page.getByRole('checkbox', { name: /Build discipline/ }).click();
   await page.getByRole('checkbox', { name: /Become more physically active/ }).click();
+  await page.getByRole('checkbox', { name: /Improve my morning routine/ }).click();
+  await page.getByRole('checkbox', { name: /Improve my evening routine/ }).click();
   await page.waitForSelector('text=How would you describe your fitness');
   await page.getByRole('radio', { name: /Beginner/ }).click();
   await page.getByRole('radio', { name: /No equipment/ }).click();
@@ -46,8 +49,15 @@ await step('my home', async () => { await page.waitForSelector('text=Here\'s you
 await step('today', async () => { await click('See my plan for today'); await page.waitForSelector('text=Your list for today'); await page.screenshot({ path: `${OUT}/11-today.png`, fullPage: true }); });
 await step('today has life habits', async () => {
   await page.waitForSelector('text=Habits & routine');
-  await page.getByText('Make the bed').first().waitFor().catch(() => {});
   await page.screenshot({ path: './e2e-shots/11b-today-life.png', fullPage: true });
+  const life = page.locator('section[aria-labelledby="life-h"]');
+  const groups = await life.locator('.group-title').allTextContents();
+  check('Today routine shows a Morning group', groups.some((g) => /Morning/.test(g)), JSON.stringify(groups));
+  check('Today routine shows an Evening group (evening goal selected)', groups.some((g) => /Evening/.test(g)), JSON.stringify(groups));
+  // the evening group must hold a genuine evening life habit, not a cleaning task
+  const evening = await life.locator('.stack', { has: page.locator('.group-title', { hasText: 'Evening' }) }).first().locator('.task').allTextContents();
+  check('evening group has at least one task', evening.length >= 1);
+  check('evening life task is flagged Evening and is not a cleaning task', evening.some((t) => /Evening/.test(t) && !/Kitchen|Whole home|Living room|Bedroom/.test(t)), evening.join(' || ').slice(0, 300));
 });
 await step('life task detail shows safety + metadata', async () => {
   await page.locator('.task-body', { hasText: /walk/i }).first().click();
@@ -84,11 +94,74 @@ await step('plan: domain filter + challenge', async () => {
   await page.getByRole('group', { name: 'Filter by area' }).getByRole('button', { name: /Fitness/ }).click();
   await page.getByRole('tab', { name: /CHALLENGES/ }).click();
   await page.screenshot({ path: './e2e-shots/19-plan-life.png', fullPage: true });
+  const cards = page.locator('article.task');
+  check('challenge cards exist', (await cards.count()) > 0);
+  for (let i = 0; i < await cards.count(); i++) {
+    const t = await cards.nth(i).innerText();
+    check(`challenge card ${i} is labelled as an optional challenge`, /Optional challenge/.test(t), t.slice(0, 120));
+    check(`challenge card ${i} has no priority label`, !/(High|Medium|Low|Urgent) priority/.test(t), t.slice(0, 160));
+    check(`challenge card ${i} says Stretch, not Easy/Medium`, /Stretch/.test(t) && !/\b(Easy|Medium|Hard)\b/.test(t), t.slice(0, 160));
+  }
+});
+await step('plan: routine groups use fixed time-of-day icons; make the bed is a daily habit', async () => {
+  await page.getByRole('group', { name: 'Filter by area' }).getByRole('button', { name: /All areas/ }).click();
+  await page.getByRole('tab', { name: /^ROUTINES/ }).click();
+  await page.waitForSelector('[data-group-icon]');
+  const icons = await page.locator('.group-title[data-group-icon]').evaluateAll((els) => els.map((e) => [e.textContent.trim(), e.getAttribute('data-group-icon')]));
+  const byLabel = Object.fromEntries(icons);
+  check('Morning header uses the morning icon', byLabel['Morning'] === 'time:morning', JSON.stringify(icons));
+  check('Evening header uses the evening icon', byLabel['Evening'] === 'time:evening', JSON.stringify(icons));
+  const bed = page.locator('article.task', { hasText: 'Make the bed' }).first();
+  check('Make the bed is in the routines', (await bed.count()) === 1);
+  const bedText = await bed.innerText();
+  check('Make the bed is a daily habit (not weekly)', /Daily habit/.test(bedText) && !/Weekly/.test(bedText), bedText.slice(0, 160));
+  await page.screenshot({ path: './e2e-shots/19b-plan-routines.png', fullPage: true });
+});
+await step('task detail: no duplicate Fitness tags', async () => {
+  await page.getByRole('tab', { name: /^DAILY/ }).click();
+  await page.locator('.task-body', { hasText: /walk/i }).first().click();
+  await page.waitForSelector('text=Intensity');
+  const tags = (await page.locator('.sheet .tag').allTextContents()).map((t) => t.trim());
+  check('shows the readable area tag', tags.includes('Fitness & movement'), JSON.stringify(tags));
+  check('does not also show the short duplicate "Fitness"', !tags.includes('Fitness'), JSON.stringify(tags));
+  await page.getByRole('button', { name: 'Close' }).click();
 });
 for (const [n, hash] of [['plan', 'plan'], ['rooms', 'plan?tab=rooms'], ['deep', 'plan?tab=deep'], ['schedule', 'schedule'], ['progress', 'progress'], ['supplies', 'supplies'], ['settings', 'settings'], ['more', 'more']]) {
   await step('page ' + n, async () => { await page.evaluate((h) => (location.hash = '#/' + h), hash); await page.waitForTimeout(400); await page.screenshot({ path: `${OUT}/20-${n}.png`, fullPage: true }); });
 }
 await step('add task', async () => { await page.evaluate(() => (location.hash = '#/today')); await page.getByRole('button', { name: 'Add your own task' }).click(); await click('Add task'); await page.waitForSelector('text=Give the task a name'); await page.fill('#t-name', 'Water plants'); await click('Add task'); });
 await step('reload persistence', async () => { await page.waitForTimeout(500); await page.reload(); await page.waitForSelector('text=Your list for today'); });
+// ── Sheet footers must stay inside the viewport on every screen size (regression: "Mark complete" ran off the edge) ──
+for (const [w, h, label] of [[360, 740, 'phone 360'], [390, 844, 'phone 390'], [820, 1180, 'tablet 820'], [1366, 860, 'desktop 1366']]) {
+  const c = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1.5, isMobile: w < 700, hasTouch: w < 700 });
+  const pg = await c.newPage(); pg.setDefaultTimeout(6000);
+  pg.on('pageerror', (e) => errors.push(`PAGEERROR (${label}) ` + e.message));
+  const inView = async (what) => {
+    const m = await pg.evaluate(() => {
+      const foot = document.querySelector('.sheet-foot'); const vw = document.documentElement.clientWidth;
+      const btns = [...foot.querySelectorAll('.btn')].map((b) => { const r = b.getBoundingClientRect(); return { t: b.textContent.trim(), left: r.left, right: r.right }; });
+      return { vw, footOverflow: foot.scrollWidth - foot.clientWidth, docOverflow: document.documentElement.scrollWidth - vw, btns };
+    });
+    const bad = m.btns.filter((b) => b.left < -0.5 || b.right > m.vw + 0.5);
+    if (bad.length || m.footOverflow > 0 || m.docOverflow > 0) { process.exitCode = 1; console.log(`FAIL ${label}: ${what} overflows`, JSON.stringify(m)); await pg.screenshot({ path: `${OUT}/fail-footer-${w}.png` }); }
+    else console.log(`ok   ${label}: ${what} buttons inside viewport (${m.btns.map((b) => b.t).join(' | ')})`);
+  };
+  try {
+    await pg.goto('http://127.0.0.1:5173/'); await pg.evaluate(() => localStorage.clear()); await pg.reload();
+    await pg.getByText('Beginner: discipline & fitness').click();
+    await pg.waitForSelector('text=Habits & routine');
+    await pg.locator('.task-body', { hasText: /walk/i }).first().click(); await pg.waitForSelector('text=Intensity'); await pg.waitForTimeout(500);
+    await inView('task detail');
+    await pg.getByRole('dialog').getByRole('button', { name: 'Start timer' }).click(); await pg.waitForSelector('text=Start a timer'); await pg.waitForTimeout(400);
+    await inView('timer picker');
+    await pg.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+    await pg.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+    await pg.getByRole('button', { name: /Rough day/ }).click(); await pg.waitForSelector('text=Bad day? That happens.'); await pg.waitForTimeout(400);
+    await inView('rough-day reset');
+  } catch (e) { process.exitCode = 1; console.log(`FAIL ${label}:`, e.message.split('\n')[0]); }
+  await c.close();
+}
 console.log(errors.join('\n') || 'no console errors');
+if (errors.length) process.exitCode = 1;
 await browser.close();
+console.log(process.exitCode ? 'E2E: FAILED' : 'E2E: PASSED');

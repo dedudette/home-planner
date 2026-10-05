@@ -192,7 +192,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
   display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1.5px solid var(--line-strong);
   background: var(--surface); color: var(--ink); font-weight: 500; transition: all 0.12s;
 }
-.chip:hover { border-color: var(--primary); }
+@media (hover: hover) { .chip:hover { border-color: var(--primary); } }
 .chip[aria-pressed='true'], .chip[aria-checked='true'], .chip.on { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
 .chip.sm { min-height: 36px; padding: 0 12px; font-size: 0.88rem; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -271,8 +271,9 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .sheet-head { display: flex; align-items: center; gap: 10px; padding: 16px 16px 8px 22px; }
 .sheet-head h2 { flex: 1; font-size: 1.25rem; }
 .sheet-body { overflow-y: auto; padding: 8px 20px 24px; display: flex; flex-direction: column; gap: 16px; -webkit-overflow-scrolling: touch; }
-.sheet-foot { padding: 12px 20px calc(14px + var(--safe-b)); border-top: 1px solid var(--line); background: var(--bg); display: flex; gap: 10px; }
-.sheet-foot .btn { flex: 1; }
+.sheet-foot { padding: 12px 20px calc(14px + var(--safe-b)); border-top: 1px solid var(--line); background: var(--bg); display: flex; flex-wrap: wrap; gap: 10px; }
+/* Buttons share a row when they fit; on narrow phones they wrap onto their own full-width rows instead of overflowing. */
+.sheet-foot .btn { flex: 1 1 auto; min-width: 0; max-width: 100%; white-space: normal; text-align: center; }
 @media (min-width: 700px) {
   .scrim { align-items: center; padding: 24px; }
   .sheet { max-width: 620px; border-radius: 28px; max-height: 90dvh; }
@@ -333,7 +334,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
   display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 12px 16px; text-align: left; border: 1.5px solid var(--line-strong); border-radius: 18px; background: var(--surface);
   font-weight: 600; transition: all 0.12s;
 }
-.choice:hover { border-color: var(--primary); }
+@media (hover: hover) { .choice:hover { border-color: var(--primary); } }
 .choice[aria-pressed='true'], .choice[aria-checked='true'] { border-color: var(--primary); background: var(--primary-soft); box-shadow: inset 0 0 0 1px var(--primary); }
 .choice .ic { width: 40px; height: 40px; border-radius: 12px; background: var(--bg-deep); display: grid; place-items: center; color: var(--primary); flex: none; }
 .choice[aria-pressed='true'] .ic, .choice[aria-checked='true'] .ic { background: var(--primary); color: var(--primary-ink); }

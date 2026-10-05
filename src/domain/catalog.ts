@@ -43,6 +43,11 @@ export interface Template {
   /** Frequency step-ups (towards "more often") per household factor. 0 = ignore. */
   step?: { occ?: 0 | 1 | 2; kids?: 0 | 1; pets?: 0 | 1; max?: number; petRooms?: RoomKind[] };
   adjust?: (c: Ctx, r: Room | null) => Adjust | null;
+  /**
+   * Protect this task from the weekly time-fitting (it stays at its base frequency and runs every day like a habit)
+   * when it is the anchor of something the user explicitly asked for.
+   */
+  keep?: (c: Ctx, r: Room | null) => boolean;
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -214,7 +219,7 @@ const bathroom: Template[] = [
 
 // ───────────────────────── Bedroom ─────────────────────────
 const bedroom: Template[] = [
-  T({ id: 'br-bed', time: 'morning', rooms: ['bedroom'], name: 'Make the bed', category: 'Bedding', minutes: 2, difficulty: 1, freq: 'daily', impact: 6, base: 36, tags: ['quick', 'nicety'], topics: ['bedroom'], when: own, steps: ['Straighten the sheet', 'Pull up the duvet', 'Place the pillows'], tiny: ['Pull up the duvet', 'Place the pillows'], reason: 'A made bed is the quickest way to make a bedroom look tidy.' }),
+  T({ id: 'br-bed', time: 'morning', keep: (c, r) => c.focus.has('morning') && (r?.id === 'bedroom-1' || !!r?.sleeps), rooms: ['bedroom'], name: 'Make the bed', category: 'Bedding', minutes: 2, difficulty: 1, freq: 'daily', impact: 6, base: 36, tags: ['quick', 'nicety'], topics: ['bedroom'], when: own, steps: ['Straighten the sheet', 'Pull up the duvet', 'Place the pillows'], tiny: ['Pull up the duvet', 'Place the pillows'], reason: 'A made bed is the quickest way to make a bedroom look tidy.' }),
   T({ id: 'br-clothes', rooms: ['bedroom'], name: 'Put away clothes and clear the chair', category: 'Clutter', minutes: 4, difficulty: 1, freq: 'weekly', impact: 6, base: 40, tags: ['quick'], topics: ['bedroom', 'clutter', 'laundry'], when: own, steps: ['Gather clothes from the floor, chair and bed', 'Dirty clothes go to the hamper', 'Clean clothes get hung or folded', 'Clear the chair or surface'], tiny: ['Put 5 clothes in the hamper', 'Put 5 clean clothes away'], reason: 'Clothes piles are the most common clutter spot in bedrooms.' }),
   T({ id: 'br-sheets', rooms: ['bedroom'], name: 'Change the bed sheets', category: 'Bedding', minutes: 12, difficulty: 2, freq: 'biweekly', impact: 5, base: 38, topics: ['bedroom', 'laundry'], needs: ['laundry'], when: own, steps: ['Strip the bed', 'Start the sheets in the wash', 'Remake the bed with fresh sheets', 'Put the pillowcases on'], tiny: ['Take the sheets off', 'Start the wash'], reason: 'Fresh sheets every two weeks keep sleep fresh and dust down.' }),
   T({ id: 'br-dust', rooms: ['bedroom'], name: 'Dust the bedroom surfaces', category: 'Dust', minutes: 6, difficulty: 1, freq: 'monthly', impact: 4, base: 32, topics: ['dust', 'bedroom'], needs: ['duster', 'cloth'], when: own, steps: ['Clear the nightstands and dresser', 'Wipe with a slightly damp cloth', 'Put things back'], tiny: ['Wipe the nightstand', 'Wipe the dresser top'], reason: 'Dust collects on bedroom surfaces and is what you breathe overnight.' }),

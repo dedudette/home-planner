@@ -116,14 +116,15 @@ const resetIncluded = (phase: ResetPhase | undefined, mess: number): boolean => 
 
 interface Counters { splitCount: number; skippedExtras: number; stretched: number; stepped: Set<string>; lessUsed: number }
 
-interface Instance extends Task { _tpl: Template; _essential: boolean; _base?: number }
+interface Instance extends Task { _tpl: Template; _essential: boolean; _keep: boolean; _base?: number }
 
 /** Instantiate one template for one room. Returns null when it does not apply. */
 const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Counters): Instance | null => {
   if (t.when && !t.when(c, r)) return null;
   const tags = t.tags ?? [];
   const isReset = t.tier === 'reset';
-  if (!isReset && t.tier !== 'deep') {
+  const keep = !!t.keep?.(c, r);
+  if (!isReset && t.tier !== 'deep' && !keep) {
     if ((tags.includes('extra') && (c.minimal || c.lean)) || (tags.includes('nicety') && c.lean)) { cnt.skippedExtras++; return null; }
   }
   const room = r ?? homeRoom(c);
@@ -181,6 +182,7 @@ const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Cou
   if (problemHits) notes.push('You listed this as a problem area, so it gets extra priority.');
 
   const baseReason = resolve(t.reason, c, r);
+  if (keep) notes.push('Kept as a daily habit because you want a better morning routine.');
   const reason = [baseReason, ...notes].join(' ');
   const steps = resolve(t.steps, c, r);
   const tiny = t.tiny ? resolve(t.tiny, c, r) : steps;
@@ -205,7 +207,7 @@ const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Cou
     tinySteps: tiny,
     tier: t.tier ?? 'maintenance',
     phase: t.phase,
-    habit: tags.includes('habit'),
+    habit: tags.includes('habit') || keep,
     quickWin: tags.includes('quick') || (minutes <= 5 && t.impact >= 7),
     zone: room.zone,
     floor: room.floor,
@@ -217,6 +219,7 @@ const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Cou
     routine: !!t.time,
     _tpl: t,
     _essential: tags.includes('essential'),
+    _keep: keep,
   };
   if (t.tier === 'deep') { task.frequency = 'deep'; }
   return task;
@@ -280,8 +283,8 @@ const buildInstances = (c: Ctx, mess: number, cnt: Counters, forceReset: boolean
 };
 
 const strip = (t: Instance): Task => {
-  const { _tpl, _essential, ...rest } = t;
-  void _tpl; void _essential;
+  const { _tpl, _essential, _keep, ...rest } = t;
+  void _tpl; void _essential; void _keep;
   return rest;
 };
 
@@ -324,7 +327,7 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   // Anything that still doesn't fit goes to the backlog instead of becoming a quarterly chore.
   const maxLevels = (t: Instance) =>
     t._essential ? 0 : t._tpl.tags?.some((g) => g === 'extra' || g === 'nicety') || t.score < 36 ? 2 : 1;
-  const canStretch = (t: Instance) => LADDER.indexOf(t.frequency) > 0 && levels(t) < maxLevels(t);
+  const canStretch = (t: Instance) => !t._keep && LADDER.indexOf(t.frequency) > 0 && levels(t) < maxLevels(t);
   const naturalLoad = weeklyLoad();
   let stretched = 0;
   let guard = 0;
@@ -339,7 +342,7 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
     // Nothing left to relax: park the task with the least value per weekly minute.
     const weekly = (t: Instance) => t.minutes * occurrencesPerWeek(t.frequency, c.activeDays.length, false);
     const pool = nonHabit().sort((a, b) => keepScore(a) / (weekly(a) + 0.5) - keepScore(b) / (weekly(b) + 0.5));
-    const parked = pool.find((t) => !t._essential) ?? pool[0];
+    const parked = pool.find((t) => !t._essential && !t._keep) ?? pool[0];
     if (!parked) break;
     parked.backlog = true;
   }
@@ -348,7 +351,7 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   const habitBudget = Math.max(6, Math.min(c.activeDays.length >= 5 ? 20 : 15, c.sessionMinutes));
   guard = 0;
   while (habitPerDay() > habitBudget && guard++ < 200) {
-    const cands = habits().filter((t) => LADDER.indexOf(t.frequency) > LADDER.indexOf('weekly')).sort((a, b) => keepScore(a) - keepScore(b));
+    const cands = habits().filter((t) => !t._keep && LADDER.indexOf(t.frequency) > LADDER.indexOf('weekly')).sort((a, b) => keepScore(a) - keepScore(b));
     if (!cands.length) break;
     cands[0].frequency = LADDER[LADDER.indexOf(cands[0].frequency) - 1];
     stretched++;

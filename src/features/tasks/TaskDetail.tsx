@@ -80,11 +80,17 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
         </>
       )}>
       <div className="row wrap" style={{ gap: 8 }}>
-        <PriorityTag p={task.priority} />
-        <Tag><RoomIcon size={12} aria-hidden /> {task.roomName}</Tag>
-        <Tag>{life ? DOMAIN_LABEL[task.domain!] : task.category}</Tag>
+        {task.challenge ? <Tag kind="lav"><I.trophy size={12} aria-hidden /> Optional challenge</Tag> : <PriorityTag p={task.priority} />}
+        {life ? (
+          // One human-readable area tag ("Fitness & movement"); the short room-style name would just repeat it.
+          <Tag><RoomIcon size={12} aria-hidden /> {DOMAIN_LABEL[task.domain!]}</Tag>
+        ) : (
+          <>
+            <Tag><RoomIcon size={12} aria-hidden /> {task.roomName}</Tag>
+            <Tag>{task.category}</Tag>
+          </>
+        )}
         {task.subcategory && <Tag>{task.subcategory}</Tag>}
-        {task.challenge && <Tag kind="lav">Challenge</Tag>}
         {task.tier === 'deep' && <Tag kind="lav">Deep clean</Tag>}
         {task.tier === 'reset' && <Tag kind="green">Reset step</Tag>}
         {task.backlog && <Tag>Backlog</Tag>}
@@ -92,7 +98,7 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
 
       <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
         <div className="stat"><div className="v">{task.minutes}<span className="small muted"> min</span></div><div className="l">Estimated time</div></div>
-        <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}><Dots n={task.difficulty} /> {DIFF_LABEL[task.difficulty]}</div><div className="l">Difficulty</div></div>
+        <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}><Dots n={task.difficulty} /> {DIFF_LABEL[task.difficulty]}</div><div className="l">{task.challenge ? 'Difficulty (optional stretch)' : 'Difficulty'}</div></div>
         <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}>{task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency]}</div><div className="l">Frequency</div></div>
         <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}>{alreadyDone ? 'Done' : info.due ? formatDay(info.due, today) : 'Not scheduled'}</div><div className="l">{info.overdue ? 'Was due (no rush)' : 'Next up'}</div></div>
       </div>

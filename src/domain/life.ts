@@ -86,6 +86,18 @@ const candidatesFor = (c: Ctx): Candidate[] => {
   return out.sort((a, b) => b.score - a.score || a.t.id.localeCompare(b.t.id));
 };
 
+const TIMED_GOALS: LifeFocus[] = ['morning', 'evening'];
+
+/**
+ * Does this candidate genuinely serve the goal? Morning/evening goals need a routine task whose own
+ * time of day matches. A task that merely lists "evening" among its goals (like brushing teeth, a morning task) doesn't count.
+ */
+export const servesGoal = (f: LifeFocus, x: { t: LifeTemplate; matches: LifeFocus[] }): boolean => {
+  if (!x.matches.includes(f)) return false;
+  if (f === 'morning' || f === 'evening') return !!x.t.routine && x.t.time === f;
+  return true;
+};
+
 /** Weekday loads let us check that no single day exceeds the budget. */
 type Loads = number[];
 
@@ -180,25 +192,32 @@ export const buildLifeTasks = (c: Ctx, start: ISODate): LifeBuild => {
   const cap = maxLifeTasks(dayBudget);
   const domainCap = c.focus.size <= 2 ? 5 : 3;
 
-  const tryAdd = (cand: Candidate): boolean => {
+  // `reserve` keeps room for goals that still need a task, so an early pick can't squeeze them out.
+  const tryAdd = (cand: Candidate, reserve = 0): boolean => {
     if (chosen.length >= cap || chosen.some((x) => x.cand.t.id === cand.t.id)) return false;
     if ((perDomain.get(cand.t.domain) ?? 0) >= domainCap) return false;
     const minutes = cand.chosen!.step.minutes;
     const { cadence, days } = daysFor(cand.t, loads, chosen.length);
     // A task occupies its whole slot on the days it lands, however rarely that is, so check full minutes.
-    if (Math.max(...days.map((d) => loads[d] + minutes)) > dayBudget * 1.05) return false;
+    if (Math.max(...days.map((d) => loads[d] + minutes)) + reserve > dayBudget * 1.05) return false;
     days.forEach((d) => { loads[d] += minutes; });
     chosen.push({ cand, cadence, days });
     perDomain.set(cand.t.domain, (perDomain.get(cand.t.domain) ?? 0) + 1);
     return true;
   };
 
-  // 1) make sure every chosen goal is represented by its best task
-  const covered = new Set<LifeFocus>();
-  for (const f of c.focus) {
-    if (f === 'home' || covered.has(f)) continue;
-    const best = cands.find((x) => x.matches.includes(f) && !chosen.some((y) => y.cand.t.id === x.t.id));
-    if (best && tryAdd(best)) best.matches.forEach((m) => covered.add(m));
+  // 1) Every selected goal gets a task that genuinely serves it, before any optional filler.
+  //    Morning/evening goals are the most specific, so they go first and must match the task's real time of day.
+  const goals: LifeFocus[] = [...TIMED_GOALS.filter((f) => c.focus.has(f)), ...[...c.focus].filter((f) => f !== 'home' && !TIMED_GOALS.includes(f))];
+  const isCovered = (f: LifeFocus) => chosen.some((x) => servesGoal(f, x.cand));
+  const cheapest = (f: LifeFocus) => Math.min(...cands.filter((x) => servesGoal(f, x)).map((x) => x.chosen!.step.minutes));
+  for (const f of goals) {
+    if (isCovered(f)) continue;
+    const reserve = goals
+      .filter((g) => g !== f && TIMED_GOALS.includes(g) && !isCovered(g))
+      .reduce((sum, g) => sum + (Number.isFinite(cheapest(g)) ? cheapest(g) : 0), 0);
+    // Best-scoring candidate that fits; if the best doesn't fit, fall through to the next-best that does.
+    for (const option of cands.filter((x) => servesGoal(f, x))) if (tryAdd(option, reserve)) break;
   }
   // 2) fill remaining room, spreading across domains
   const rest = [...cands].sort((a, b) => (b.score - (perDomain.get(b.t.domain) ?? 0) * 8) - (a.score - (perDomain.get(a.t.domain) ?? 0) * 8));
