@@ -26,7 +26,7 @@ export const Welcome = ({ onStart, onDemo }: { onStart: () => void; onDemo: () =
         ].map((f) => (
           <div className="card feature" key={f.t}>
             <div className="ic"><f.ic size={22} aria-hidden /></div>
-            <h3>{f.t}</h3>
+            <h2 className="h3">{f.t}</h2>
             <p className="small muted" style={{ marginTop: 4 }}>{f.d}</p>
           </div>
         ))}

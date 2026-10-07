@@ -14,7 +14,7 @@ export const SafetyBanner = () => (
   <aside className="safety" role="note" aria-label="Chemical safety">
     <I.shield size={26} aria-hidden style={{ flex: 'none' }} />
     <div>
-      <h3>{SAFETY_HEADLINE}</h3>
+      <h2 className="h3">{SAFETY_HEADLINE}</h2>
       <ul>{SAFETY_POINTS.map((p) => <li key={p}>{p}</li>)}</ul>
     </div>
   </aside>
@@ -30,7 +30,7 @@ const SupplyForm = ({ initial, onSave, onCancel }: { initial?: Supply; onSave: (
   const ok = f.product.trim().length > 0;
   return (
     <form className="card stack" onSubmit={(e) => { e.preventDefault(); setTouched(true); if (ok) onSave({ ...f, id: initial?.id ?? uid('sup'), product: f.product.trim() }); }} aria-label={initial ? 'Edit supply' : 'Add a supply'}>
-      <h3>{initial ? 'Edit supply' : 'Add a supply'}</h3>
+      <h2 className="h3">{initial ? 'Edit supply' : 'Add a supply'}</h2>
       <div className="field">
         <label htmlFor="s-prod">Product</label>
         <input id="s-prod" className="input" value={f.product} maxLength={60} placeholder="e.g. Lemon dish soap" onChange={(e) => setF({ ...f, product: e.target.value })} aria-invalid={touched && !ok} />
@@ -86,12 +86,12 @@ const WhatCanIClean = () => {
       </div>
       {data.supplies.length === 0 && <div className="hint"><I.info size={18} aria-hidden />You haven't added supplies yet, so everything shows as missing. Add yours below, or start with the common basics.</div>}
       <div>
-        <h3 style={{ color: 'var(--primary)' }}>✓ You can do these now ({res.ready.length})</h3>
+        <h2 className="h3" style={{ color: 'var(--primary)' }}>✓ You can do these now ({res.ready.length})</h2>
         <ul className="stack" style={{ paddingLeft: 18, margin: '8px 0 0', gap: 4 }}>{res.ready.slice(0, 12).map((r) => <li key={r.task.id} className="small">{r.task.name}{room === 'all' ? <span className="muted"> · {r.task.roomKind === 'home' ? 'Whole home' : r.task.roomName.replace(/ \d+$/, '')}</span> : null}</li>)}{res.ready.length === 0 && <li className="small muted" style={{ listStyle: 'none', marginLeft: -18 }}>Nothing yet. See the workarounds below.</li>}</ul>
       </div>
       {res.missing.length > 0 && (
         <div className="stack">
-          <h3>Missing something ({res.missing.length})</h3>
+          <h2 className="h3">Missing something ({res.missing.length})</h2>
           {allMissing.length > 0 && (
             <div className="card soft stack">
               <p className="small strong">Most-needed items you don't have</p>

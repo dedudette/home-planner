@@ -107,6 +107,8 @@ export interface Preferences {
   equipment: EquipmentNeed;
   /** Progressive discipline: 1 = tiny steps, 3 = fuller habits. Raised/lowered only with the user's consent. */
   lifeLevel: LifeLevel;
+  /** Date the current level started. Progression is judged over the time spent at a level, never before. */
+  levelSince: ISODate | null;
 }
 
 export interface User { id: string; name: string; createdAt: string; demo: boolean }
@@ -209,6 +211,8 @@ export interface Task {
   repeatable?: boolean; // can sensibly be done more than once a day
   level?: LifeLevel; // progression step
   challenge?: boolean; // above the user's current level: optional, never scheduled automatically
+  /** Goals this task was chosen for (life tasks). Recorded on log entries for later analysis. */
+  matches?: LifeFocus[];
 }
 
 export interface CustomTask {
@@ -257,6 +261,24 @@ export interface SessionEntry {
   outcome: EntryOutcome;
   via: EntryVia;
   domain?: Domain;
+
+  // ── Analytics foundation (all optional: entries written before v2 simply lack them) ──
+  templateId?: string | null;
+  level?: LifeLevel;
+  difficulty?: Difficulty;
+  intensity?: Intensity;
+  /** The time of day the task was planned for (not when it was done). */
+  timeOfDay?: TimeOfDay;
+  /** Local hour (0-23) when the action happened. `at` is UTC, so this is what makes time-of-day analysis possible. */
+  localHour?: number;
+  /** Minutes behind UTC, as `Date.getTimezoneOffset()` reports it. Lets analysis cope with travel. */
+  tzOffsetMin?: number;
+  goals?: LifeFocus[];
+  planVersion?: string;
+  energy?: 'low' | 'ok' | 'high';
+  /** For moves and snoozes: where the task was due before and where it is due now. */
+  fromDue?: ISODate | null;
+  toDue?: ISODate | null;
 }
 
 /** A "bout" of cleaning: entries less than 45 minutes apart belong together. */
@@ -319,10 +341,75 @@ export interface Progress {
 
 // ───────────────────────── Aggregate root ─────────────────────────
 
-export interface DayEnergy { date: ISODate; level: 'low' | 'ok' | 'high' }
+export type EnergyLevel = 'low' | 'ok' | 'high';
+export interface DayEnergy { date: ISODate; level: EnergyLevel }
+
+/** One scheduled task as the user saw it on a given day. The denominator for every adherence statistic. */
+export interface ExposureItem {
+  taskId: string;
+  templateId: string | null;
+  domain: Domain;
+  minutes: number;
+  difficulty: Difficulty;
+  kind: 'focus' | 'life' | 'extra' | 'catchUp';
+  level?: LifeLevel;
+  intensity?: Intensity;
+  timeOfDay?: TimeOfDay;
+  goals?: LifeFocus[];
+}
+
+/** What was scheduled for a day, recorded once the day is opened. Tasks that were ignored are visible here. */
+export interface ExposureRecord {
+  date: ISODate;
+  recordedAt: string;
+  planVersion: string;
+  activeDay: boolean;
+  energy: EnergyLevel;
+  tzOffsetMin: number;
+  budgetMinutes: number;
+  items: ExposureItem[];
+}
+
+/** A snapshot of the inputs the plan was generated from, so a behaviour change is never confused with a plan change. */
+export interface PlanVersion {
+  id: string;
+  at: string;
+  focus: LifeFocus[];
+  lifeLevel: LifeLevel;
+  fitnessLevel: FitnessLevel;
+  sessionMinutes: number | null;
+  daysPerWeek: number | null;
+}
+
+/** Everything a future recommender needs to learn from: what was shown, why, and what the user did with it. */
+export type RecommendationEventKind = 'shown' | 'accepted' | 'dismissed';
+export interface RecommendationEvent {
+  id: string;
+  at: string;
+  date: ISODate;
+  localHour: number;
+  kind: RecommendationEventKind;
+  recommendationId: string;
+  /** Machine-readable reason, e.g. 'skip-streak' or 'level-up'. */
+  code: string;
+  /** The numbers behind the reason (counts, windows), so the explanation can be reproduced. */
+  evidence?: Record<string, number | string>;
+  action?: string;
+  planVersion: string;
+}
+
+/** Whether a selected goal got a real task in the plan. Never faked: deferred goals say why. */
+export type DeferReason = 'budget' | 'cap' | 'none';
+export interface GoalCoverage {
+  goal: LifeFocus;
+  status: 'covered' | 'deferred';
+  taskIds: string[];
+  reason?: DeferReason;
+  needMinutes?: number;
+}
 
 export interface AppData {
-  version: 1;
+  version: 2;
   user: User;
   home: Home;
   preferences: Preferences;
@@ -337,4 +424,9 @@ export interface AppData {
   dismissedInsights: Record<string, ISODate>;
   dayEnergy: DayEnergy | null;
   lastOpened: ISODate | null;
+  // ── Analytics foundation (v2) ──
+  exposures: ExposureRecord[];
+  energyLog: Record<ISODate, EnergyLevel>;
+  planVersions: PlanVersion[];
+  recEvents: RecommendationEvent[];
 }

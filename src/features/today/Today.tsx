@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { addDays, formatMinutes, formatLong } from '../../domain/dates';
 import { needsFreshStart } from '../../domain/learning';
-import { dayPlan, todayPlan } from '../../domain/view';
-import { TIME_LABEL, TIME_ORDER } from '../../domain/options';
-import type { TimeOfDay } from '../../domain/types';
+import { bucketLife, dayPlan, todayPlan, type DueItem } from '../../domain/view';
+import { GoalCoverageCard } from '../plan/GoalCoverage';
+import { TIME_LABEL } from '../../domain/options';
 import { TIME_ICON } from '../../ui/icons';
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
@@ -22,7 +22,7 @@ export const FreshStartCard = ({ days }: { days: number }) => {
   if (hidden) return null;
   return (
     <div className="card sun stack" role="region" aria-label="Fresh start">
-      <div className="row"><I.sun size={22} aria-hidden /><h3>Welcome back. Life happens.</h3></div>
+      <div className="row"><I.sun size={22} aria-hidden /><h2 className="h3">Welcome back. Life happens.</h2></div>
       <p className="small">It's been {days} days. Instead of piling everything you missed onto today, we can start your plan fresh from today. Nothing is lost and nothing is owed.</p>
       <div className="row wrap" style={{ gap: 8 }}>
         <Button onClick={() => { dispatch({ type: 'RESET_PLAN', stamp: stamp() }); toast('Fresh start. Your plan now begins today.'); }} icon={I.undo}>Reset my plan</Button>
@@ -33,37 +33,52 @@ export const FreshStartCard = ({ days }: { days: number }) => {
 };
 
 export const Today = () => {
-  const { view, data, today, openSheet, dispatch, stamp, plan } = useApp();
+  const { view, data, today, hour, openSheet, dispatch, stamp, plan } = useApp();
   const t = todayPlan(view);
   const insights = useInsights().filter((i) => !(data.dismissedInsights[i.id] && data.dismissedInsights[i.id] === today)).slice(0, 2);
   const fresh = needsFreshStart(view);
   const [showExtra, setShowExtra] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  const [openBuckets, setOpenBuckets] = useState<Record<string, boolean>>({});
   const tomorrow = dayPlan(view, addDays(today, 1));
   const name = data.user.name.trim();
 
   const homeOn = data.preferences.focus.includes('home') || data.preferences.focus.length === 0;
-  const lifeOn = data.preferences.focus.some((f) => f !== 'home');
+  const lifeOn = plan.lifeActive;
   const focusLeft = t.focus.length + t.life.length;
   const doneN = t.done.length;
   const totalN = focusLeft + doneN;
   const nonHabitFocus = t.focus.filter((f) => !f.task.habit);
   const restDay = homeOn && !t.isActiveDay;
-  const plannedMinutes = t.plannedMinutes + t.lifeMinutes;
-  const lifeGroups = TIME_ORDER.map((tod) => [tod, t.life.filter((i) => (i.task.timeOfDay ?? 'anytime') === tod)] as const).filter(([, l]) => l.length);
+  const plannedMinutes = t.totalPlanned;
+  const buckets = bucketLife(t.life, hour);
+  const mins = (xs: DueItem[]) => xs.reduce((n, i) => n + i.task.minutes, 0);
+  const PhaseIcon = TIME_ICON[buckets.phase];
+
+  /** A part of the day that is not "now". Collapsed by default so an evening routine never looks like a task for this morning. */
+  const quietBucket = (key: string, title: string, Ic: typeof PhaseIcon, items: DueItem[], hint: string) => items.length > 0 && (
+    <div className="stack" key={key} data-bucket={key}>
+      <button className="bucket-toggle" aria-expanded={!!openBuckets[key]} onClick={() => setOpenBuckets((o) => ({ ...o, [key]: !o[key] }))}>
+        <Ic size={16} aria-hidden />
+        <span className="grow"><b>{title}</b> <span className="muted small">· {items.length} · about {formatMinutes(mins(items))}</span><span className="xs muted bucket-hint">{hint}</span></span>
+        <span aria-hidden>{openBuckets[key] ? '▲' : '▼'}</span>
+      </button>
+      {openBuckets[key] && <div className="tasklist">{items.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>}
+    </div>
+  );
 
   const lifeSection = t.life.length > 0 && (
-    <section aria-labelledby="life-h" className="stack">
+    <section aria-labelledby="life-h" className="stack" data-phase={buckets.phase}>
       <div className="section-title"><h2 id="life-h">Habits &amp; routine</h2><span className="small muted">{t.life.length} · about {formatMinutes(t.lifeMinutes)}</span></div>
-      {lifeGroups.map(([tod, items]) => {
-        const Ic = TIME_ICON[tod as TimeOfDay];
-        return (
-          <div className="stack" key={tod}>
-            <div className="group-title"><Ic size={16} aria-hidden /> {TIME_LABEL[tod as TimeOfDay]}</div>
-            <div className="tasklist">{items.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
-          </div>
-        );
-      })}
+      {buckets.now.length > 0 && (
+        <div className="stack" data-bucket="now">
+          <div className="group-title"><PhaseIcon size={16} aria-hidden /> Now · {TIME_LABEL[buckets.phase]}</div>
+          <div className="tasklist">{buckets.now.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
+        </div>
+      )}
+      {quietBucket('later', 'Later today', TIME_ICON.afternoon, buckets.later, 'Coming up this afternoon')}
+      {quietBucket('evening', 'This evening', TIME_ICON.evening, buckets.evening, 'Wind-down habits. They will be here tonight.')}
+      {quietBucket('earlier', 'Earlier today', TIME_ICON.morning, buckets.earlier, 'Still open, and that is fine. No rush.')}
     </section>
   );
   const showEnergy = data.preferences.energy === 'varies' || t.energy !== 'ok';
@@ -89,13 +104,22 @@ export const Today = () => {
         {totalN > 0 && (
           <div style={{ marginTop: 14 }}>
             <ProgressBar value={totalN ? doneN / totalN : 0} label="Today's progress" />
-            <p className="small" style={{ marginTop: 8, opacity: 0.92 }}>{doneN} done{t.doneMinutes ? ` · ${formatMinutes(t.doneMinutes)} cleaned` : ''}{homeOn && !restDay && t.budget ? ` · session goal ${plan.sessionMinutes} min` : ''}</p>
+            <p className="small" style={{ marginTop: 8, opacity: 0.92 }}>
+              {doneN} done{t.doneMinutes ? ` · ${formatMinutes(t.doneMinutes)} ${lifeOn ? 'logged' : 'cleaned'}` : ''}
+              {lifeOn ? (t.totalBudget ? ` · daily goal ${t.totalBudget} min` : '') : (homeOn && !restDay && t.budget ? ` · session goal ${plan.sessionMinutes} min` : '')}
+            </p>
+            {lifeOn && focusLeft > 0 && (buckets.later.length + buckets.evening.length) > 0 && (
+              <p className="small" style={{ marginTop: 4, opacity: 0.92 }}>{buckets.now.length + t.focus.length} for right now · {buckets.later.length + buckets.evening.length} for later today</p>
+            )}
+            {t.overBy > 0 && t.totalBudget > 0 && (
+              <p className="small" style={{ marginTop: 4, opacity: 0.92 }}>That is about {t.overBy} min over your {t.totalBudget}-minute goal, because some essentials are fixed. Anything marked optional can wait.</p>
+            )}
           </div>
         )}
         {restDay && <p className="small" style={{ marginTop: 10, opacity: 0.92 }}>It's not one of your cleaning days. If you're feeling it anyway, try one of the quick options below.</p>}
       </section>
 
-      <section aria-label="Quick actions" className="quick-actions">
+      <section aria-label="Quick actions" className={`quick-actions${homeOn ? '' : ' two'}`}>
         <button className="qa five" onClick={() => openSheet({ kind: 'five' })}>
           <span className="ic"><I.timer size={24} aria-hidden /></span>
           <span><b>Just 5 minutes</b><span className="s">One tiny task. Then stop or keep going.</span></span>
@@ -104,10 +128,12 @@ export const Today = () => {
           <span className="ic"><I.clock size={24} aria-hidden /></span>
           <span><b>I only have…</b><span className="s">Pick your minutes. We pick the tasks.</span></span>
         </button>
-        <button className="qa mess" onClick={() => openSheet({ kind: 'emergency' })}>
-          <span className="ic"><I.sparkles size={24} aria-hidden /></span>
-          <span><b>My home is a mess</b><span className="s">A calm reset, most visible things first.</span></span>
-        </button>
+        {homeOn && (
+          <button className="qa mess" onClick={() => openSheet({ kind: 'emergency' })}>
+            <span className="ic"><I.sparkles size={24} aria-hidden /></span>
+            <span><b>My home is a mess</b><span className="s">A calm reset, most visible things first.</span></span>
+          </button>
+        )}
       </section>
 
       {lifeOn && (
@@ -129,6 +155,8 @@ export const Today = () => {
       )}
 
       {insights.map((i) => <InsightCard key={i.id} insight={i} />)}
+
+      <GoalCoverageCard compact />
 
       {lifeSection}
 

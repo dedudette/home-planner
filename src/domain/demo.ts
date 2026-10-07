@@ -77,7 +77,7 @@ export const appDataForDemo = (id: DemoProfile['id'], opts: { withHistory?: bool
     ...emptyAppData(today),
     user: { id: `demo_${id}`, name: d.name, createdAt: new Date().toISOString(), demo: true },
     home: structuredClone(d.home),
-    preferences: structuredClone(d.prefs),
+    preferences: { ...structuredClone(d.prefs), levelSince: opts.withHistory ? addDays(today, -21) : today },
     onboardingComplete: true,
     plan: { startDate: opts.withHistory ? addDays(today, -21) : today, resetCount: 0 },
   };

@@ -22,7 +22,7 @@ const Choice = ({ on, onClick, icon: Icon, label, hint, multi }: { on: boolean; 
 
 const Group = ({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) => (
   <div className="stack" role="group" aria-label={label}>
-    <div><h3>{label}</h3>{hint && <p className="small muted">{hint}</p>}</div>
+    <div><h2 className="h3">{label}</h2>{hint && <p className="small muted">{hint}</p>}</div>
     {children}
   </div>
 );

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { computeInsights, type Insight, type InsightAction } from '../../domain/learning';
 import { addDays, weekday } from '../../domain/dates';
 import { useApp } from '../../state/store';
@@ -11,10 +11,15 @@ export const useInsights = (): Insight[] => {
 };
 
 export const InsightCard = ({ insight }: { insight: Insight }) => {
-  const { dispatch, stamp, view, toast, today } = useApp();
+  const { dispatch, stamp, view, toast, today, data, recordRec } = useApp();
   const task = insight.taskId ? view.byId.get(insight.taskId) : undefined;
+  const base = { recommendationId: insight.id, code: insight.code, evidence: insight.evidence };
+  // Record that this suggestion was shown (once a day), so a future recommender can tell "ignored" from "never seen".
+  const seen = data.recEvents.some((e) => e.kind === 'shown' && e.recommendationId === insight.id && e.date === today);
+  useEffect(() => { if (!seen) recordRec({ kind: 'shown', ...base }); }, [seen, insight.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const run = (a: InsightAction) => {
     const st = stamp();
+    recordRec({ kind: a.id === 'dismiss' ? 'dismissed' : 'accepted', action: a.id, ...base });
     switch (a.id) {
       case 'shorter':
         dispatch({ type: 'SET_SESSION_CAP', minutes: a.minutes ?? 20, stamp: st });
@@ -52,7 +57,7 @@ export const InsightCard = ({ insight }: { insight: Insight }) => {
     <div className={`card ${insight.tone === 'celebrate' ? 'tint' : 'soft'} stack`} role="region" aria-label={insight.title}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
         {insight.tone === 'celebrate' ? <I.sparkles size={22} aria-hidden style={{ color: 'var(--primary)', flex: 'none', marginTop: 2 }} /> : <I.sprout size={22} aria-hidden style={{ color: 'var(--primary)', flex: 'none', marginTop: 2 }} />}
-        <div><h3>{insight.title}</h3><p className="small" style={{ marginTop: 4 }}>{insight.body}</p></div>
+        <div><h2 className="h3">{insight.title}</h2><p className="small" style={{ marginTop: 4 }}>{insight.body}</p></div>
       </div>
       <div className="row wrap" style={{ gap: 8 }}>
         {insight.actions.map((a) => (

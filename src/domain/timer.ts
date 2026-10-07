@@ -2,6 +2,8 @@
  * Pure timer state machine. Time is derived from timestamps (not tick counts),
  * so a throttled background tab or a page reload can never make it drift.
  */
+import type { Task } from './types';
+
 export type TimerStatus = 'running' | 'paused' | 'finished';
 
 export interface TimerState {
@@ -15,13 +17,19 @@ export interface TimerState {
   /** Seconds left (while paused / finished). */
   remainingSec: number;
   startedAt: number;
+  /**
+   * The task being timed, kept with the timer. After a reload, tasks made on the fly (Just 5 minutes, rough-day reset) no longer
+   * exist anywhere else, and finishing them would otherwise log them as generic cleaning.
+   */
+  task?: Task;
 }
 
 export const DURATIONS = [5, 10, 15, 20, 30] as const;
 
-export const startTimer = (task: { id: string; name: string; roomName: string }, minutes: number, now: number): TimerState => {
+export const startTimer = (task: { id: string; name: string; roomName: string } & Partial<Task>, minutes: number, now: number): TimerState => {
   const totalSec = Math.max(1, Math.round(minutes * 60));
-  return { taskId: task.id, taskName: task.name, roomName: task.roomName, totalSec, status: 'running', endsAt: now + totalSec * 1000, remainingSec: totalSec, startedAt: now };
+  const full = 'substeps' in task && 'cadence' in task ? (task as Task) : undefined;
+  return { taskId: task.id, taskName: task.name, roomName: task.roomName, totalSec, status: 'running', endsAt: now + totalSec * 1000, remainingSec: totalSec, startedAt: now, ...(full ? { task: full } : {}) };
 };
 
 export const remainingSec = (t: TimerState, now: number): number =>
@@ -55,3 +63,13 @@ export const formatClock = (sec: number): string => {
   const m = Math.floor(s / 60);
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
+
+/**
+ * Which task does a finishing timer belong to? In order: the one it was started with in this session, the live plan's version of it,
+ * the snapshot stored with the timer (the only source left for "Just 5 minutes" tasks after a reload), and last of all a generic stand-in.
+ */
+export const resolveTimerTask = (t: TimerState, started: Task | null | undefined, live: Task | undefined): Task =>
+  (started && started.id === t.taskId ? started : null) ?? live ?? t.task ?? ({
+    id: t.taskId, name: t.taskName, roomName: t.roomName, roomKind: 'home', category: 'Cleaning', minutes: Math.round(t.totalSec / 60),
+    cadence: { kind: 'once' }, frequency: 'once',
+  } as unknown as Task);

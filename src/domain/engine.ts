@@ -4,7 +4,7 @@ import { assignSchedule } from './planner';
 import { buildLifeTasks } from './life';
 import { LADDER, isLife, occurrencesPerWeek, priorityOf } from './scoring';
 import type {
-  Home, Preferences, PlanMeta, ProblemArea, ResetPhase, Room, Task,
+  GoalCoverage, Home, Preferences, PlanMeta, ProblemArea, ResetPhase, Room, Task,
 } from './types';
 
 /**
@@ -47,6 +47,13 @@ export interface Plan {
   rooms: Room[];
   notes: PlanNote[];
   stats: PlanStats;
+  /** Which selected goals got a real task, and which were deferred (and why). Never faked. */
+  goalCoverage: GoalCoverage[];
+  homeShare: number;
+  lifeActive: boolean;
+  lifeBudget: number;
+  /** Minutes per day the daily micro-habits may take out of cleaning's share. They also run on rest days. */
+  habitBudget: number;
   activeDays: number[];
   sessionMinutes: number;
   chunkLimit: number;
@@ -319,7 +326,8 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   const habitPerDay = () => habits().reduce((s, t) => s + t.minutes * (occurrencesPerWeek(t.frequency, c.activeDays.length, true) / 7), 0);
 
   // When life-layer goals are on too, home cleaning shares the user's time with them.
-  const homeShare = c.lifeActive && homeOn ? 0.65 : 1;
+  // (One shared budget: cleaning's share is 60% when habits are on too, and habits take the other 40%.)
+  const homeShare = c.lifeActive && homeOn ? c.homeShare : 1;
   const cap = c.weeklyCapacity * homeShare * (c.goals.has('deep-clean') ? 0.75 : 1);
   tasks.forEach((t) => { t._base = LADDER.indexOf(t.frequency); });
   const levels = (t: Instance) => (t._base ?? 0) - LADDER.indexOf(t.frequency);
@@ -348,7 +356,9 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   }
 
   // Habits get their own daily micro-budget (they run on non-cleaning days too).
-  const habitBudget = Math.max(6, Math.min(c.activeDays.length >= 5 ? 20 : 15, c.sessionMinutes));
+  const baseHabitBudget = Math.max(6, Math.min(c.activeDays.length >= 5 ? 20 : 15, c.sessionMinutes));
+  // Habits are part of cleaning's share of the day, not on top of it.
+  const habitBudget = c.lifeActive && homeOn ? Math.max(4, Math.min(baseHabitBudget, Math.round(c.sessionMinutes * c.homeShare * 0.6))) : baseHabitBudget;
   guard = 0;
   while (habitPerDay() > habitBudget && guard++ < 200) {
     const cands = habits().filter((t) => !t._keep && LADDER.indexOf(t.frequency) > LADDER.indexOf('weekly')).sort((a, b) => keepScore(a) - keepScore(b));
@@ -386,7 +396,8 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
 
   const notes = buildNotes(c, stats, cnt, mess, resetDays, final.filter((t) => !isLife(t)), life.tasks);
   return {
-    tasks: final, rooms: c.rooms, notes, stats, activeDays: c.activeDays, sessionMinutes: c.sessionMinutes,
+    tasks: final, rooms: c.rooms, notes, stats, goalCoverage: life.coverage, homeShare: c.homeShare, lifeActive: c.lifeActive, lifeBudget: life.dayBudget, habitBudget,
+    activeDays: c.activeDays, sessionMinutes: c.sessionMinutes,
     chunkLimit: c.chunkLimit, microSteps: c.microSteps, zones: c.zones, startDate: meta.startDate, mess,
   };
 };

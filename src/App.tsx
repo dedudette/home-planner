@@ -1,4 +1,7 @@
 import { useEffect } from 'react';
+import { ConfirmSheet } from './features/common/ConfirmSheet';
+import { RecoveryScreen } from './features/recovery/Recovery';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { Welcome } from './features/welcome/Welcome';
 import { Today } from './features/today/Today';
@@ -26,11 +29,12 @@ const NAV = [
   { path: 'schedule', label: 'Schedule', icon: I.calDays },
   { path: 'progress', label: 'Progress', icon: I.chart },
 ] as const;
-const SIDE_EXTRA = [
-  { path: 'home', label: 'My Home', icon: I.home },
-  { path: 'supplies', label: 'Supplies', icon: I.package },
+/** Home and Supplies only exist for people who asked for a cleaning plan. Everyone else gets "My goals" instead of a pretend home. */
+const sideExtra = (homeOn: boolean) => [
+  { path: 'home', label: homeOn ? 'My Home' : 'My goals', icon: homeOn ? I.home : I.flame },
+  ...(homeOn ? [{ path: 'supplies', label: 'Supplies', icon: I.package }] : []),
   { path: 'settings', label: 'Settings', icon: I.settings },
-] as const;
+];
 
 const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', home: 'My Home', supplies: 'Supplies', settings: 'Settings', more: 'More' };
 
@@ -46,6 +50,7 @@ const SheetHost = () => {
     case 'timebox': return <TimeBoxSheet />;
     case 'emergency': return <EmergencySheet />;
     case 'roughDay': return <RoughDaySheet />;
+    case 'confirm': { const { kind: _k, ...o } = top; void _k; return <ConfirmSheet {...o} />; }
     case 'taskForm': return <TaskFormSheet editId={top.editId} />;
     case 'reschedule': return <RescheduleSheet task={top.task} />;
     case 'editHome': return <EditHomeSheet section={top.section} />;
@@ -66,9 +71,35 @@ const Toasts = () => {
   );
 };
 
+const Banners = () => {
+  const { loadNotice, dismissNotice, saveError } = useApp();
+  return (
+    <>
+      {saveError && (
+        <div className="banner warn" role="alert">
+          <I.info size={18} aria-hidden />
+          <div>
+            <b>Your latest changes could not be saved on this device.</b>
+            <p className="small">{saveError === 'quota' ? 'Browser storage is full.' : 'Browser storage is blocked (private mode?).'} Export a backup in Settings so nothing is lost.</p>
+          </div>
+          <a className="btn sm secondary" href="#/settings">Settings</a>
+        </div>
+      )}
+      {loadNotice && (
+        <div className="banner" role="status">
+          <I.info size={18} aria-hidden />
+          <div><b>We tidied up your saved data.</b><p className="small">{loadNotice.join(' ')} A copy of the original is kept in Settings under Automatic backups.</p></div>
+          <button className="btn sm secondary" onClick={dismissNotice}>Got it</button>
+        </div>
+      )}
+    </>
+  );
+};
+
 export const App = () => {
-  const { ready, data, openSheet } = useApp();
+  const { ready, data, openSheet, recovery, startFresh, repo } = useApp();
   const route = useRoute();
+  const homeOn = data.preferences.focus.includes('home');
 
   useEffect(() => {
     const p = route.path.split('/')[0];
@@ -78,9 +109,11 @@ export const App = () => {
 
   if (!ready) return <div className="onb" role="status" aria-label="Loading"><div className="onb-body center" style={{ justifyContent: 'center' }}><p className="muted">Loading CleanFlow…</p></div></div>;
 
+  if (recovery) return <RecoveryScreen mode="unreadable" repo={repo} raw={recovery.raw} reason={recovery.reason} onStartFresh={startFresh} />;
+
   if (!data.onboardingComplete) {
     return route.path === 'onboarding'
-      ? <Onboarding onDone={() => navigate('home?new=1')} onExit={() => navigate('')} />
+      ? <Onboarding onDone={() => navigate(homeOn ? 'home?new=1' : 'today')} onExit={() => navigate('')} />
       : <Welcome onStart={() => navigate('onboarding')} onDemo={() => navigate('today')} />;
   }
 
@@ -91,7 +124,7 @@ export const App = () => {
       case 'schedule': return <Schedule />;
       case 'progress': return <Progress />;
       case 'home': return <MyHome isNew={route.query.get('new') === '1'} />;
-      case 'supplies': return <Supplies />;
+      case 'supplies': return homeOn ? <Supplies /> : <Today />;
       case 'settings': return <Settings />;
       case 'more': return <More />;
       default: return <Today />;
@@ -105,7 +138,7 @@ export const App = () => {
       <aside className="sidebar" aria-label="Main">
         <a className="brand" href="#/today"><span className="brand-mark"><I.sparkles size={20} aria-hidden /></span>CleanFlow</a>
         <nav className="stack" style={{ gap: 4 }}>
-          {[...NAV, ...SIDE_EXTRA].map((n) => (
+          {[...NAV, ...sideExtra(homeOn)].map((n) => (
             <a key={n.path} href={`#/${n.path}`} aria-current={path === n.path ? 'page' : undefined}><n.icon size={20} aria-hidden />{n.label}</a>
           ))}
         </nav>
@@ -114,7 +147,10 @@ export const App = () => {
         <button className="btn secondary" onClick={() => openSheet({ kind: 'taskForm' })}><I.plus size={18} aria-hidden /> Add a task</button>
       </aside>
 
-      <main className="main" id="main" tabIndex={-1} style={{ outline: 'none' }}>{page}</main>
+      <main className="main" id="main" tabIndex={-1} style={{ outline: 'none' }}>
+        <Banners />
+        <ErrorBoundary scope="page" resetKey={path}>{page}</ErrorBoundary>
+      </main>
 
       <nav className="bottomnav" aria-label="Main">
         {NAV.map((n) => (

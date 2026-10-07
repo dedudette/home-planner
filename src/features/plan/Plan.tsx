@@ -15,6 +15,7 @@ import { I, ROOM_ICON } from '../../ui/icons';
 import { Button, Chip, Empty, PageHead, Segmented } from '../../ui/primitives';
 import { navigate } from '../../ui/router';
 import { TaskCard } from '../tasks/TaskCard';
+import { GoalCoverageCard } from './GoalCoverage';
 
 const SECTION_HELP: Record<SectionId, string> = {
   today: "What's on for today, sized to your session length.",
@@ -57,13 +58,14 @@ const groupBy = (tasks: Task[], key: (t: Task) => string): [string, Task[]][] =>
 
 const Overview = () => {
   const { view, plan, data, openSheet } = useApp();
+  const homeOn = data.preferences.focus.includes('home');
   const [section, setSection] = useState<SectionId>('today');
   const [showWhy, setShowWhy] = useState(false);
   const [domain, setDomain] = useState<Domain | 'all'>('all');
   const domains = useMemo(() => [...new Set(view.tasks.map((t) => t.domain ?? 'home'))] as Domain[], [view]);
   const activeDomain = domain === 'all' || domains.includes(domain) ? domain : 'all';
   const counts = useMemo(() => Object.fromEntries(sectionId.map((s) => [s, sectionTasks(view, s, activeDomain).length])) as Record<SectionId, number>, [view, activeDomain]);
-  const ids = sectionId.filter((s) => counts[s] > 0 || s === 'today' || s === 'daily');
+  const ids = sectionId.filter((s) => counts[s] > 0 || s === 'today' || (s === 'daily' && homeOn));
   const current = ids.includes(section) ? section : 'today';
   const tasks = sectionTasks(view, current, activeDomain);
   const grouped = ['weekly', 'biweekly', 'monthly', 'seasonal', 'backlog', 'reset', 'routine', 'challenge'].includes(current);
@@ -76,8 +78,10 @@ const Overview = () => {
       <div className="card tint stack">
         <div className="row between wrap">
           <div>
-            <h3>Your plan at a glance</h3>
-            <p className="small muted">{plan.stats.recurringCount} recurring tasks · about {formatMinutes(weekMinutes)} a week · {plan.sessionMinutes}-minute sessions on {days}</p>
+            <h2 className="h3">Your plan at a glance</h2>
+            <p className="small muted">{homeOn
+              ? `${plan.stats.recurringCount} recurring tasks · about ${formatMinutes(weekMinutes)} a week · ${plan.sessionMinutes}-minute sessions on ${days}`
+              : `${plan.stats.lifeCount} daily habits · about ${plan.stats.lifeDailyMinutes} min a day · a ${plan.sessionMinutes}-minute daily goal`}</p>
           </div>
           <Button size="sm" variant="soft" onClick={() => setShowWhy((s) => !s)} aria-expanded={showWhy} icon={I.info}>{showWhy ? 'Hide' : 'Why this plan?'}</Button>
         </div>
@@ -91,6 +95,8 @@ const Overview = () => {
         )}
       </div>
 
+      <GoalCoverageCard />
+
       {domains.length > 1 && (
         <div className="chips scroll" role="group" aria-label="Filter by area">
           <Chip small on={activeDomain === 'all'} onClick={() => setDomain('all')}>All areas</Chip>
@@ -99,7 +105,7 @@ const Overview = () => {
       )}
       <div className="chips scroll" role="tablist" aria-label="Plan sections">
         {ids.map((s) => (
-          <Chip key={s} role="tab" on={current === s} onClick={() => setSection(s)} aria-selected={current === s}>{SECTION_LABEL[s].toUpperCase()} <span style={{ opacity: 0.75 }}>{counts[s]}</span></Chip>
+          <Chip key={s} role="tab" on={current === s} onClick={() => setSection(s)} aria-selected={current === s}>{SECTION_LABEL[s].toUpperCase()} <span className="chip-count">{counts[s]}</span></Chip>
         ))}
       </div>
       <p className="small muted">{SECTION_HELP[current]}</p>
@@ -142,7 +148,7 @@ const ByRoom = () => {
         {modes.map((k) => { const R = ROOM_ICON[k]; return <Chip key={k} role="tab" aria-selected={current === k} on={current === k} onClick={() => setMode(k)}><R size={16} aria-hidden /> {ROOM_MODE_LABEL[k]}</Chip>; })}
       </div>
       <div className="card soft row between wrap">
-        <div><h3>{ROOM_MODE_LABEL[current]}</h3><p className="small muted">{upcoming.length} task{upcoming.length === 1 ? '' : 's'}{mins ? ` · about ${formatMinutes(Math.round(mins))} a week` : ''}</p></div>
+        <div><h2 className="h3">{ROOM_MODE_LABEL[current]}</h2><p className="small muted">{upcoming.length} task{upcoming.length === 1 ? '' : 's'}{mins ? ` · about ${formatMinutes(Math.round(mins))} a week` : ''}</p></div>
       </div>
       {tasks.length === 0 && <Empty title="No tasks for this space yet" />}
       {grouped.map(([f, ts]) => (
@@ -190,7 +196,7 @@ const Deep = () => {
   return (
     <>
       <div className="card tint stack">
-        <div className="row"><I.sparkles size={22} aria-hidden style={{ color: 'var(--primary)' }} /><h3>Deep clean mode</h3></div>
+        <div className="row"><I.sparkles size={22} aria-hidden style={{ color: 'var(--primary)' }} /><h2 className="h3">Deep clean mode</h2></div>
         <p className="small">The big, satisfying jobs. They only appear for rooms you actually have. Pick one room, schedule it across your cleaning days, or just do a single task when you're in the mood.</p>
       </div>
       {rooms.length === 0 && <Empty title="No deep-clean tasks yet" />}
@@ -213,14 +219,17 @@ const Deep = () => {
 };
 
 export const Plan = ({ tab }: { tab: string | null }) => {
-  const { openSheet } = useApp();
-  const current = tab === 'rooms' || tab === 'deep' ? tab : 'overview';
+  const { openSheet, data } = useApp();
+  const homeOn = data.preferences.focus.includes('home');
+  const current = homeOn && (tab === 'rooms' || tab === 'deep') ? tab : 'overview';
   return (
     <div className="page">
       <PageHead title="Your plan" sub="Built from your home, your time and your energy."
         action={<Button variant="soft" size="sm" icon={I.plus} onClick={() => openSheet({ kind: 'taskForm' })}>Add task</Button>} />
-      <Segmented label="Plan views" value={current} onChange={(v) => navigate(v === 'overview' ? 'plan' : `plan?tab=${v}`)}
-        options={[{ value: 'overview', label: 'Overview' }, { value: 'rooms', label: 'By room' }, { value: 'deep', label: 'Deep clean' }]} />
+      {homeOn && (
+        <Segmented label="Plan views" value={current} onChange={(v) => navigate(v === 'overview' ? 'plan' : `plan?tab=${v}`)}
+          options={[{ value: 'overview', label: 'Overview' }, { value: 'rooms', label: 'By room' }, { value: 'deep', label: 'Deep clean' }]} />
+      )}
       {current === 'overview' ? <Overview /> : current === 'rooms' ? <ByRoom /> : <Deep />}
     </div>
   );

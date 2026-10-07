@@ -61,7 +61,14 @@ export const compareForToday = (a: DueItem, b: DueItem): number => {
 
 export interface TodayPlan {
   isActiveDay: boolean;
+  /** Cleaning's share of today's minutes (all of them when habits are off). */
   budget: number;
+  /** The whole day's promise: the one number the user chose, shared by cleaning and habits. */
+  totalBudget: number;
+  /** Everything planned today, cleaning plus habits. */
+  totalPlanned: number;
+  /** Minutes by which the essentials exceed the promise (0 when they fit). Shown honestly rather than hidden. */
+  overBy: number;
   focus: DueItem[];
   /** Life-layer habits due today (separate time budget from home cleaning). */
   life: DueItem[];
@@ -79,7 +86,12 @@ export const todayPlan = (v: PlanView): TodayPlan => {
   const energy = data.dayEnergy?.date === today ? data.dayEnergy.level : 'ok';
   const isActiveDay = plan.activeDays.includes(new Date(`${today}T12:00:00`).getDay());
   const factor = energy === 'low' ? 0.6 : energy === 'high' ? 1.3 : 1;
-  const budget = isActiveDay ? Math.round(plan.sessionMinutes * factor) : 0;
+  // One daily budget, shared. Cleaning gets its share (all of it when habits are off), habits get the rest.
+  const budget = isActiveDay ? Math.round(plan.sessionMinutes * plan.homeShare * factor) : 0;
+  const lifeBudget = plan.lifeActive ? Math.round(plan.lifeBudget * factor) : 0;
+  // On a rest day only the daily micro-habits remain of cleaning's share, so the promise shrinks to habits plus those basics.
+  const restBudget = lifeBudget + (plan.homeShare >= 0.5 ? plan.habitBudget : 0);
+  const totalBudget = plan.lifeActive ? (plan.homeShare < 0.5 || isActiveDay ? Math.round(plan.sessionMinutes * factor) : restBudget) : budget;
 
   const items = dueItems(v);
   const done = entriesOn(data, today).filter((e) => e.outcome === 'completed');
@@ -95,23 +107,65 @@ export const todayPlan = (v: PlanView): TodayPlan => {
   const focus: DueItem[] = eligible.filter((i) => i.task.habit);
   const extra: DueItem[] = [];
   let used = focus.reduce((s, f) => s + f.task.minutes, 0);
+  // When cleaning shares the day with habits, nothing gets a free pass: the day has to fit the promise.
+  const strict = plan.lifeActive;
+  const fits = (t: Task) => energy !== 'low' || easy(t);
   for (const it of eligible) {
     if (it.task.habit) continue;
-    const fitsEnergy = energy !== 'low' || easy(it.task);
-    const firstOne = focus.every((f) => f.task.habit);
-    if (isActiveDay && fitsEnergy && (used + it.task.minutes <= budget * 1.1 || firstOne)) {
+    const firstOne = !strict && focus.every((f) => f.task.habit);
+    if (isActiveDay && fits(it.task) && (used + it.task.minutes <= budget * 1.1 || firstOne)) {
       focus.push(it);
       used += it.task.minutes;
     } else extra.push(it);
   }
+  if (strict && isActiveDay && !focus.some((f) => !f.task.habit)) {
+    // Never leave a cleaning day with only habits if something small enough still fits the promise.
+    const small = extra.filter((i) => fits(i.task)).sort((a, b) => a.task.minutes - b.task.minutes)[0];
+    if (small && used + small.task.minutes <= budget * 1.3) { focus.push(small); used += small.task.minutes; extra.splice(extra.indexOf(small), 1); }
+  }
   extra.push(...lifeAll.filter((i) => !lifeEasy(i.task)));
+  const lifeMinutes = life.reduce((s, i) => s + i.task.minutes, 0);
+  const totalPlanned = used + lifeMinutes;
   return {
-    isActiveDay, budget, focus, life, extra, catchUp, done,
+    isActiveDay, budget, totalBudget, totalPlanned, overBy: Math.max(0, totalPlanned - totalBudget), focus, life, extra, catchUp, done,
     plannedMinutes: used,
-    lifeMinutes: life.reduce((s, i) => s + i.task.minutes, 0),
+    lifeMinutes,
     doneMinutes: done.reduce((s, e) => s + e.actualMinutes, 0),
     energy,
   };
+};
+
+// ───────────────────────── Now / later ─────────────────────────
+
+export type DayPhase = 'morning' | 'afternoon' | 'evening';
+
+/** Late night still belongs to "this evening": a 1 am user has not started tomorrow yet. */
+export const phaseOfHour = (hour: number): DayPhase => (hour >= 17 || hour < 5 ? 'evening' : hour >= 12 ? 'afternoon' : 'morning');
+
+export interface LifeBuckets {
+  phase: DayPhase;
+  /** What suits this part of the day, plus anything that can be done at any time. */
+  now: DueItem[];
+  /** Later today, but not evening (afternoon items seen in the morning). */
+  later: DueItem[];
+  /** Evening routines seen before the evening, so they never look like current morning tasks. */
+  evening: DueItem[];
+  /** Morning (or afternoon) items still open after their time. Optional and quiet: no rush, no shame. */
+  earlier: DueItem[];
+}
+
+/** Sort today's habits by when they make sense, so an evening routine is never presented as a task for right now. */
+export const bucketLife = (items: DueItem[], hour: number): LifeBuckets => {
+  const phase = phaseOfHour(hour);
+  const out: LifeBuckets = { phase, now: [], later: [], evening: [], earlier: [] };
+  for (const i of items) {
+    const tod: TimeOfDay = i.task.timeOfDay ?? 'anytime';
+    if (tod === 'anytime' || tod === phase) out.now.push(i);
+    else if (tod === 'evening') out.evening.push(i);          // phase is morning or afternoon
+    else if (tod === 'afternoon' && phase === 'morning') out.later.push(i);
+    else out.earlier.push(i);                                  // morning/afternoon items after their time
+  }
+  return out;
 };
 
 // ───────────────────────── Schedule views ─────────────────────────

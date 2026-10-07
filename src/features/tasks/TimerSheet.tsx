@@ -3,7 +3,12 @@ import { DURATIONS, formatClock, remainingSec } from '../../domain/timer';
 import type { Task } from '../../domain/types';
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
+import { isLife } from '../../domain/scoring';
+import type { TimerState } from '../../domain/timer';
 import { Button, Chip, Sheet } from '../../ui/primitives';
+
+/** "Cleaning timer" for cleaning, plain "Timer" for habits, so a breathing exercise is never labelled as housework. */
+const isHabitTimer = (t: TimerState) => (t.task ? isLife(t.task) : /:life$|^five:l-|^rough:/.test(t.taskId));
 
 const closest = (m: number) => DURATIONS.reduce((a, b) => (Math.abs(b - m) < Math.abs(a - m) ? b : a), DURATIONS[0]);
 
@@ -44,7 +49,7 @@ export const TimerSheet = () => {
   const r = 118; const c = 2 * Math.PI * r;
   const finished = timer.status === 'finished';
   return (
-    <Sheet title={finished ? 'Time is up' : 'Cleaning timer'} onClose={closeSheet} label="Cleaning timer"
+    <Sheet title={finished ? 'Time is up' : isHabitTimer(timer) ? 'Timer' : 'Cleaning timer'} onClose={closeSheet} label={isHabitTimer(timer) ? 'Timer' : 'Cleaning timer'}
       footer={finished ? (
         <><Button variant="secondary" onClick={() => finishTimer('stop')}>Not finished, and that's fine</Button><Button icon={I.check} onClick={() => finishTimer('complete')}>Mark complete</Button></>
       ) : (
@@ -95,7 +100,7 @@ export const TimerBar = () => {
   return (
     <div className="timerbar" role="region" aria-label="Active timer">
       <button className="open" onClick={() => openSheet({ kind: 'timer' })} aria-label={`Open timer for ${timer.taskName}`}>
-        <div className="xs" style={{ opacity: 0.85 }}>{finished ? 'Time is up. Tap to finish' : timer.status === 'paused' ? 'Paused' : 'Cleaning'} · {timer.roomName}</div>
+        <div className="xs" style={{ opacity: 0.85 }}>{finished ? 'Time is up. Tap to finish' : timer.status === 'paused' ? 'Paused' : isHabitTimer(timer) ? 'Timer' : 'Cleaning'} · {timer.roomName}</div>
         <div className="row" style={{ gap: 10 }}><span className="time">{finished ? 'Done' : formatClock(left)}</span><span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{timer.taskName}</span></div>
       </button>
       {!finished && <button className="icon-btn" onClick={pauseResume} aria-label={timer.status === 'paused' ? 'Resume timer' : 'Pause timer'}>{timer.status === 'paused' ? <I.play size={22} /> : <I.pause size={22} />}</button>}

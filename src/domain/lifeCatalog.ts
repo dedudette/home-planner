@@ -182,9 +182,12 @@ const care: LifeTemplate[] = [
   L({ id: 'c-shower', domain: 'care', sub: 'Hygiene', focus: ['selfcare', 'morning', 'healthy', 'discipline'], freq: 'daily', time: 'morning', routine: true, setting: 'indoor', impact: 6, base: 56,
     description: 'A shower resets your body and your mood.', reason: 'Showering is one of the quickest ways to feel like a new person.', steps: ['Gather a towel and clean clothes first', 'Shower, with just soap and water if you are short on time', 'Dry off and dress'], tiny: ['Put a towel on the rack', 'Step in the shower'],
     ladder: [S(1, 10, 'Take a shower')] }),
-  L({ id: 'c-teeth', domain: 'care', sub: 'Hygiene', focus: ['selfcare', 'morning', 'evening', 'healthy', 'consistent'], freq: 'daily', time: 'morning', routine: true, setting: 'indoor', impact: 6, base: 58,
-    description: 'Two minutes, twice a day.', reason: 'The smallest habit with the biggest long-term payoff.', steps: ['Brush for two minutes', 'Brush your tongue gently', 'Do it again before bed'],
+  L({ id: 'c-teeth', domain: 'care', sub: 'Hygiene', focus: ['selfcare', 'morning', 'healthy', 'consistent'], freq: 'daily', time: 'morning', routine: true, setting: 'indoor', impact: 6, base: 58,
+    description: 'Two minutes to start the day with a clean mouth.', reason: 'The smallest habit with the biggest long-term payoff.', steps: ['Brush for two minutes', 'Brush your tongue gently', 'Floss if you have a moment'],
     ladder: [S(1, 2, 'Brush your teeth')] }),
+  L({ id: 'c-teeth-night', domain: 'care', sub: 'Hygiene', focus: ['selfcare', 'evening', 'healthy', 'consistent'], freq: 'daily', time: 'evening', routine: true, setting: 'indoor', impact: 6, base: 56,
+    description: 'Two minutes before bed. It also marks the end of the day.', reason: 'Brushing before bed is the evening half of the smallest habit with the biggest long-term payoff.', steps: ['Brush for two minutes', 'Brush your tongue gently', 'Floss if you have a moment'],
+    ladder: [S(1, 2, 'Brush your teeth before bed')] }),
   L({ id: 'c-skincare', domain: 'care', sub: 'Grooming', focus: ['selfcare', 'evening'], freq: 'daily', time: 'evening', routine: true, setting: 'indoor', impact: 3, base: 36,
     description: 'Cleanse and moisturise (a basic routine is enough).', reason: 'A short evening ritual that feels like looking after yourself.', steps: ['Wash your face with lukewarm water', 'Pat dry', 'Apply moisturiser'],
     ladder: [S(1, 3, 'Skincare routine')] }),
@@ -230,7 +233,7 @@ const mind: LifeTemplate[] = [
     ladder: [S(1, 5, 'Read 5 pages'), S(1, 10, 'Read for 10 minutes'), S(2, 20, 'Read for 20 minutes')] }),
   L({ id: 'm-focus', domain: 'mind', sub: 'Focus', focus: ['focus', 'discipline', 'study'], freq: 'daily', time: 'morning', setting: 'indoor', difficulty: 2, impact: 7, base: 60,
     description: 'Pick one task, silence notifications and work on only that.', reason: 'Short, protected focus blocks are the easiest way to get meaningful work done.', steps: ['Choose one task', 'Silence your phone and close other tabs', 'Set a timer and work on only that task', 'Take a proper break afterwards'],
-    ladder: [S(1, 15, '15-minute focused work session'), S(2, 25, '25-minute focused work session'), S(3, 45, '45-minute focused work session', { difficulty: 3 })] }),
+    ladder: [S(1, 10, '10-minute focus block'), S(1, 15, '15-minute focused work session'), S(2, 25, '25-minute focused work session'), S(3, 45, '45-minute focused work session', { difficulty: 3 })] }),
   L({ id: 'm-review', domain: 'mind', sub: 'Planning', focus: ['focus', 'discipline', 'evening', 'consistent', 'organize'], freq: 'daily', time: 'evening', routine: true, setting: 'indoor', impact: 5, base: 48,
     description: 'Look at what you did, not what you didn\'t.', reason: 'A quick review helps you notice progress and adjust gently.', steps: ['Write down 1–3 things you completed today', 'Note one thing that helped', 'Note one thing to try tomorrow'],
     ladder: [S(1, 3, "Review today's progress")] }),
@@ -243,7 +246,7 @@ const mind: LifeTemplate[] = [
 const digital: LifeTemplate[] = [
   L({ id: 'd-phone-free', domain: 'digital', sub: 'Phone-free time', focus: ['phone', 'focus', 'selfcare', 'discipline'], freq: 'daily', time: 'anytime', setting: 'either', lowImpact: true, impact: 7, base: 60,
     description: 'Leave your phone in another room and do something else.', reason: 'Short phone-free stretches rebuild your attention.', steps: ['Put your phone in another room (or in a drawer)', 'Do something screen-free', 'Pick it up again when the time is up'],
-    ladder: [S(1, 10, 'Spend 10 minutes without your phone'), S(2, 30, '30 minutes without your phone'), S(3, 60, 'An hour without your phone')] }),
+    ladder: [S(1, 5, 'Spend 5 minutes without your phone'), S(1, 10, 'Spend 10 minutes without your phone'), S(2, 30, '30 minutes without your phone'), S(3, 60, 'An hour without your phone')] }),
   L({ id: 'd-social-break', domain: 'digital', sub: 'Social media', focus: ['phone', 'focus', 'discipline'], freq: 'daily', time: 'afternoon', setting: 'either', lowImpact: true, impact: 6, base: 54,
     description: 'Close the apps and do something else for a set time.', reason: 'Taking planned breaks from social media makes it easier to use it on purpose.', steps: ['Close your social media apps', 'Set a timer', 'Do something else until it rings'],
     ladder: [S(1, 15, '15-minute social media break'), S(2, 30, '30-minute social media break')] }),
@@ -308,10 +311,10 @@ const admin: LifeTemplate[] = [
 const learning: LifeTemplate[] = [
   L({ id: 'l-study', domain: 'learning', sub: 'Study', focus: ['study', 'focus', 'consistent', 'discipline'], freq: 'daily', time: 'afternoon', setting: 'indoor', difficulty: 2, impact: 8, base: 68,
     description: 'Short, regular study beats occasional long sessions.', reason: 'A little every day is the most reliable way to learn.', steps: ['Choose one topic', 'Silence your phone', 'Study for the time you set', 'Write one thing you learned'],
-    ladder: [S(1, 10, 'Study for 10 minutes'), S(2, 20, 'Study for 20 minutes'), S(3, 30, 'Study for 30 minutes')] }),
+    ladder: [S(1, 5, 'Study for 5 minutes'), S(1, 10, 'Study for 10 minutes'), S(2, 20, 'Study for 20 minutes'), S(3, 30, 'Study for 30 minutes')] }),
   L({ id: 'l-practice', domain: 'learning', sub: 'Skills', focus: ['study', 'consistent', 'discipline'], freq: 'daily', time: 'anytime', setting: 'indoor', impact: 6, base: 56,
     description: 'Pick a skill and do a small piece of it.', reason: 'Skills grow with frequent, short practice.', steps: ['Pick one thing to practise', 'Do it slowly and carefully', 'Note one thing to improve next time'],
-    ladder: [S(1, 10, 'Practice a skill'), S(2, 20, 'Practice a skill for 20 minutes'), S(3, 30, 'Practice a skill for 30 minutes')] }),
+    ladder: [S(1, 5, 'Practice a skill for 5 minutes'), S(1, 10, 'Practice a skill'), S(2, 20, 'Practice a skill for 20 minutes'), S(3, 30, 'Practice a skill for 30 minutes')] }),
   L({ id: 'l-learn-new', domain: 'learning', sub: 'Curiosity', focus: ['study', 'selfcare'], freq: 'twice-weekly', time: 'anytime', setting: 'indoor', impact: 4, base: 40,
     description: 'Watch a short explainer, read an article or try a tutorial.', reason: 'Curiosity is a habit, and small doses keep it alive.', steps: ['Pick a topic you are curious about', 'Spend 10 minutes learning about it', 'Write down one new thing'],
     ladder: [S(1, 10, 'Learn something new')] }),
@@ -326,7 +329,7 @@ const learning: LifeTemplate[] = [
     ladder: [S(1, 10, 'Practice music (theory or ear training)')] }),
   L({ id: 'l-project', domain: 'learning', sub: 'Projects', focus: ['study', 'discipline', 'focus', 'consistent'], freq: 'twice-weekly', time: 'anytime', setting: 'indoor', difficulty: 2, impact: 6, base: 52,
     description: 'Make a little progress on something that matters to you.', reason: 'Small steady sessions are how personal projects actually get finished.', steps: ['Open the project', 'Decide on one small next step', 'Work on only that step for the set time', 'Note what to do next time'],
-    ladder: [S(1, 15, 'Work on a personal project'), S(2, 30, 'Work on a personal project for 30 minutes'), S(3, 60, 'A one-hour project session', { difficulty: 3 })] }),
+    ladder: [S(1, 10, 'Work on a personal project for 10 minutes'), S(1, 15, 'Work on a personal project'), S(2, 30, 'Work on a personal project for 30 minutes'), S(3, 60, 'A one-hour project session', { difficulty: 3 })] }),
   L({ id: 'l-read-edu', domain: 'learning', sub: 'Reading', focus: ['study', 'focus'], freq: 'twice-weekly', time: 'anytime', setting: 'indoor', lowImpact: true, impact: 5, base: 44,
     description: 'An article, a chapter, a paper, whatever teaches you something.', reason: 'Reading something educational keeps your knowledge growing.', steps: ['Choose an article or chapter', 'Read it without switching apps', 'Write one takeaway'],
     ladder: [S(1, 15, 'Read an educational article or book chapter')] }),
@@ -390,3 +393,33 @@ export const SAFETY_LINE: Partial<Record<LifeDomain, string>> = {
 };
 
 export const LIFE_DOMAINS: LifeDomain[] = ['fitness', 'breathing', 'care', 'mind', 'digital', 'admin', 'learning', 'outdoor', 'sleep'];
+
+/**
+ * Tasks that do (nearly) the same job. A plan may hold at most `cap` from each group, so nobody gets a 10-minute walk, a separate
+ * "go outside" and a park visit all in the same day, or four near-identical "planning" chores.
+ */
+export interface RedundancyGroup { id: string; cap: number; members: string[] }
+export const REDUNDANCY_GROUPS: RedundancyGroup[] = [
+  { id: 'walking', cap: 1, members: ['f-walk', 'o-outside', 'o-park'] },
+  { id: 'stretching', cap: 1, members: ['f-stretch', 'f-mobility', 'f-desk-stretch', 'f-recovery'] },
+  { id: 'strength-micro', cap: 2, members: ['f-squats', 'f-lunges', 'f-pushups', 'f-plank', 'f-crunches', 'f-leg-raises', 'f-glute-bridge'] },
+  { id: 'workouts', cap: 2, members: ['f-full-body', 'f-core-workout', 'f-lower-workout', 'f-upper-workout', 'f-dance', 'f-low-cardio', 'f-jacks', 'f-climbers', 'f-jump-rope'] },
+  { id: 'breathing-day', cap: 1, members: ['b-breath', 'b-ground', 'b-box'] },
+  { id: 'breathing-night', cap: 1, members: ['b-46', 'b-sleep'] },
+  { id: 'reflection', cap: 1, members: ['m-journal', 'm-review', 'l-review', 'm-gratitude'] },
+  { id: 'plan-tomorrow', cap: 1, members: ['a-plan-tomorrow', 'a-prep-tomorrow'] },
+  { id: 'plan-today', cap: 1, members: ['m-top3', 'a-calendar'] },
+  { id: 'reading', cap: 1, members: ['m-read', 's-read'] },
+  { id: 'phone-at-bed', cap: 1, members: ['d-nophone-bed', 's-alarm'] },
+  { id: 'phone-free', cap: 1, members: ['d-phone-free', 'd-social-break'] },
+  { id: 'study-daily', cap: 1, members: ['l-study', 'l-practice'] },
+  { id: 'music', cap: 1, members: ['l-instrument', 'l-singing', 'l-music'] },
+  { id: 'bedtime', cap: 1, members: ['s-bedtime', 'c-teeth-night'] },
+  { id: 'dinner', cap: 1, members: ['c-dinner', 'c-cook'] },
+  { id: 'digital-tidying', cap: 2, members: ['d-notifications', 'd-apps', 'd-photos', 'd-downloads', 'd-files', 'd-desktop'] },
+  { id: 'money', cap: 2, members: ['a-expenses', 'a-budget', 'a-bill'] },
+];
+
+const GROUP_OF = new Map<string, RedundancyGroup[]>();
+for (const g of REDUNDANCY_GROUPS) for (const m of g.members) GROUP_OF.set(m, [...(GROUP_OF.get(m) ?? []), g]);
+export const groupsOf = (templateId: string): RedundancyGroup[] => GROUP_OF.get(templateId) ?? [];

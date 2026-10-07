@@ -6,13 +6,21 @@ import {
   dueInfo, markComplete, markMove, markSkip, markSnooze, resetStates,
 } from '../domain/schedule';
 import type {
-  AppData, CleaningSession, CustomTask, EntryOutcome, EntryVia, Home, ISODate, Preferences, SessionEntry,
-  Supply, Task, TaskState,
+  AppData, CleaningSession, CustomTask, EnergyLevel, EntryOutcome, EntryVia, ExposureRecord, Home, ISODate, PlanMeta, PlanVersion, Preferences,
+  RecommendationEvent, ResetRun, SessionEntry, Supply, Task, TaskState,
 } from '../domain/types';
+import { planVersionOf } from '../domain/planVersion';
 import { emptyAppData } from '../domain/appdata';
 import { applyOverride } from '../domain/schedule';
 
-export interface Stamp { now: string; today: ISODate }
+/**
+ * When something happened. `hour` and `tz` are filled in by the store; when absent (tests, older callers) they are derived from `now`,
+ * which is exact on the device that produced the stamp.
+ */
+export interface Stamp { now: string; today: ISODate; hour?: number; tz?: number }
+
+const localHourOf = (s: Stamp) => s.hour ?? new Date(s.now).getHours();
+const tzOf = (s: Stamp) => s.tz ?? new Date(s.now).getTimezoneOffset();
 
 export type Action =
   | { type: 'LOAD'; data: AppData }
@@ -23,11 +31,17 @@ export type Action =
   | { type: 'SET_PREFS'; patch: Partial<Preferences>; stamp: Stamp }
   | { type: 'FINISH_ONBOARDING'; stamp: Stamp }
   | { type: 'LOAD_DEMO'; id: DemoProfile['id']; withHistory: boolean; stamp: Stamp }
-  | { type: 'TASK_COMPLETE'; task: Task; stamp: Stamp; minutes?: number; via: EntryVia }
-  | { type: 'TASK_SKIP'; task: Task; stamp: Stamp; via?: EntryVia; minutes?: number }
-  | { type: 'TASK_STOP'; task: Task; stamp: Stamp; minutes: number }
-  | { type: 'TASK_SNOOZE'; task: Task; stamp: Stamp }
-  | { type: 'TASK_MOVE'; task: Task; to: ISODate; stamp: Stamp; label?: 'moved' | 'snoozed' }
+  // `entryId` makes every logged action idempotent and individually undoable. Callers generate it; tests may omit it.
+  | { type: 'TASK_COMPLETE'; task: Task; stamp: Stamp; minutes?: number; via: EntryVia; entryId?: string }
+  | { type: 'TASK_SKIP'; task: Task; stamp: Stamp; via?: EntryVia; minutes?: number; entryId?: string }
+  | { type: 'TASK_STOP'; task: Task; stamp: Stamp; minutes: number; entryId?: string }
+  | { type: 'TASK_SNOOZE'; task: Task; stamp: Stamp; entryId?: string }
+  | { type: 'TASK_MOVE'; task: Task; to: ISODate; stamp: Stamp; label?: 'moved' | 'snoozed'; entryId?: string }
+  | { type: 'UNDO'; entryId: string; taskId: string; before: TaskState | null; after: TaskState | null; undoReset?: boolean; fiveBefore?: string[] }
+  | { type: 'UNDO_RESET_PLAN'; plan: PlanMeta; lastOpened: ISODate | null; before: Record<string, Pick<TaskState, 'anchor' | 'due' | 'skipStreak'>> }
+  | { type: 'RECORD_EXPOSURE'; record: ExposureRecord }
+  | { type: 'RECORD_PLAN_VERSION'; version: PlanVersion }
+  | { type: 'REC_EVENT'; event: RecommendationEvent }
   | { type: 'TASK_PATCH'; id: string; patch: Partial<TaskState> }
   | { type: 'TASK_OVERRIDE'; id: string; override: NonNullable<TaskState['override']> | null }
   | { type: 'RESET_PLAN'; stamp: Stamp }
@@ -59,10 +73,50 @@ export const logEntry = (data: AppData, entry: SessionEntry): AppData => {
   return { ...data, sessions };
 };
 
-const entryFor = (task: Task, stamp: Stamp, outcome: EntryOutcome, via: EntryVia, minutes: number): SessionEntry => ({
-  id: uid('e'), at: stamp.now, date: stamp.today, taskId: task.id, name: task.name, roomKind: task.roomKind, roomName: task.roomName,
-  category: task.category, plannedMinutes: task.minutes, actualMinutes: Math.max(0, Math.round(minutes)), outcome, via, domain: task.domain,
-});
+const energyOn = (data: AppData, today: ISODate): EnergyLevel =>
+  data.energyLog[today] ?? (data.dayEnergy?.date === today ? data.dayEnergy.level : 'ok');
+
+/**
+ * Fallback id for callers that do not supply one (tests, scripts). The app always passes a unique `entryId`; that id is what
+ * makes an action safe to replay, and what lets Undo find exactly its own entry.
+ */
+const entryCount = (data: AppData) => data.sessions.reduce((n, s) => n + s.entries.length, 0);
+const defaultEntryId = (data: AppData, stamp: Stamp, task: Task, outcome: EntryOutcome) => `e:${stamp.now}:${task.id}:${outcome}:${entryCount(data)}`;
+
+const entryFor = (
+  data: AppData, task: Task, stamp: Stamp, outcome: EntryOutcome, via: EntryVia, minutes: number, id: string | undefined,
+  extra: Partial<Pick<SessionEntry, 'fromDue' | 'toDue'>> = {},
+): SessionEntry => {
+  const e: SessionEntry = {
+    id: id ?? defaultEntryId(data, stamp, task, outcome), at: stamp.now, date: stamp.today, taskId: task.id, name: task.name, roomKind: task.roomKind, roomName: task.roomName,
+    category: task.category, plannedMinutes: task.minutes, actualMinutes: Math.max(0, Math.round(minutes)), outcome, via, domain: task.domain,
+    templateId: task.templateId, difficulty: task.difficulty, localHour: localHourOf(stamp), tzOffsetMin: tzOf(stamp),
+    planVersion: planVersionOf(data), energy: energyOn(data, stamp.today), ...extra,
+  };
+  if (task.level) e.level = task.level;
+  if (task.intensity) e.intensity = task.intensity;
+  if (task.timeOfDay) e.timeOfDay = task.timeOfDay;
+  if (task.matches?.length) e.goals = task.matches;
+  return e;
+};
+
+const hasEntry = (data: AppData, id: string) => data.sessions.some((s) => s.entries.some((e) => e.id === id));
+const RAPID_MS = 3000;
+
+/**
+ * Completing the same thing twice must never double-count. A completion is a duplicate when its id was already logged, when the same
+ * task was completed a moment ago (a double tap), or when the task was already completed and is not due again.
+ */
+export const isDuplicateCompletion = (data: AppData, task: Task, stamp: Stamp, via: EntryVia, entryId?: string): boolean => {
+  if (entryId && hasEntry(data, entryId)) return true;
+  const nowMs = new Date(stamp.now).getTime();
+  const rapid = data.sessions.some((s) => s.date === stamp.today && s.entries.some((e) => e.taskId === task.id && e.outcome === 'completed' && Math.abs(nowMs - new Date(e.at).getTime()) < RAPID_MS));
+  if (rapid) return true;
+  if (isEphemeral(task) || task.repeatable || via === 'reset') return false;
+  const st = data.taskStates[task.id];
+  if (task.cadence.kind === 'once') return !!st?.done;
+  return st?.lastDone === stamp.today && (st.due === null || (!!st.due && st.due > stamp.today));
+};
 
 /** Tasks generated on the fly (Just 5 Minutes, rough-day reset) have no schedule of their own. */
 const isEphemeral = (task: Task) => task.id.startsWith('five:') || task.id.startsWith('rough:');
@@ -87,6 +141,44 @@ const freezeSchedule = (data: AppData, today: ISODate): AppData => {
   return { ...data, taskStates: states };
 };
 
+const sameState = (a: TaskState | null | undefined, b: TaskState | null | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * Undo exactly one logged action: remove its entry, and put the task's state back only if nothing newer has touched it since.
+ * Anything the user did afterwards (other tasks, or the same task again) is left alone.
+ */
+const undo = (data: AppData, a: Extract<Action, { type: 'UNDO' }>): AppData => {
+  if (!hasEntry(data, a.entryId)) return data;
+  const sessions = data.sessions
+    .map((s) => ({ ...s, entries: s.entries.filter((e) => e.id !== a.entryId) }))
+    .filter((s) => s.entries.length > 0);
+  let next: AppData = { ...data, sessions };
+  if (sameState(data.taskStates[a.taskId], a.after)) {
+    const states = { ...data.taskStates };
+    if (a.before) states[a.taskId] = a.before; else delete states[a.taskId];
+    next = { ...next, taskStates: states };
+  }
+  if (a.undoReset && next.resetRun) {
+    const resetRun: ResetRun = { ...next.resetRun, doneIds: next.resetRun.doneIds.filter((id) => id !== a.taskId) };
+    next = { ...next, resetRun };
+  }
+  if (a.fiveBefore) next = { ...next, fiveRecent: a.fiveBefore };
+  return next;
+};
+
+const recordExposure = (data: AppData, rec: ExposureRecord): AppData => {
+  const idx = data.exposures.findIndex((e) => e.date === rec.date);
+  if (idx < 0) return { ...data, exposures: [...data.exposures, rec].sort((x, y) => (x.date < y.date ? -1 : 1)).slice(-120) };
+  // Same day seen again (the plan changed, or a task was moved here): add what is new, never rewrite what was already recorded.
+  const cur = data.exposures[idx];
+  const known = new Set(cur.items.map((i) => i.taskId));
+  const added = rec.items.filter((i) => !known.has(i.taskId));
+  if (!added.length) return data;
+  const exposures = [...data.exposures];
+  exposures[idx] = { ...cur, items: [...cur.items, ...added] };
+  return { ...data, exposures };
+};
+
 export const reducer = (data: AppData, a: Action): AppData => {
   switch (a.type) {
     case 'LOAD': return a.data;
@@ -103,7 +195,9 @@ export const reducer = (data: AppData, a: Action): AppData => {
     }
     case 'SET_PREFS': {
       const d = freezeSchedule(data, a.stamp.today);
-      return { ...d, preferences: { ...d.preferences, ...a.patch } };
+      const levelChanged = a.patch.lifeLevel !== undefined && a.patch.lifeLevel !== d.preferences.lifeLevel;
+      // The clock for "have they been steady long enough?" restarts whenever the level changes.
+      return { ...d, preferences: { ...d.preferences, ...a.patch, ...(levelChanged ? { levelSince: a.stamp.today } : {}) } };
     }
     case 'FINISH_ONBOARDING':
       return { ...data, onboardingComplete: true, plan: { startDate: a.stamp.today, resetCount: 0 }, lastOpened: a.stamp.today };
@@ -113,7 +207,8 @@ export const reducer = (data: AppData, a: Action): AppData => {
     }
     case 'TASK_COMPLETE': {
       const { task, stamp } = a;
-      let next = logEntry(data, entryFor(task, stamp, 'completed', a.via, a.minutes ?? task.minutes));
+      if (isDuplicateCompletion(data, task, stamp, a.via, a.entryId)) return data;
+      let next = logEntry(data, entryFor(data, task, stamp, 'completed', a.via, a.minutes ?? task.minutes, a.entryId));
       if (!isEphemeral(task)) {
         next = { ...next, taskStates: { ...next.taskStates, [task.id]: markComplete(task, next.taskStates[task.id], stamp.today) } };
       } else if (task.id.startsWith('five:')) next = { ...next, fiveRecent: [task.id, ...next.fiveRecent].slice(0, 8) };
@@ -124,24 +219,50 @@ export const reducer = (data: AppData, a: Action): AppData => {
     }
     case 'TASK_SKIP': {
       const { task, stamp } = a;
-      let next = logEntry(data, entryFor(task, stamp, 'skipped', a.via ?? 'plan', 0));
+      if (a.entryId && hasEntry(data, a.entryId)) return data;
+      let next = logEntry(data, entryFor(data, task, stamp, 'skipped', a.via ?? 'plan', 0, a.entryId));
       if (!isEphemeral(task)) next = { ...next, taskStates: { ...next.taskStates, [task.id]: markSkip(task, next.taskStates[task.id], stamp.today) } };
       return next;
     }
     case 'TASK_STOP': {
       // Timer stopped before finishing: log the effort, keep the task due. No shame.
       const { task, stamp } = a;
-      return logEntry(data, entryFor(task, stamp, 'stopped', 'timer', a.minutes));
+      if (a.entryId && hasEntry(data, a.entryId)) return data;
+      return logEntry(data, entryFor(data, task, stamp, 'stopped', 'timer', a.minutes, a.entryId));
     }
     case 'TASK_SNOOZE': {
       const { task, stamp } = a;
-      const next = logEntry(data, entryFor(task, stamp, 'snoozed', 'plan', 0));
-      return { ...next, taskStates: { ...next.taskStates, [task.id]: markSnooze(next.taskStates[task.id], stamp.today) } };
+      if (a.entryId && hasEntry(data, a.entryId)) return data;
+      const fromDue = dueInfo(task, data.taskStates[task.id], stamp.today).due;
+      const state = markSnooze(data.taskStates[task.id], stamp.today);
+      const next = logEntry(data, entryFor(data, task, stamp, 'snoozed', 'plan', 0, a.entryId, { fromDue, toDue: state.due ?? null }));
+      return { ...next, taskStates: { ...next.taskStates, [task.id]: state } };
     }
     case 'TASK_MOVE': {
       const { task, stamp } = a;
-      const next = logEntry(data, entryFor(task, stamp, a.label ?? 'moved', 'plan', 0));
+      if (a.entryId && hasEntry(data, a.entryId)) return data;
+      const fromDue = dueInfo(task, data.taskStates[task.id], stamp.today).due;
+      const next = logEntry(data, entryFor(data, task, stamp, a.label ?? 'moved', 'plan', 0, a.entryId, { fromDue, toDue: a.to }));
       return { ...next, taskStates: { ...next.taskStates, [task.id]: markMove(next.taskStates[task.id], a.to) } };
+    }
+    case 'UNDO': return undo(data, a);
+    case 'UNDO_RESET_PLAN': {
+      // Put back the plan dates a reset removed, but only for tasks nothing has touched since. Newer work is never undone.
+      const states = { ...data.taskStates };
+      for (const [id, b] of Object.entries(a.before)) {
+        const cur = states[id];
+        if (cur && cur.anchor === undefined && cur.due === undefined) states[id] = { ...cur, ...b };
+      }
+      return { ...data, plan: a.plan, lastOpened: a.lastOpened, taskStates: states };
+    }
+    case 'RECORD_EXPOSURE': return recordExposure(data, a.record);
+    case 'RECORD_PLAN_VERSION': {
+      if (data.planVersions.some((v) => v.id === a.version.id) && data.planVersions[data.planVersions.length - 1]?.id === a.version.id) return data;
+      return { ...data, planVersions: [...data.planVersions, a.version].slice(-60) };
+    }
+    case 'REC_EVENT': {
+      if (data.recEvents.some((e) => e.id === a.event.id)) return data;
+      return { ...data, recEvents: [...data.recEvents, a.event].slice(-400) };
     }
     case 'TASK_PATCH':
       return { ...data, taskStates: { ...data.taskStates, [a.id]: { ...(data.taskStates[a.id] ?? {}), ...a.patch } } };
@@ -186,7 +307,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
     }
     case 'RESET_RUN_FINISH': return data.resetRun ? { ...data, resetRun: { ...data.resetRun, finishedAt: a.stamp.now } } : data;
     case 'FIVE_SEEN': return { ...data, fiveRecent: [a.id, ...data.fiveRecent.filter((x) => x !== a.id)].slice(0, 8) };
-    case 'DAY_ENERGY': return { ...data, dayEnergy: { date: a.stamp.today, level: a.level } };
+    case 'DAY_ENERGY': return { ...data, dayEnergy: { date: a.stamp.today, level: a.level }, energyLog: { ...data.energyLog, [a.stamp.today]: a.level } };
     case 'DISMISS_INSIGHT': return { ...data, dismissedInsights: { ...data.dismissedInsights, [a.id]: a.stamp.today } };
     case 'SET_SESSION_CAP': return { ...data, preferences: { ...data.preferences, learnedSessionCap: a.minutes } };
     case 'SET_OPENED': return { ...data, lastOpened: a.stamp.today };

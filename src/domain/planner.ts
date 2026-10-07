@@ -33,7 +33,8 @@ const KIND_ORDER = ['kitchen', 'bathroom', 'bedroom', 'living', 'dining', 'offic
 export const assignSchedule = (tasks: Task[], c: Ctx, meta: PlanMeta): { resetDays: number; resetMinutes: number } => {
   const start = meta.startDate;
   const active = c.activeDays;
-  const session = c.sessionMinutes;
+  // Cleaning's share of the user's one daily budget (all of it when habits are off).
+  const session = c.homeOn && c.lifeActive ? c.sessionMinutes * c.homeShare : c.sessionMinutes;
   const fresh = meta.resetCount === 0;
 
   const live = tasks.filter((t) => !t.backlog);

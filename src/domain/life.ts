@@ -1,9 +1,12 @@
 import type { Ctx } from './context';
 import { addDays, weekday } from './dates';
-import { LIFE_TEMPLATES, SAFETY_LINE, type LifeStep, type LifeTemplate } from './lifeCatalog';
+import { meaningfulMinutes, servesGoal } from './goals';
+import { LIFE_TEMPLATES, SAFETY_LINE, groupsOf, type LifeStep, type LifeTemplate } from './lifeCatalog';
 import { DOMAIN_SHORT, FOCUS_OPTIONS } from './options';
 import { occurrencesPerWeek, priorityOf } from './scoring';
-import type { Cadence, ISODate, LifeDomain, LifeFocus, Task } from './types';
+import type { Cadence, GoalCoverage, ISODate, LifeDomain, LifeFocus, LifeLevel, Task } from './types';
+
+export { servesGoal };
 
 /**
  * Progressive-discipline engine.
@@ -19,9 +22,20 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const PAIRS: [number, number][] = [[1, 4], [2, 5], [3, 6], [0, 3]];
 
-/** Minutes per day the life layer may use. Shares the user's time with home cleaning when both are on. */
+/**
+ * Minutes per day the life layer may use. This is the habits' share of the ONE daily budget the user chose: 40% when cleaning is on
+ * too (cleaning has the other 60%), all of it otherwise. It is never added on top of the user's time.
+ */
 export const lifeDayBudget = (c: Ctx): number =>
-  c.focus.has('home') ? clamp(Math.round(c.sessionMinutes * 0.4), 8, 40) : c.sessionMinutes;
+  c.homeOn ? clamp(Math.round(c.sessionMinutes * c.lifeShare), 4, 40) : c.sessionMinutes;
+
+/**
+ * Fitness starts where the user's fitness is, not at the bottom of the ladder. The user's pace (lifeLevel) still moves it up or
+ * down, so an advanced user who asks for a gentle start is one step below their fitness level, never at beginner difficulty.
+ */
+const FITNESS_OFFSET: Record<Ctx['fitnessLevel'], number> = { beginner: 0, intermediate: 1, advanced: 2 };
+export const levelFor = (t: LifeTemplate, c: Ctx): LifeLevel =>
+  (t.domain === 'fitness' ? clamp(c.lifeLevel + FITNESS_OFFSET[c.fitnessLevel], 1, 3) : c.lifeLevel) as LifeLevel;
 
 export const maxLifeTasks = (budget: number): number => clamp(Math.round(budget / 4) + 2, 3, 8);
 
@@ -67,9 +81,10 @@ const candidatesFor = (c: Ctx): Candidate[] => {
     if (t.when && !t.when(c)) continue;
     const steps = allowedSteps(t, c);
     if (!steps.length) continue;
-    const fit = steps.filter((r) => r.step.level <= c.lifeLevel && r.step.minutes <= perTask);
+    const level = levelFor(t, c);
+    const fit = steps.filter((r) => r.step.level <= level && r.step.minutes <= perTask);
     const chosen = fit.length ? fit[fit.length - 1] : null;
-    const above = steps.filter((r) => r.step.level > c.lifeLevel && (!chosen || r.step.minutes > chosen.step.minutes));
+    const above = steps.filter((r) => r.step.level > level && (!chosen || r.step.minutes > chosen.step.minutes));
     const challenge = above[0] ?? null;
     if (!chosen && !challenge) continue;
     if (chosen && chosen.step.minutes > budget) continue;
@@ -88,14 +103,17 @@ const candidatesFor = (c: Ctx): Candidate[] => {
 
 const TIMED_GOALS: LifeFocus[] = ['morning', 'evening'];
 
-/**
- * Does this candidate genuinely serve the goal? Morning/evening goals need a routine task whose own
- * time of day matches. A task that merely lists "evening" among its goals (like brushing teeth, a morning task) doesn't count.
- */
-export const servesGoal = (f: LifeFocus, x: { t: LifeTemplate; matches: LifeFocus[] }): boolean => {
-  if (!x.matches.includes(f)) return false;
-  if (f === 'morning' || f === 'evening') return !!x.t.routine && x.t.time === f;
-  return true;
+/** The smallest meaningful step that would serve this goal for this user, ignoring today's budget. Infinity when nothing could. */
+const smallestNeed = (f: LifeFocus, c: Ctx): number => {
+  let best = Infinity;
+  for (const t of LIFE_TEMPLATES) {
+    const matches = t.focus.filter((x) => c.focus.has(x));
+    if (!servesGoal(f, { t, matches })) continue;
+    if (t.when && !t.when(c)) continue;
+    const level = levelFor(t, c);
+    for (const r of allowedSteps(t, c)) if (r.step.level <= level && r.step.minutes >= meaningfulMinutes(f)) best = Math.min(best, r.step.minutes);
+  }
+  return best;
 };
 
 /** Weekday loads let us check that no single day exceeds the budget. */
@@ -175,15 +193,16 @@ const makeTask = (t: LifeTemplate, r: Resolved, matches: LifeFocus[], opts: { ch
     repeatable: !!t.repeatable,
     level: step.level,
     challenge: opts.challenge || undefined,
+    matches: matches.length ? matches : undefined,
   };
 };
 
-export interface LifeBuild { tasks: Task[]; dayBudget: number; dailyMinutes: number; picked: number }
+export interface LifeBuild { tasks: Task[]; dayBudget: number; dailyMinutes: number; picked: number; coverage: GoalCoverage[] }
 
 /** Build the scheduled life tasks plus a few optional challenges. */
 export const buildLifeTasks = (c: Ctx, start: ISODate): LifeBuild => {
   const dayBudget = lifeDayBudget(c);
-  if (!c.lifeActive) return { tasks: [], dayBudget, dailyMinutes: 0, picked: 0 };
+  if (!c.lifeActive) return { tasks: [], dayBudget, dailyMinutes: 0, picked: 0, coverage: [] };
 
   const cands = candidatesFor(c).filter((x) => x.chosen);
   const loads: Loads = new Array(7).fill(0);
@@ -191,11 +210,14 @@ export const buildLifeTasks = (c: Ctx, start: ISODate): LifeBuild => {
   const perDomain = new Map<LifeDomain, number>();
   const cap = maxLifeTasks(dayBudget);
   const domainCap = c.focus.size <= 2 ? 5 : 3;
+  const groupCount = new Map<string, number>();
 
   // `reserve` keeps room for goals that still need a task, so an early pick can't squeeze them out.
   const tryAdd = (cand: Candidate, reserve = 0): boolean => {
     if (chosen.length >= cap || chosen.some((x) => x.cand.t.id === cand.t.id)) return false;
     if ((perDomain.get(cand.t.domain) ?? 0) >= domainCap) return false;
+    // Near-duplicates (two walks, three "planning" chores) never both make the plan.
+    if (groupsOf(cand.t.id).some((g) => (groupCount.get(g.id) ?? 0) >= g.cap)) return false;
     const minutes = cand.chosen!.step.minutes;
     const { cadence, days } = daysFor(cand.t, loads, chosen.length);
     // A task occupies its whole slot on the days it lands, however rarely that is, so check full minutes.
@@ -203,21 +225,31 @@ export const buildLifeTasks = (c: Ctx, start: ISODate): LifeBuild => {
     days.forEach((d) => { loads[d] += minutes; });
     chosen.push({ cand, cadence, days });
     perDomain.set(cand.t.domain, (perDomain.get(cand.t.domain) ?? 0) + 1);
+    for (const g of groupsOf(cand.t.id)) groupCount.set(g.id, (groupCount.get(g.id) ?? 0) + 1);
     return true;
   };
 
   // 1) Every selected goal gets a task that genuinely serves it, before any optional filler.
-  //    Morning/evening goals are the most specific, so they go first and must match the task's real time of day.
+  //    Morning/evening goals are the most specific, so they go first; the rest follow in the order the user chose them.
+  //    A goal is only "covered" by a task that is really about it and long enough to count (see goals.ts), never by a tag alone.
   const goals: LifeFocus[] = [...TIMED_GOALS.filter((f) => c.focus.has(f)), ...[...c.focus].filter((f) => f !== 'home' && !TIMED_GOALS.includes(f))];
-  const isCovered = (f: LifeFocus) => chosen.some((x) => servesGoal(f, x.cand));
-  const cheapest = (f: LifeFocus) => Math.min(...cands.filter((x) => servesGoal(f, x)).map((x) => x.chosen!.step.minutes));
+  const served = (f: LifeFocus, x: Candidate) => servesGoal(f, x, x.chosen!.step.minutes);
+  const isCovered = (f: LifeFocus) => chosen.some((x) => served(f, x.cand));
+  const optionsFor = (f: LifeFocus) => cands.filter((x) => served(f, x));
+  const cheapest = (f: LifeFocus) => Math.min(...optionsFor(f).map((x) => x.chosen!.step.minutes));
   for (const f of goals) {
     if (isCovered(f)) continue;
-    const reserve = goals
-      .filter((g) => g !== f && TIMED_GOALS.includes(g) && !isCovered(g))
-      .reduce((sum, g) => sum + (Number.isFinite(cheapest(g)) ? cheapest(g) : 0), 0);
-    // Best-scoring candidate that fits; if the best doesn't fit, fall through to the next-best that does.
-    for (const option of cands.filter((x) => servesGoal(f, x))) if (tryAdd(option, reserve)) break;
+    const later = goals.filter((g) => g !== f && !isCovered(g));
+    // Keep room for the cheapest way to serve each goal still waiting, so an early pick cannot squeeze them all out.
+    const reserve = later.reduce((sum, g) => sum + (Number.isFinite(cheapest(g)) ? cheapest(g) : 0), 0);
+    // Prefer an option that also serves another waiting goal: one task doing double duty leaves room for more goals.
+    const ranked = optionsFor(f)
+      .map((o) => ({ o, rank: o.score + later.filter((g) => served(g, o)).length * 6 }))
+      .sort((a, b) => b.rank - a.rank)
+      .map((x) => x.o);
+    if (ranked.some((o) => tryAdd(o, reserve))) continue;
+    // Earlier goals are higher priority: if it only fails because of the reserve, it still gets its place.
+    ranked.some((o) => tryAdd(o, 0));
   }
   // 2) fill remaining room, spreading across domains
   const rest = [...cands].sort((a, b) => (b.score - (perDomain.get(b.t.domain) ?? 0) * 8) - (a.score - (perDomain.get(a.t.domain) ?? 0) * 8));
@@ -243,7 +275,16 @@ export const buildLifeTasks = (c: Ctx, start: ISODate): LifeBuild => {
   const dailyMinutes = Math.round(
     chosen.reduce((s, { cand }) => s + cand.chosen!.step.minutes * (occurrencesPerWeek(cand.t.freq, 7, true) / 7), 0),
   );
-  return { tasks, dayBudget, dailyMinutes, picked: chosen.length };
+
+  // Say plainly which goals got a task and which did not, and why. Nothing is covered by pretending.
+  const coverage: GoalCoverage[] = goals.map((f) => {
+    const by = chosen.filter((x) => served(f, x.cand));
+    if (by.length) return { goal: f, status: 'covered', taskIds: by.map((x) => `${x.cand.t.id}:life`) };
+    const need = smallestNeed(f, c);
+    if (!Number.isFinite(need)) return { goal: f, status: 'deferred', taskIds: [], reason: 'none' };
+    return { goal: f, status: 'deferred', taskIds: [], reason: chosen.length >= cap ? 'cap' : 'budget', needMinutes: need };
+  });
+  return { tasks, dayBudget, dailyMinutes, picked: chosen.length, coverage };
 };
 
 // ───────────────────────── "Rough day" reset ─────────────────────────

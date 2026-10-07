@@ -18,11 +18,18 @@ export const IconButton = ({ icon: Icon, label, className, ...rest }: ButtonHTML
   </button>
 );
 
-export const Chip = ({ on, small, children, onClick, role, ...rest }: { on?: boolean; small?: boolean; children: ReactNode; onClick?: () => void; role?: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>) => (
-  <button type="button" className={cx('chip', small && 'sm')} aria-pressed={role ? undefined : !!on} aria-checked={role ? !!on : undefined} role={role} onClick={onClick} {...rest}>
-    {children}
-  </button>
-);
+/**
+ * The state attribute has to match the role: radios and checkboxes use aria-checked, tabs use aria-selected, plain toggles use
+ * aria-pressed. Mixing them (a radio that is also "pressed") is invalid ARIA and confuses screen readers.
+ */
+export const Chip = ({ on, small, children, onClick, role, ...rest }: { on?: boolean; small?: boolean; children: ReactNode; onClick?: () => void; role?: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>) => {
+  const state = role === 'tab' ? { 'aria-selected': !!on } : role ? { 'aria-checked': !!on } : { 'aria-pressed': !!on };
+  return (
+    <button type="button" className={cx('chip', small && 'sm')} role={role} onClick={onClick} {...state} {...rest}>
+      {children}
+    </button>
+  );
+};
 
 export const Tag = ({ kind, children }: { kind?: string; children: ReactNode }) => <span className={cx('tag', kind)}>{children}</span>;
 
@@ -50,7 +57,7 @@ export const PageHead = ({ title, sub, action }: { title: ReactNode; sub?: React
 export const Empty = ({ icon: Icon = I.sparkles, title, children }: { icon?: IconType; title: string; children?: ReactNode }) => (
   <div className="empty">
     <Icon size={34} aria-hidden />
-    <h3 style={{ marginTop: 8 }}>{title}</h3>
+    <h2 className="h3" style={{ marginTop: 8 }}>{title}</h2>
     {children && <div className="small" style={{ marginTop: 6 }}>{children}</div>}
   </div>
 );

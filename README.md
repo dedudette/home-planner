@@ -8,9 +8,10 @@ engine builds a realistic plan, with tiny-step and "just 5 minutes" modes for ov
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 102 domain tests (engine, scheduler, modes, learning, reducer)
+npm test           # 248 tests: engine, scheduler, goals, budgets, progression, persistence, reducer, analytics
 npm run build      # typecheck + production build into dist/
-npm run e2e        # browser walkthrough (dev server must be running; set CHROME_PATH if needed)
+npm run check      # type-check + tests
+npm run e2e        # three browser suites: flow, responsive (7 widths), integrity (dev server must be running; set CHROME_PATH if needed)
 ```
 
 No account or backend: data lives in `localStorage`. The Welcome screen (and Settings) can load four demo homes.
@@ -21,7 +22,7 @@ No account or backend: data lives in `localStorage`. The Welcome screen (and Set
 src/domain      pure TypeScript, no React
   types.ts        data model: User, Home, Room, Task, CleaningSession, Schedule(TaskState/PlanMeta), Progress, Supply, Preferences
   context.ts      Home + Preferences → rooms, zones, floors, planning context (visibility rules per home type)
-  catalog.ts      ~100 task templates (rules, not tasks): scope, scaling, frequency step-ups, steps, tiny steps, reasons
+  catalog.ts      130 home task templates (rules, not tasks): scope, scaling, frequency step-ups, steps, tiny steps, reasons
   engine.ts       instantiate → scale → step frequencies → split → fit to weekly capacity → explain (PlanNote[])
   planner.ts      scheduler: reset phase first, habits, weekday-balanced slotting grouped by zone/room
   schedule.ts     recurrence, overdue rolling, complete/skip/snooze/move transitions, overrides
@@ -37,14 +38,18 @@ digital discipline, life admin, learning, outdoors and sleep. It is opt-in: onbo
 (`Preferences.focus`); home questions are skipped if you don't want a cleaning plan, and older saved data defaults to home-only.
 
 ```
-src/domain/lifeCatalog.ts   ~80 templates, each with a progression ladder (walk 5→10→20→30 min) instead of near-duplicates
+src/domain/lifeCatalog.ts   86 templates, each with a progression ladder (walk 5→10→20→30 min) instead of near-duplicates, plus redundancy groups so near-duplicates never share a plan
+src/domain/goals.ts         what it takes for a task to really serve a goal (not just carry its tag)
+src/domain/progression.ts   when someone is ready for more (or less): distinct days over a minimum period at the current level
 src/domain/life.ts          selection: focus → ladder step → daily time budget → per-weekday load check; challenges; rough-day reset
 src/domain/scoring.ts       shared frequency ladder / priority / isLife()
 ```
-- **Manageable:** a daily time budget (shared 40% with cleaning when both are on) and a task cap (3–8) decide what appears; each chosen goal is covered first.
-- **Progressive:** `lifeLevel` 1–3. The next ladder step is an optional *challenge*, never scheduled. Level-up / ease-off are suggested from your history and only applied if you agree.
+- **Manageable:** ONE daily time budget, the number the user chose. Cleaning and habits share it 60/40 when both are on (each gets all of it when alone), so Today never promises 30 minutes and shows 45. A task cap (3–8) keeps the list short.
+- **Honest about goals:** a goal counts as covered only when a chosen task is really about it and long enough to matter. Goals that do not fit are listed as *deferred*, with the reason, on Today and Plan.
+- **Time-aware:** Today splits habits into Now (this part of the day plus anytime habits), Later today, This evening and Earlier today, so an evening routine is never presented as a morning task.
+- **Progressive:** `lifeLevel` 1–3. The next ladder step is an optional *challenge*, never scheduled. A step up is suggested only after three weeks at a level with habits done on 15+ distinct days across the week; easing off needs 10+ days and real evidence. Fitness starts at the user's fitness level (beginner / intermediate / advanced), moved by their chosen pace. Nothing changes without a yes.
 - **Safe:** fitness is filtered by fitness level and equipment (bodyweight by default), vigorous work is removed on low-energy days, volumes are modest, and fitness/breathing tasks always end with a safety line. No medical claims.
-- **Separate from cleaning:** room mode, deep clean, reset sequence and supplies only use home tasks; life habits run every day, including non-cleaning days.
+- **Separate from cleaning:** room mode, deep clean, reset sequence and supplies only use home tasks; life habits run every day, including non-cleaning days. People who do not choose a cleaning plan get no home screens at all ("My goals" instead of "My Home", no supplies, no home reset).
 - **Rough-day reset** ("Back on track"): up to four tiny, gentle actions, never more than ~12 minutes.
 
 ### How personalization works
@@ -60,3 +65,18 @@ Learning is rule-based and always asks first (shorter sessions, repeated skips, 
 
 ## Safety
 The Supplies screen shows a permanent chemical-safety warning (never mix products, especially bleach with ammonia or acids) and warns when the user's own stash contains dangerous pairs. The app never gives mixing instructions.
+
+## Data safety
+- **Saved data is never silently destroyed.** `src/storage/schema.ts` validates and repairs on load (bad fields are repaired, bad list items dropped and counted) and migrates by version (`SCHEMA_VERSION = 2`). A file from a newer version is read as far as possible and backed up. Data that cannot be understood is kept as raw text and shown on a **recovery screen** (download it, restore an automatic backup, or start fresh, which keeps a copy first).
+- **An error boundary** wraps the app (full recovery screen) and every page (the navigation keeps working).
+- **Anything that replaces your data asks first** (demo, restore from file or backup, erase) and takes an **automatic backup** (last three, listed in Settings). Erase offers a download first and deletes the backups too.
+- **Exports are versioned envelopes** (`{ app, exportVersion, schemaVersion, data }`); imports also accept the bare files older versions wrote, and show a summary before replacing anything.
+- **Saves are revision-checked.** Two tabs cannot overwrite each other: the stale tab takes the newer data and replays its own unsaved actions on top. Saves flush on `pagehide`. A full disk or blocked storage shows a banner instead of failing silently.
+- **Actions are idempotent and individually undoable.** Every logged action has an `entryId`; completing the same thing twice never double-counts, and Undo removes exactly its own entry (and restores that task's state only if nothing newer touched it).
+- A running timer carries its task, so a "Just 5 minutes" habit finished after a reload is still logged as that habit.
+
+## Analytics foundation (data only, no analytics UI yet)
+Every logged entry now records the template, level, difficulty, intensity, planned time of day, goals, plan version, day energy, local hour, timezone offset and, for moves and snoozes, where the task was due and where it went. Each day's scheduled tasks are recorded (`exposures`), so a task that was shown and ignored is visible. Day energy is kept per day (`energyLog`), plan inputs get a stable `planVersion`, and suggestions emit `recEvents` (shown / accepted / dismissed, with a reason code and the numbers behind it). Nothing leaves the device.
+
+## Testing
+`npm test` covers the pure domain, the reducer and the storage layer. `npm run e2e` drives a real browser: `flow.mjs` (the main journey), `responsive.mjs` (every screen, sheet and onboarding step at 320, 360, 390, 430, 768, 1024 and 1366 px, with overflow and accessibility checks) and `integrity.mjs` (recovery, confirmation, duplicates, two tabs, closing mid-save, timers, time-aware Today, life-only users, goal coverage).

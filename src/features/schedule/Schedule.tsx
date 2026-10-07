@@ -19,7 +19,7 @@ const DayList = ({ day, showHeader }: { day: DayPlan; showHeader?: boolean }) =>
     <div className={`daycard ${day.date === today ? 'today' : ''}`}>
       {showHeader && (
         <div className="row between" style={{ marginBottom: 8 }}>
-          <div><h3>{formatDay(day.date, today)}</h3></div>
+          <div><h2 className="h3">{formatDay(day.date, today)}</h2></div>
           <span className="small muted">{day.tasks.length ? `${day.tasks.length} · ${formatMinutes(day.minutes)}` : rest ? 'Rest day' : 'Free'}</span>
         </div>
       )}
@@ -61,7 +61,7 @@ const Month = () => {
           </button>
         ))}
       </div>
-      <h3>{formatLong(sel)}</h3>
+      <h2 className="h3">{formatLong(sel)}</h2>
       <DayList day={selected} />
     </div>
   );
@@ -76,8 +76,10 @@ export const Schedule = () => {
 
   const doReset = () => {
     const prev = data;
+    const before = Object.fromEntries(Object.entries(prev.taskStates).map(([id, s]) => [id, { anchor: s.anchor, due: s.due, skipStreak: s.skipStreak }]));
     dispatch({ type: 'RESET_PLAN', stamp: stamp() });
-    toast('Fresh start. Your plan now begins today.', { label: 'Undo', run: () => dispatch({ type: 'LOAD', data: prev }) });
+    // Undo restores only what the reset changed, so anything done in the meantime stays done.
+    toast('Fresh start. Your plan now begins today.', { label: 'Undo', run: () => dispatch({ type: 'UNDO_RESET_PLAN', plan: prev.plan, lastOpened: prev.lastOpened, before }) });
   };
 
   return (
@@ -114,7 +116,7 @@ export const Schedule = () => {
       {view.tasks.length === 0 && <Empty title="No tasks yet" />}
 
       <section className={`card ${fresh.show ? 'sun' : 'soft'} stack`} aria-label="Reset my plan">
-        <div className="row"><I.undo size={20} aria-hidden /><h3>{fresh.show ? `Back after ${fresh.daysAway} days? Start fresh.` : 'Fallen behind? Start fresh.'}</h3></div>
+        <div className="row"><I.undo size={20} aria-hidden /><h2 className="h3">{fresh.show ? `Back after ${fresh.daysAway} days? Start fresh.` : 'Fallen behind? Start fresh.'}</h2></div>
         <p className="small">Resetting re-spreads your plan from today. Missed tasks aren't dumped on today. They simply disappear from the backlog. Your history and progress stay.</p>
         <div><Button variant={fresh.show ? 'primary' : 'secondary'} icon={I.undo} onClick={doReset}>Reset my plan</Button></div>
       </section>

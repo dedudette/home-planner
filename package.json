@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node tests/e2e/flow.mjs"
+    "e2e": "node tests/e2e/flow.mjs && node tests/e2e/responsive.mjs && node tests/e2e/integrity.mjs",
+    "check": "tsc --noEmit && vitest run"
   },
   "dependencies": {
     "lucide-react": "^0.460.0",

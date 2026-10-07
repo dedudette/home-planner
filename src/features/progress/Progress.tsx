@@ -7,7 +7,10 @@ import { BarChart, Empty, PageHead, RingStat } from '../../ui/primitives';
 import { InsightCard, useInsights } from '../today/Insights';
 
 export const Progress = () => {
-  const { view } = useApp();
+  const { view, data } = useApp();
+  const focus = data.preferences.focus;
+  const homeOnly = focus.every((f) => f === 'home');
+  const homeOn = focus.includes('home');
   const p = useMemo(() => computeProgress(view), [view]);
   const insights = useInsights();
   const maxRoom = Math.max(1, ...p.rooms.map((r) => r.tasks));
@@ -20,9 +23,9 @@ export const Progress = () => {
 
       <div className="stat-grid">
         <div className="stat"><div className="v">{p.tasksCompleted}</div><div className="l">Tasks completed</div></div>
-        <div className="stat"><div className="v">{formatMinutes(p.minutesCleaned)}</div><div className="l">Minutes cleaned</div></div>
+        <div className="stat"><div className="v">{formatMinutes(p.minutesCleaned)}</div><div className="l">{homeOnly ? 'Minutes cleaned' : 'Active minutes'}</div></div>
         <div className="stat"><div className="v">{p.streak}<span className="small muted"> {p.streak === 1 ? 'day' : 'days'}</span></div><div className="l">Current streak</div></div>
-        <div className="stat"><div className="v">{p.sessions}</div><div className="l">Cleaning sessions</div></div>
+        <div className="stat"><div className="v">{p.sessions}</div><div className="l">{homeOnly ? 'Cleaning sessions' : 'Sessions'}</div></div>
       </div>
       <div className="card tint row"><I.sparkles size={20} aria-hidden style={{ color: 'var(--primary)' }} /><p className="small">{msg}{p.bestStreak > p.streak ? ` Your best so far: ${p.bestStreak} days.` : ''}</p></div>
 
@@ -30,21 +33,21 @@ export const Progress = () => {
 
       <div className="profile-grid">
         <section className="card stack" aria-labelledby="wk">
-          <h3 id="wk">Weekly completion</h3>
+          <h2 id="wk" className="h3">Weekly completion</h2>
           <RingStat value={p.weekPlanned ? p.weekDone / p.weekPlanned : 0} label="This week" sub={`${p.weekDone} of ${p.weekPlanned} planned tasks`} />
           <hr className="sep" />
           <RingStat value={p.monthPlanned ? p.monthDone / p.monthPlanned : 0} label="This month" sub={`${p.monthDone} of ${p.monthPlanned} planned tasks`} />
         </section>
         <section className="card stack" aria-labelledby="l7">
-          <h3 id="l7">Last 7 days · minutes cleaned</h3>
-          <BarChart label="Minutes cleaned in the last 7 days" unit="minutes" data={p.last7.map((d) => ({ label: WEEKDAY_SHORT[weekday(d.date)], value: d.minutes }))} />
+          <h2 id="l7" className="h3">Last 7 days · {homeOnly ? 'minutes cleaned' : 'active minutes'}</h2>
+          <BarChart label={`${homeOnly ? 'Minutes cleaned' : 'Active minutes'} in the last 7 days`} unit="minutes" data={p.last7.map((d) => ({ label: WEEKDAY_SHORT[weekday(d.date)], value: d.minutes }))} />
         </section>
         <section className="card stack" aria-labelledby="w4">
-          <h3 id="w4">Last 4 weeks · tasks completed</h3>
+          <h2 id="w4" className="h3">Last 4 weeks · tasks completed</h2>
           <BarChart label="Tasks completed per week" unit="tasks" data={p.weeks.map((w) => ({ label: w.label, value: w.tasks }))} />
         </section>
-        <section className="card stack" aria-labelledby="rm">
-          <div className="row between"><h3 id="rm">Rooms completed</h3><span className="small muted">{p.roomsRefreshedThisWeek} refreshed this week</span></div>
+        {(homeOn || p.rooms.length > 0) && <section className="card stack" aria-labelledby="rm">
+          <div className="row between"><h2 id="rm" className="h3">Rooms completed</h2><span className="small muted">{p.roomsRefreshedThisWeek} refreshed this week</span></div>
           {p.rooms.length === 0 ? <p className="small muted">Rooms will appear as you finish tasks.</p> : p.rooms.slice(0, 7).map((r) => {
             const R = ROOM_ICON[r.kind];
             return (
@@ -55,10 +58,10 @@ export const Progress = () => {
               </div>
             );
           })}
-        </section>
+        </section>}
         {p.areas.length > 0 && (
           <section className="card stack" aria-labelledby="areas">
-            <h3 id="areas">Life areas</h3>
+            <h2 id="areas" className="h3">Life areas</h2>
             {p.areas.map((a) => {
               const Ic = DOMAIN_ICON[a.domain];
               return (

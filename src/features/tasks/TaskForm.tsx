@@ -15,7 +15,7 @@ export const TaskFormSheet = ({ editId }: { editId?: string }) => {
   const { data, plan, today, closeSheet, dispatch, toast } = useApp();
   const existing = data.customTasks.find((c) => c.id === editId);
   const [name, setName] = useState(existing?.name ?? '');
-  const [domain, setDomain] = useState<Domain>(existing?.domain ?? 'home');
+  const [domain, setDomain] = useState<Domain>(existing?.domain ?? (data.preferences.focus.includes('home') ? 'home' : 'mind'));
   const [roomId, setRoomId] = useState(existing?.roomId ?? 'other');
   const [frequency, setFrequency] = useState<Frequency>(existing?.frequency ?? 'once');
   const [minutes, setMinutes] = useState(String(existing?.minutes ?? 10));

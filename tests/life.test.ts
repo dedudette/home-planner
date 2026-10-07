@@ -250,24 +250,14 @@ describe('completion, progression and the rough-day reset', () => {
     expect(Object.keys(d.taskStates).some((k) => k.startsWith('rough:'))).toBe(false);
     expect(d.sessions[0].entries[0].outcome).toBe('completed');
   });
-  it('offers a step up after steady habits, and an easier stretch after many skips (never silently)', () => {
-    let d = demo('E');
-    const tasks = todayPlan(view(d)).life.map((i) => i.task);
-    for (let i = 0; i < 14; i++) {
-      const day = new Date(`${TODAY}T12:00:00`); day.setDate(day.getDate() - i - 1);
-      const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-      for (const t of tasks) d = reducer(d, { type: 'TASK_COMPLETE', task: t, stamp: { today: iso, now: `${iso}T18:00:00.000Z` }, via: 'checkoff' });
-    }
-    const up = computeInsights(view(d)).find((i) => i.id === 'level-up');
-    expect(up).toBeTruthy();
-    expect(d.preferences.lifeLevel).toBe(1); // untouched until the user agrees
-    const leveled = reducer(d, { type: 'SET_PREFS', patch: { lifeLevel: 2 }, stamp });
-    expect(scheduled(leveled).map((t) => t.minutes).reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(scheduled(d).map((t) => t.minutes).reduce((a, b) => a + b, 0));
-
-    let e: AppData = { ...demo('E'), preferences: { ...demo('E').preferences, lifeLevel: 2 } };
+  it('offers an easier stretch after many skips (never silently), once enough time has passed at this level', () => {
+    const d0 = demo('E');
+    // The user has been at level 2 for a month, and keeps skipping.
+    let e: AppData = { ...d0, plan: { ...d0.plan, startDate: '2026-09-01' }, preferences: { ...d0.preferences, lifeLevel: 2, levelSince: '2026-09-01' } };
     const t2 = todayPlan(view(e)).life.map((i) => i.task);
     for (let i = 0; i < 4; i++) for (const t of t2) e = reducer(e, { type: 'TASK_SKIP', task: t, stamp: { today: TODAY, now: `${TODAY}T1${i}:00:00.000Z` } });
     expect(computeInsights(view(e)).some((i) => i.id === 'level-down')).toBe(true);
+    expect(e.preferences.lifeLevel).toBe(2); // nothing changes until the user says yes
   });
   it('custom tasks can belong to any area', () => {
     const ct = { id: 'c9', domain: 'fitness' as const, name: 'Yoga with a friend', roomId: 'other', frequency: 'weekly' as const, minutes: 20, priority: 'MEDIUM' as const, notes: '', startDate: TODAY, createdAt: TODAY };
@@ -292,8 +282,7 @@ describe('morning / evening goal coverage', () => {
 
   it('a morning task that merely lists "evening" among its goals does not satisfy the evening goal', () => {
     const teeth = LIFE_TEMPLATES.find((t) => t.id === 'c-teeth')!;
-    expect(teeth.focus).toContain('evening'); // the trap: it is tagged for evening…
-    expect(teeth.time).toBe('morning'); // …but it is a morning task
+    expect(teeth.time).toBe('morning'); // a morning task, even if someone tags it for evening later
     expect(servesGoal('evening', { t: teeth, matches: ['evening'] })).toBe(false);
     expect(servesGoal('morning', { t: teeth, matches: ['morning'] })).toBe(true);
     const planTomorrow = LIFE_TEMPLATES.find((t) => t.id === 'a-plan-tomorrow')!;

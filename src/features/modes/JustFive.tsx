@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { pickJustFive } from '../../domain/micro';
 import type { Task } from '../../domain/types';
 import { useApp } from '../../state/store';
-import { I, ROOM_ICON } from '../../ui/icons';
+import { DOMAIN_ICON, I, ROOM_ICON } from '../../ui/icons';
+import { isLife } from '../../domain/scoring';
 import { Button, Sheet } from '../../ui/primitives';
 
 export const JustFiveSheet = () => {
@@ -22,7 +23,8 @@ export const JustFiveSheet = () => {
   const next = () => { setTask(pickJustFive(data, seen.current)); setPhase('pick'); };
   const swap = () => { if (task) dispatch({ type: 'FIVE_SEEN', id: task.id }); next(); };
   const didIt = () => { if (!task) return; complete(task, { via: 'five', minutes: 5, quiet: true }); setPhase('done'); setRounds((r) => r + 1); };
-  const RoomIcon = task ? ROOM_ICON[task.roomKind] : I.sparkles;
+  const RoomIcon = task ? (isLife(task) ? DOMAIN_ICON[task.domain!] : ROOM_ICON[task.roomKind]) : I.sparkles;
+  const effort = data.preferences.focus.every((f) => f === 'home') ? 'cleaning' : 'effort';
 
   if (!task) {
     return <Sheet title="Just 5 minutes" onClose={closeSheet} full><p>We couldn't find a small task for your home. Try the "I only have…" option instead.</p></Sheet>;
@@ -49,7 +51,7 @@ export const JustFiveSheet = () => {
         <div className="five-card" role="status" aria-live="polite">
           <div className="big-ic celebrate" style={{ background: 'var(--sun)', color: 'var(--sun-ink)' }}><I.sparkles size={38} aria-hidden /></div>
           <h1 className="five-name">Nice. You made progress.</h1>
-          <p className="muted">{rounds > 1 ? `${rounds} rounds · about ${rounds * 5} minutes of cleaning. ` : ''}That's more than you had five minutes ago.</p>
+          <p className="muted">{rounds > 1 ? `${rounds} rounds · about ${rounds * 5} minutes of ${effort}. ` : ''}That's more than you had five minutes ago.</p>
           <p className="small muted">Want to keep going? Totally optional.</p>
         </div>
       )}

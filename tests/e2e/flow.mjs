@@ -4,6 +4,8 @@ const OUT = './e2e-shots';
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const page = await ctx.newPage();
+// Fix the clock at 08:15 so "Now / Later" is deterministic: morning habits are now, the evening routine waits under "This evening".
+await page.clock.setFixedTime(new Date(2026, 9, 5, 8, 15));
 const errors = []; page.setDefaultTimeout(6000);
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error' && !/ERR_CERT|Failed to load resource/.test(m.text())) errors.push(m.text()); });
@@ -47,17 +49,20 @@ await step('step7 energy', async () => { await page.getByRole('radio', { name: '
 await step('step8 goals', async () => { await page.getByRole('checkbox', { name: /Build a daily routine/ }).click(); await click('Review'); await page.waitForSelector('text=Ready when you are'); await page.fill('#name', 'Dee'); await click('Build my plan'); });
 await step('my home', async () => { await page.waitForSelector('text=Here\'s your home', { timeout: 8000 }); await page.screenshot({ path: `${OUT}/10-myhome.png`, fullPage: true }); });
 await step('today', async () => { await click('See my plan for today'); await page.waitForSelector('text=Your list for today'); await page.screenshot({ path: `${OUT}/11-today.png`, fullPage: true }); });
-await step('today has life habits', async () => {
+await step('today has life habits, split into Now and later', async () => {
   await page.waitForSelector('text=Habits & routine');
   await page.screenshot({ path: './e2e-shots/11b-today-life.png', fullPage: true });
   const life = page.locator('section[aria-labelledby="life-h"]');
-  const groups = await life.locator('.group-title').allTextContents();
-  check('Today routine shows a Morning group', groups.some((g) => /Morning/.test(g)), JSON.stringify(groups));
-  check('Today routine shows an Evening group (evening goal selected)', groups.some((g) => /Evening/.test(g)), JSON.stringify(groups));
-  // the evening group must hold a genuine evening life habit, not a cleaning task
-  const evening = await life.locator('.stack', { has: page.locator('.group-title', { hasText: 'Evening' }) }).first().locator('.task').allTextContents();
-  check('evening group has at least one task', evening.length >= 1);
-  check('evening life task is flagged Evening and is not a cleaning task', evening.some((t) => /Evening/.test(t) && !/Kitchen|Whole home|Living room|Bedroom/.test(t)), evening.join(' || ').slice(0, 300));
+  const now = life.locator('[data-bucket="now"]');
+  check('at 08:15 the "Now" group is the morning', /Now · Morning/.test(await now.locator('.group-title').innerText()));
+  check('now holds a genuine morning habit', (await now.locator('.task').allTextContents()).some((t) => /Morning/.test(t)));
+  const nowText = (await now.locator('.task').allTextContents()).join(' || ');
+  check('no evening routine is presented as a current task', !/Evening/.test(nowText), nowText.slice(0, 200));
+  const evening = life.locator('[data-bucket="evening"]');
+  check('the evening routine is waiting under "This evening", collapsed', (await evening.count()) === 1 && (await evening.locator('.task').count()) === 0);
+  await evening.getByRole('button', { name: /This evening/ }).click();
+  const tasks = await evening.locator('.task').allTextContents();
+  check('expanding it shows genuine evening life habits, not cleaning', tasks.length >= 1 && tasks.every((t) => /Evening/.test(t)) && !tasks.some((t) => /Kitchen|Whole home|Living room|Bedroom/.test(t)), tasks.join(' || ').slice(0, 300));
 });
 await step('life task detail shows safety + metadata', async () => {
   await page.locator('.task-body', { hasText: /walk/i }).first().click();

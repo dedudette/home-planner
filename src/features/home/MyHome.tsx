@@ -6,6 +6,7 @@ import { BLOCKERS, CLEANLINESS, ENERGY, FITNESS_LEVELS, FOCUS_OPTIONS, GOALS, HO
 import { useApp, type EditSection } from '../../state/store';
 import { I, ROOM_ICON, type IconType } from '../../ui/icons';
 import { Button, PageHead, Sheet } from '../../ui/primitives';
+import { GoalCoverageCard } from '../plan/GoalCoverage';
 import { navigate } from '../../ui/router';
 import {
   StepEnergy, StepFocus, StepGoals, StepHomeType, StepPeople, StepRooms, StepSize, StepState, StepStyle,
@@ -17,7 +18,8 @@ const SECTION_TITLE: Record<EditSection, string> = {
 };
 
 export const EditHomeSheet = ({ section }: { section: EditSection }) => {
-  const { closeSheet } = useApp();
+  const { closeSheet, data } = useApp();
+  const homeOn = data.preferences.focus.includes('home');
   const body = (() => {
     switch (section) {
       case 'type': return <StepHomeType />;
@@ -32,7 +34,7 @@ export const EditHomeSheet = ({ section }: { section: EditSection }) => {
     }
   })();
   return (
-    <Sheet title={SECTION_TITLE[section]} onClose={closeSheet} full footer={<Button block onClick={closeSheet}>Done. Update my plan</Button>}>
+    <Sheet title={!homeOn && section === 'style' ? 'Daily time' : SECTION_TITLE[section]} onClose={closeSheet} full footer={<Button block onClick={closeSheet}>Done. Update my plan</Button>}>
       <p className="small muted">Changes apply right away. Tasks you already have keep their scheduled days.</p>
       {body}
     </Sheet>
@@ -51,7 +53,56 @@ const Card = ({ icon: Icon, title, section, children }: { icon: IconType; title:
   );
 };
 
+/** For people who did not ask for a cleaning plan: their goals, time and energy, and nothing about a house they never described. */
+const MyGoals = () => {
+  const { data, plan, dispatch, stamp, openSheet } = useApp();
+  const p = data.preferences;
+  const energy = ENERGY.find((e) => e.value === p.energy)?.label;
+  const covered = plan.goalCoverage.filter((c) => c.status === 'covered').length;
+  return (
+    <div className="page">
+      <PageHead title="My goals" sub="Everything your daily plan is built on. Edit anything and the plan adapts."
+        action={<Button variant="soft" size="sm" onClick={() => navigate('plan')} icon={I.list}>View plan</Button>} />
+      <div className="stat-grid">
+        <div className="stat"><div className="v">{plan.sessionMinutes}<span className="small muted"> min</span></div><div className="l">Daily goal</div></div>
+        <div className="stat"><div className="v">{plan.stats.lifeCount}</div><div className="l">Daily habits</div></div>
+        <div className="stat"><div className="v">{covered}<span className="small muted"> of {plan.goalCoverage.length}</span></div><div className="l">Goals in your plan</div></div>
+        <div className="stat"><div className="v">{plan.tasks.filter((t) => t.challenge).length}</div><div className="l">Optional challenges</div></div>
+      </div>
+      <GoalCoverageCard />
+      <div className="profile-grid">
+        <Card icon={I.flame} title="What I'm improving" section="focus">
+          <div className="row wrap" style={{ gap: 6 }}>{p.focus.map((f) => <span key={f} className="tag green">{FOCUS_OPTIONS.find((x) => x.value === f)?.label}</span>)}</div>
+          <p className="small muted">Starting pace: {LIFE_LEVELS[p.lifeLevel].label}{p.focus.includes('active') ? ` · ${FITNESS_LEVELS.find((x) => x.value === p.fitnessLevel)?.label.toLowerCase()} fitness · ${p.equipment === 'none' ? 'no equipment' : 'basic equipment'}` : ''}</p>
+        </Card>
+        <Card icon={I.clock} title="Daily time" section="style"><div className="big">{p.sessionMinutes ? sessionLabel(p.sessionMinutes) : 'Not set'}</div><p className="small muted">a day, shared by all your goals</p></Card>
+        <Card icon={I.battery} title="Energy level" section="energy"><div className="big">{energy ?? 'Not set'}</div></Card>
+      </div>
+      <section className="card soft stack" aria-labelledby="add-home">
+        <h2 id="add-home" className="h3">Want a cleaning plan too?</h2>
+        <p className="small muted">You chose not to include one. You can add it any time. Your habits and progress stay exactly as they are.</p>
+        <div><Button variant="secondary" icon={I.home} onClick={() => { dispatch({ type: 'SET_PREFS', patch: { focus: [...p.focus, 'home'] }, stamp: stamp() }); openSheet({ kind: 'editHome', section: 'type' }); }}>Add a cleaning plan</Button></div>
+      </section>
+      <section className="card stack" aria-labelledby="adapt">
+        <h2 id="adapt">How your plan was built</h2>
+        <div className="note-list">
+          {plan.notes.map((n) => {
+            const Ic = (I as Record<string, IconType>)[n.icon] ?? I.sparkles;
+            return <div className="note" key={n.id}><span className="ic"><Ic size={18} aria-hidden /></span><div><p className="strong">{n.title}</p><p className="small muted">{n.detail}</p></div></div>;
+          })}
+        </div>
+      </section>
+    </div>
+  );
+};
+
+/** A wrapper, so switching between the two screens never changes the hooks a single component calls. */
 export const MyHome = ({ isNew }: { isNew: boolean }) => {
+  const { data } = useApp();
+  return data.preferences.focus.includes('home') ? <HomeProfile isNew={isNew} /> : <MyGoals />;
+};
+
+const HomeProfile = ({ isNew }: { isNew: boolean }) => {
   const { data, plan, view } = useApp();
   const h = data.home;
   const p = data.preferences;

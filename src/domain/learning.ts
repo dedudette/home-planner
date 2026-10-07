@@ -2,6 +2,7 @@ import { addDays, diffDays } from './dates';
 import { FREQ_LABEL } from './schedule';
 import { LADDER } from './engine';
 import { allEntries, type PlanView } from './view';
+import { PROGRESSION, progressionReadiness } from './progression';
 import type { Frequency, ISODate, RoomKind } from './types';
 
 /**
@@ -15,6 +16,10 @@ export interface InsightAction { id: InsightActionId; label: string; minutes?: n
 
 export interface Insight {
   id: string;
+  /** Machine-readable reason ('skip-streak', 'level-up'...). Recorded with every recommendation event. */
+  code: string;
+  /** The numbers the sentence is built from, so the explanation can always be reproduced and checked. */
+  evidence?: Record<string, number | string>;
   tone: 'suggest' | 'celebrate';
   title: string;
   body: string;
@@ -47,7 +52,7 @@ export const computeInsights = (v: PlanView): Insight[] => {
   if (longMissed.length >= 3 && longMissed.length / long.length >= 0.5 && currentCap > 10 && !dismissed('shorter')) {
     const cap = currentCap > 30 ? 20 : currentCap > 15 ? 15 : 10;
     out.push({
-      id: 'shorter', tone: 'suggest', title: 'Try shorter sessions?',
+      id: 'shorter', code: 'long-tasks-missed', evidence: { missed: longMissed.length, of: long.length, windowDays: WINDOW_DAYS }, tone: 'suggest', title: 'Try shorter sessions?',
       body: `You've skipped ${longMissed.length} of your last ${long.length} longer tasks, and that's completely fine. Want CleanFlow to break big jobs into pieces of up to ${cap} minutes?`,
       actions: [{ id: 'shorter', label: `Yes, up to ${cap} min`, minutes: cap }, { id: 'dismiss', label: 'Not now' }],
     });
@@ -65,28 +70,28 @@ export const computeInsights = (v: PlanView): Insight[] => {
     if (t.cadence.kind === 'every') actions.push({ id: 'move', label: 'Move it to another day' });
     actions.push({ id: 'remove', label: 'Remove it' }, { id: 'dismiss', label: 'Keep as is' });
     out.push({
-      id: `skip:${t.id}`, tone: 'suggest', taskId: t.id,
+      id: `skip:${t.id}`, code: 'skip-streak', evidence: { streak: v.states[t.id]?.skipStreak ?? 0, taskId: t.id }, tone: 'suggest', taskId: t.id,
       title: `"${t.name}" keeps getting skipped`,
       body: 'No judgement. A task that never happens is a task that does not fit your life right now. What would help?',
       actions,
     });
   }
 
-  // 2b. Progressive discipline: offer a step up when habits are steady, an easier week when they are not.
+  // 2b. Progressive discipline: offer a step up only when habits have been steady across many distinct days, over enough time
+  //     at the current level; offer an easier stretch when they are not. Thresholds live in progression.ts.
   const level = v.data.preferences.lifeLevel ?? 1;
-  const lifeEntries = entries.filter((e) => e.domain && e.domain !== 'home' && e.date >= addDays(today, -14));
-  const lifeDone = lifeEntries.filter((e) => e.outcome === 'completed');
-  const lifeMissed = lifeEntries.filter((e) => e.outcome === 'skipped' || e.outcome === 'snoozed');
-  if (level < 3 && lifeDone.length >= 12 && lifeMissed.length / Math.max(1, lifeEntries.length) <= 0.15 && !dismissed('level-up', 21)) {
+  const levelSince = v.data.preferences.levelSince ?? v.data.plan.startDate;
+  const r = progressionReadiness(allEntries(v.data), today, levelSince, level);
+  if (r.readyToStepUp && !dismissed('level-up', 21)) {
     out.push({
-      id: 'level-up', tone: 'celebrate', title: 'Ready for a small step up?',
-      body: `You've completed ${lifeDone.length} habits in the last two weeks and rarely skipped. If you like, CleanFlow can make your routines a little fuller. You can always go back.`,
+      id: 'level-up', code: 'level-up', evidence: { activeDays: r.activeDays, windowDays: PROGRESSION.windowDays, weekdays: r.weekdays, observedDays: r.observedDays }, tone: 'celebrate', title: 'Ready for a small step up?',
+      body: `You did something on ${r.activeDays} of the last ${PROGRESSION.windowDays} days and rarely skipped. If you like, CleanFlow can make your routines a little fuller. You can always go back.`,
       actions: [{ id: 'level-up', label: 'Yes, a small step up', level: (level + 1) as 2 | 3 }, { id: 'dismiss', label: 'Stay where I am' }],
     });
   }
-  if (level > 1 && lifeEntries.length >= 6 && lifeMissed.length / lifeEntries.length >= 0.6 && !dismissed('level-down', 14)) {
+  if (r.readyToEaseOff && !dismissed('level-down', 14)) {
     out.push({
-      id: 'level-down', tone: 'suggest', title: 'Want an easier stretch?',
+      id: 'level-down', code: 'level-down', evidence: { missRatio: Math.round(r.missRatio * 100), observedDays: r.observedDays }, tone: 'suggest', title: 'Want an easier stretch?',
       body: 'A lot of your recent habits were skipped, which usually just means they were too big for this week. Want to go back to gentler, shorter versions?',
       actions: [{ id: 'level-down', label: 'Yes, make it gentler', level: (level - 1) as 1 | 2 }, { id: 'dismiss', label: 'Keep as is' }],
     });
@@ -107,7 +112,7 @@ export const computeInsights = (v: PlanView): Insight[] => {
   if (steady) {
     const name = steady[0] === 'living' ? 'living room' : steady[0];
     out.push({
-      id: `steady:${steady[0]}`, tone: 'celebrate', title: `Your ${name} routine is working`,
+      id: `steady:${steady[0]}`, code: 'steady-room', evidence: { room: steady[0], done: steady[1].done }, tone: 'celebrate', title: `Your ${name} routine is working`,
       body: `You've completed ${steady[1].done} ${name} tasks recently without skipping any. We're keeping that schedule exactly as it is.`,
       actions: [{ id: 'dismiss', label: 'Nice' }],
     });
