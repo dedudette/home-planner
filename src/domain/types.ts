@@ -351,20 +351,35 @@ export interface ExposureItem {
   domain: Domain;
   minutes: number;
   difficulty: Difficulty;
+  /** What it was when it was first shown (planned, left out, or catch-up). Never rewritten, even if a later change moves it. */
   kind: 'focus' | 'life' | 'extra' | 'catchUp';
+  /** When this task was first shown to the person, and how they said they felt at that moment. Immutable: see ExposureRecord. */
+  shownAt?: string;
+  energy?: EnergyLevel;
   level?: LifeLevel;
   intensity?: Intensity;
   timeOfDay?: TimeOfDay;
   goals?: LifeFocus[];
 }
 
-/** What was scheduled for a day, recorded once the day is opened. Tasks that were ignored are visible here. */
+/**
+ * What was scheduled for a day, recorded once the day is opened. Tasks that were ignored are visible here.
+ *
+ * What "energy" means in an exposure, because it can change during a day:
+ *  - `ExposureItem.energy`  the energy the person had declared at the moment THAT task was first shown. An immutable fact about the
+ *                            exposure: a task shown on a high-energy morning stays "shown at high energy" even if the evening is low.
+ *  - `ExposureRecord.energy` the energy when the day was first opened (the first exposure). Also immutable.
+ *  - `energyChanges`        every later change, in order, so the whole day's energy can be replayed.
+ *  - `SessionEntry.energy`  the energy at COMPLETION, recorded on the log entry.
+ * Comparing the first with the last is how "did they do hard things on low days?" is answered; none of them is ever overwritten.
+ */
 export interface ExposureRecord {
   date: ISODate;
   recordedAt: string;
   planVersion: string;
   activeDay: boolean;
   energy: EnergyLevel;
+  energyChanges?: { at: string; level: EnergyLevel }[];
   tzOffsetMin: number;
   budgetMinutes: number;
   items: ExposureItem[];
@@ -398,14 +413,47 @@ export interface RecommendationEvent {
   planVersion: string;
 }
 
+/**
+ * Why a goal is not in the plan, decided at the point where it stopped being possible:
+ *  - budget : the tasks that would serve it do not fit in the minutes the day has (or what the other goals left)
+ *  - cap    : there is room in minutes but the plan already holds as many habits as it should
+ *  - safety : every task for it is ruled out by the user's fitness level or energy
+ *  - context: the tasks need something the user has not got (equipment, an outdoor space…)
+ *  - none   : nothing in the catalogue serves it at the user's current level
+ */
+export type GoalDeferReason = 'budget' | 'cap' | 'safety' | 'context' | 'none';
+
+/** A task in the plan that relates to a goal, and exactly how. */
+export interface CoverTask {
+  taskId: string;
+  name: string;
+  minutes: number;
+  /** primary: really about the goal and long enough to count. supporting: related, but not enough on its own. */
+  role: 'primary' | 'supporting';
+  /** Why it counts, or why it is only supporting, in plain words. */
+  why: string;
+}
+
 /** Whether a selected goal got a real task in the plan. Never faked: deferred goals say why. */
-export type DeferReason = 'budget' | 'cap' | 'none';
 export interface GoalCoverage {
   goal: LifeFocus;
   status: 'covered' | 'deferred';
+  /** The primary tasks only. A goal is covered exactly when this is non-empty. */
   taskIds: string[];
-  reason?: DeferReason;
+  /** Every task in the plan related to the goal, primary first. */
+  cover: CoverTask[];
+  reason?: GoalDeferReason;
   needMinutes?: number;
+}
+
+/** A record that old history was removed, so "no data before this date" is never mistaken for "no activity". */
+export interface RetentionNote {
+  at: string;
+  removedSessions: number;
+  removedEntries: number;
+  /** Everything on or before this date was removed. */
+  removedThrough: ISODate;
+  oldestKept: ISODate;
 }
 
 export interface AppData {
@@ -429,4 +477,6 @@ export interface AppData {
   energyLog: Record<ISODate, EnergyLevel>;
   planVersions: PlanVersion[];
   recEvents: RecommendationEvent[];
+  /** Every time history was compacted to fit in storage. Lets any later analysis know where the data really starts. */
+  retention: RetentionNote[];
 }

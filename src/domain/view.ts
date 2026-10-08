@@ -1,10 +1,12 @@
 import { PHASE_ORDER } from './catalog';
-import { addDays, endOfMonth, startOfMonth } from './dates';
+import { addDays, diffDays, endOfMonth, startOfMonth } from './dates';
 import type { Plan } from './engine';
+import { fitDay, dayBudget, type DeferReason, type FitItem } from './budget';
 import { isLife } from './scoring';
+import { dayEnergyOf, energyOk } from './safety';
 import { TIME_ORDER } from './options';
 import { applyOverride, customToTask, dueInfo, projectDates, type DueInfo } from './schedule';
-import type { AppData, Domain, ISODate, LifeDomain, RoomKind, SessionEntry, Task, TaskState, TimeOfDay } from './types';
+import type { AppData, Domain, EnergyLevel, ISODate, LifeDomain, RoomKind, SessionEntry, Task, TaskState, TimeOfDay } from './types';
 
 /**
  * A PlanView is the plan *as the user currently experiences it*:
@@ -59,76 +61,120 @@ export const compareForToday = (a: DueItem, b: DueItem): number => {
   return b.task.score - a.task.score;
 };
 
+/** Why a task that is due is not part of the plan for the day. Shown to the user, so every deferral has a stated cause. */
+export type { DeferReason } from './budget';
+
+export interface DeferredItem { item: DueItem; reason: DeferReason }
+
 export interface TodayPlan {
   isActiveDay: boolean;
   /** Cleaning's share of today's minutes (all of them when habits are off). */
   budget: number;
+  /** Habits' and life tasks' share of today's minutes. */
+  lifeBudget: number;
   /** The whole day's promise: the one number the user chose, shared by cleaning and habits. */
   totalBudget: number;
-  /** Everything planned today, cleaning plus habits. */
+  /** Everything planned today, cleaning plus habits. Never more than totalBudget unless `overBy` says so. */
   totalPlanned: number;
-  /** Minutes by which the essentials exceed the promise (0 when they fit). Shown honestly rather than hidden. */
+  /** Minutes by which the user's own urgent tasks exceed the promise (0 when the day fits). Shown honestly rather than hidden. */
   overBy: number;
+  /** The urgent tasks the user added that cause the overage. */
+  overBecause: Task[];
   focus: DueItem[];
-  /** Life-layer habits due today (separate time budget from home cleaning). */
+  /** Life-layer habits planned for today (they share the one budget with cleaning). */
   life: DueItem[];
+  /** Due but not planned today, in priority order. See `deferred` for why. */
   extra: DueItem[];
+  deferred: DeferredItem[];
   catchUp: DueItem[];
   done: SessionEntry[];
   plannedMinutes: number;
   lifeMinutes: number;
   doneMinutes: number;
-  energy: 'low' | 'ok' | 'high';
+  energy: EnergyLevel;
 }
 
+interface Cand extends FitItem { item: DueItem; catchUp?: boolean }
+
+const asDue = (task: Task, due: ISODate): DueItem => ({ task, due, overdue: false, info: { due, overdue: false, rolled: false } });
+
+/** Daily basics may take at most this share of cleaning's minutes before real cleaning gets a turn, so habits cannot crowd out everything else. */
+const HABIT_SHARE = 0.6;
+/** At most this many overdue tasks are offered on one day, as a gentle catch-up. */
+const CATCH_UP_MAX = 2;
+/** A task that has waited this many days jumps ahead of today's regular cleaning, so deferral can never turn into starvation. */
+const AGED_DAYS = 2;
+
+/**
+ * The one place a day is assembled, for today and for any future date alike. `items` are the tasks due that day; this orders them,
+ * applies the low-energy rule, and lets `fitDay` decide what the day's minutes can hold.
+ */
+const assembleDay = (v: PlanView, date: ISODate, items: DueItem[], energy: EnergyLevel) => {
+  const { plan } = v;
+  const wd = new Date(`${date}T12:00:00`).getDay();
+  const budget = dayBudget(plan, wd, energy);
+  const home = items.filter((i) => !isLife(i.task));
+  const lifeItems = items.filter((i) => isLife(i.task) && !i.task.challenge);
+  const covering = new Set(plan.goalCoverage.flatMap((g) => g.taskIds));
+  const essential = (t: Task) => !!t.custom && t.priority === 'URGENT';
+  const age = (i: DueItem) => Math.max(0, diffDays(date, i.due));
+
+  // Cleaning's order: the basics (up to their share), then anything that has waited too long, then today's regular list in the
+  // usual order, then a little catch-up, and last any basics beyond their share (they take whatever minutes are left).
+  const todays = home.filter((i) => !i.overdue).sort(compareForToday);
+  const overdue = home.filter((i) => i.overdue).sort((a, b) => age(b) - age(a) || b.task.score - a.task.score).slice(0, CATCH_UP_MAX);
+  const habitCap = budget.home * HABIT_SHARE;
+  let habitMin = 0;
+  const firstHabits: DueItem[] = [], moreHabits: DueItem[] = [];
+  for (const i of todays.filter((x) => x.task.habit)) {
+    if (habitMin + i.task.minutes <= habitCap || firstHabits.length === 0) { firstHabits.push(i); habitMin += i.task.minutes; } else moreHabits.push(i);
+  }
+  const aged = overdue.filter((i) => age(i) >= AGED_DAYS);
+  const rest = overdue.filter((i) => age(i) < AGED_DAYS);
+  const ordered: { item: DueItem; catchUp: boolean }[] = [
+    ...firstHabits.map((item) => ({ item, catchUp: false })),
+    ...aged.map((item) => ({ item, catchUp: true })),
+    ...todays.filter((i) => !i.task.habit).map((item) => ({ item, catchUp: false })),
+    ...rest.map((item) => ({ item, catchUp: true })),
+    ...moreHabits.map((item) => ({ item, catchUp: false })),
+  ];
+  const cands: Cand[] = [];
+  ordered.forEach(({ item, catchUp }, order) => {
+    const t = item.task;
+    const ess = essential(t);
+    const blocked = ess ? undefined : !budget.active && !t.habit ? 'rest-day' as const : !energyOk(t, energy) ? 'energy' as const : undefined;
+    cands.push({ item, minutes: t.minutes, domain: 'home', order, weight: t.score + (t.habit ? 15 : 0) + (catchUp ? Math.min(30, 8 * age(item)) - 20 : 0), essential: ess, blocked, catchUp });
+  });
+  // Life tasks: the ones that are a goal's cover come first, so a tight day drops filler before it drops a goal.
+  lifeItems
+    .sort((a, b) => Number(covering.has(b.task.id)) - Number(covering.has(a.task.id)) || b.task.score - a.task.score)
+    .forEach((item, order) => {
+      const t = item.task;
+      cands.push({ item, minutes: t.minutes, domain: 'life', order, weight: t.score + (covering.has(t.id) ? 50 : 0), essential: essential(t), blocked: essential(t) ? undefined : !energyOk(t, energy) ? 'energy' : undefined });
+    });
+  return { budget, fit: fitDay(cands, budget) };
+};
+
 export const todayPlan = (v: PlanView): TodayPlan => {
-  const { data, plan, today } = v;
-  const energy = data.dayEnergy?.date === today ? data.dayEnergy.level : 'ok';
-  const isActiveDay = plan.activeDays.includes(new Date(`${today}T12:00:00`).getDay());
-  const factor = energy === 'low' ? 0.6 : energy === 'high' ? 1.3 : 1;
-  // One daily budget, shared. Cleaning gets its share (all of it when habits are off), habits get the rest.
-  const budget = isActiveDay ? Math.round(plan.sessionMinutes * plan.homeShare * factor) : 0;
-  const lifeBudget = plan.lifeActive ? Math.round(plan.lifeBudget * factor) : 0;
-  // On a rest day only the daily micro-habits remain of cleaning's share, so the promise shrinks to habits plus those basics.
-  const restBudget = lifeBudget + (plan.homeShare >= 0.5 ? plan.habitBudget : 0);
-  const totalBudget = plan.lifeActive ? (plan.homeShare < 0.5 || isActiveDay ? Math.round(plan.sessionMinutes * factor) : restBudget) : budget;
-
-  const items = dueItems(v);
+  const { data, today } = v;
+  const energy = dayEnergyOf(data, today);
   const done = entriesOn(data, today).filter((e) => e.outcome === 'completed');
-  const catchUp = items.filter((i) => i.overdue && !isLife(i.task)).sort((a, b) => b.task.score - a.task.score).slice(0, 2);
-  const eligible = items.filter((i) => !i.overdue && !isLife(i.task)).sort(compareForToday);
-  // Life habits have their own (small) budget, so they never crowd out or get crowded out by cleaning.
-  const lifeAll = items.filter((i) => isLife(i.task) && !i.task.challenge);
-  const todRank = (t: Task) => TIME_ORDER.indexOf(t.timeOfDay ?? 'anytime');
-  const lifeEasy = (t: Task) => energy !== 'low' || (t.intensity !== 'vigorous' && t.difficulty <= 2);
-  const life = lifeAll.filter((i) => lifeEasy(i.task)).sort((a, b) => todRank(a.task) - todRank(b.task) || b.task.score - a.task.score);
+  const all = dueItems(v);
+  const { budget, fit } = assembleDay(v, today, all, energy);
 
-  const easy = (t: Task) => t.difficulty <= 2 && t.minutes <= Math.max(10, plan.chunkLimit);
-  const focus: DueItem[] = eligible.filter((i) => i.task.habit);
-  const extra: DueItem[] = [];
-  let used = focus.reduce((s, f) => s + f.task.minutes, 0);
-  // When cleaning shares the day with habits, nothing gets a free pass: the day has to fit the promise.
-  const strict = plan.lifeActive;
-  const fits = (t: Task) => energy !== 'low' || easy(t);
-  for (const it of eligible) {
-    if (it.task.habit) continue;
-    const firstOne = !strict && focus.every((f) => f.task.habit);
-    if (isActiveDay && fits(it.task) && (used + it.task.minutes <= budget * 1.1 || firstOne)) {
-      focus.push(it);
-      used += it.task.minutes;
-    } else extra.push(it);
-  }
-  if (strict && isActiveDay && !focus.some((f) => !f.task.habit)) {
-    // Never leave a cleaning day with only habits if something small enough still fits the promise.
-    const small = extra.filter((i) => fits(i.task)).sort((a, b) => a.task.minutes - b.task.minutes)[0];
-    if (small && used + small.task.minutes <= budget * 1.3) { focus.push(small); used += small.task.minutes; extra.splice(extra.indexOf(small), 1); }
-  }
-  extra.push(...lifeAll.filter((i) => !lifeEasy(i.task)));
-  const lifeMinutes = life.reduce((s, i) => s + i.task.minutes, 0);
-  const totalPlanned = used + lifeMinutes;
+  const byKind = (domain: 'home' | 'life', isCatch: boolean) => fit.planned.filter((c) => c.domain === domain && !!c.catchUp === isCatch).sort((a, b) => a.order - b.order).map((c) => c.item);
+  const todRank = (t: Task) => TIME_ORDER.indexOf(t.timeOfDay ?? 'anytime');
+  const focus = byKind('home', false);
+  const life = byKind('life', false).sort((a, b) => todRank(a.task) - todRank(b.task) || b.task.score - a.task.score);
+  const catchPlanned = byKind('home', true);
+  const deferred: DeferredItem[] = fit.deferred.map((d) => ({ item: d.item.item, reason: d.reason }));
+  const homeMinutes = fit.planned.filter((c) => c.domain === 'home').reduce((s, c) => s + c.minutes, 0);
+  const lifeMinutes = fit.planned.filter((c) => c.domain === 'life').reduce((s, c) => s + c.minutes, 0);
   return {
-    isActiveDay, budget, totalBudget, totalPlanned, overBy: Math.max(0, totalPlanned - totalBudget), focus, life, extra, catchUp, done,
-    plannedMinutes: used,
+    isActiveDay: budget.active, budget: budget.home, lifeBudget: budget.life, totalBudget: budget.total, totalPlanned: fit.total, overBy: fit.overBy,
+    overBecause: fit.essentials.map((c) => c.item.task),
+    focus, life, extra: deferred.map((d) => d.item), deferred, catchUp: catchPlanned, done,
+    plannedMinutes: homeMinutes,
     lifeMinutes,
     doneMinutes: done.reduce((s, e) => s + e.actualMinutes, 0),
     energy,
@@ -170,9 +216,23 @@ export const bucketLife = (items: DueItem[], hour: number): LifeBuckets => {
 
 // ───────────────────────── Schedule views ─────────────────────────
 
-export interface DayPlan { date: ISODate; tasks: Task[]; minutes: number; done: SessionEntry[] }
+export interface DayPlan {
+  date: ISODate;
+  /** What is planned for the day. These, and only these, count against the day's minutes. */
+  tasks: Task[];
+  /** Minutes of `tasks`. */
+  minutes: number;
+  /** The day's promise (the one number the user chose; smaller on a rest day or a low-energy day). */
+  budget: number;
+  /** Minutes by which the user's own urgent tasks exceed the promise. 0 when the day fits. */
+  overBy: number;
+  /** Due that day but not planned, each with the reason. */
+  deferred: { task: Task; reason: DeferReason }[];
+  done: SessionEntry[];
+}
 
-export const tasksOnDate = (v: PlanView, date: ISODate): Task[] => {
+/** Tasks due on `date`, before the day's minutes are applied. */
+const dueOn = (v: PlanView, date: ISODate): Task[] => {
   const out: Task[] = [];
   for (const task of v.tasks) {
     const st = v.states[task.id];
@@ -183,12 +243,28 @@ export const tasksOnDate = (v: PlanView, date: ISODate): Task[] => {
     }
     if (projectDates(task, st, date, date, v.today).length) out.push(task);
   }
-  return out.sort((a, b) => Number(b.habit) - Number(a.habit) || b.score - a.score);
+  return out;
 };
 
+/** Everything due that day, unfitted. Use `dayPlan` for what the day can actually hold. */
+export const tasksOnDate = (v: PlanView, date: ISODate): Task[] =>
+  dueOn(v, date).sort((a, b) => Number(b.habit) - Number(a.habit) || b.score - a.score);
+
+/**
+ * What a day holds. Today uses `todayPlan` (which also knows the user's energy and what is overdue); every other date is assembled
+ * by the same `assembleDay`, with a normal-energy day and nothing overdue, so Today, Tomorrow and the Schedule can never disagree
+ * about what fits.
+ */
 export const dayPlan = (v: PlanView, date: ISODate): DayPlan => {
-  const tasks = date === v.today ? (() => { const t = todayPlan(v); return [...t.focus, ...t.life].map((f) => f.task); })() : tasksOnDate(v, date);
-  return { date, tasks, minutes: tasks.reduce((s, t) => s + t.minutes, 0), done: entriesOn(v.data, date).filter((e) => e.outcome === 'completed') };
+  const done = entriesOn(v.data, date).filter((e) => e.outcome === 'completed');
+  if (date === v.today) {
+    const t = todayPlan(v);
+    const tasks = [...t.focus, ...t.catchUp, ...t.life].map((f) => f.task);
+    return { date, tasks, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: t.totalBudget, overBy: t.overBy, deferred: t.deferred.map((d) => ({ task: d.item.task, reason: d.reason })), done };
+  }
+  const { budget, fit } = assembleDay(v, date, dueOn(v, date).map((t) => asDue(t, date)), 'ok');
+  const tasks = fit.planned.sort((a, b) => a.domain.localeCompare(b.domain) || a.order - b.order).map((c) => c.item.task);
+  return { date, tasks, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: budget.total, overBy: fit.overBy, deferred: fit.deferred.map((d) => ({ task: d.item.item.task, reason: d.reason })), done };
 };
 
 export const weekPlan = (v: PlanView, from: ISODate): DayPlan[] =>
@@ -216,10 +292,13 @@ export const SECTION_LABEL: Record<SectionId, string> = {
 
 const live = (v: PlanView, t: Task) => !v.states[t.id]?.done && !t.backlog && !t.challenge;
 
+/** The user's energy for the view's day. Every list that suggests a task filters through `energyOk` with this. */
+export const viewEnergy = (v: PlanView): EnergyLevel => dayEnergyOf(v.data, v.today);
+
 export const quickWins = (v: PlanView, limit = 8): Task[] => {
   const doneToday = new Set(entriesOn(v.data, v.today).filter((e) => e.outcome === 'completed').map((e) => e.taskId));
   const cands = v.tasks
-    .filter((t) => t.tier !== 'deep' && live(v, t) && !doneToday.has(t.id) && !t.challenge && t.minutes <= 10 && (t.quickWin || t.minutes <= 5) && t.frequency !== 'seasonal')
+    .filter((t) => t.tier !== 'deep' && live(v, t) && !doneToday.has(t.id) && !t.challenge && t.minutes <= 10 && (t.quickWin || t.minutes <= 5) && t.frequency !== 'seasonal' && energyOk(t, viewEnergy(v)))
     .sort((a, b) => b.impact / b.minutes - a.impact / a.minutes || b.score - a.score);
   const perRoom = new Map<string, number>();
   const out: Task[] = [];
@@ -243,8 +322,8 @@ const sectionTasksRaw = (v: PlanView, id: SectionId): Task[] => {
   const m = (t: Task) => t.tier === 'maintenance' && live(v, t);
   switch (id) {
     case 'today': { const t = todayPlan(v); return [...t.focus, ...t.life].map((f) => f.task); }
-    case 'routine': return v.tasks.filter((t) => t.routine && live(v, t)).sort((a, b) => TIME_ORDER.indexOf(a.timeOfDay ?? 'anytime') - TIME_ORDER.indexOf(b.timeOfDay ?? 'anytime') || b.score - a.score);
-    case 'challenge': return v.tasks.filter((t) => t.challenge).sort((a, b) => b.score - a.score);
+    case 'routine': return v.tasks.filter((t) => t.routine && live(v, t) && energyOk(t, viewEnergy(v))).sort((a, b) => TIME_ORDER.indexOf(a.timeOfDay ?? 'anytime') - TIME_ORDER.indexOf(b.timeOfDay ?? 'anytime') || b.score - a.score);
+    case 'challenge': return v.tasks.filter((t) => t.challenge && energyOk(t, viewEnergy(v))).sort((a, b) => b.score - a.score);
     case 'quick': return quickWins(v, 12);
     case 'reset': return v.tasks.filter((t) => t.frequency === 'once' && !v.states[t.id]?.done && !t.custom && !isLife(t)).sort((a, b) => phaseRank(a) - phaseRank(b) || b.score - a.score);
     case 'daily': return v.tasks.filter((t) => m(t) && t.frequency === 'daily').sort(byScore);
@@ -283,6 +362,7 @@ export const roomTasks = (v: PlanView, kind: RoomKind): Task[] =>
       return k === kind || sleepsMatch;
     })
     .filter((t) => !v.states[t.id]?.done || t.tier === 'deep')
+    .filter((t) => energyOk(t, viewEnergy(v)))
     .sort((a, b) => Number(!!a.backlog) - Number(!!b.backlog) || b.score - a.score);
 
 /** How many task occurrences are still expected in [from, to] (ignores things already done). */

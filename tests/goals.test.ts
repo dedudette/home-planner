@@ -101,10 +101,18 @@ describe('goal coverage is real, not tag-deep', () => {
 });
 
 describe('time-of-day goals still require the task to really belong to that time of day', () => {
-  it('brushing teeth in the morning does not serve the evening, but brushing before bed does', () => {
-    expect(servesGoal('evening', { t: tpl('c-teeth'), matches: ['evening'] })).toBe(false);
-    expect(servesGoal('evening', { t: tpl('c-teeth-night'), matches: ['evening'] })).toBe(true);
-    expect(tpl('c-teeth-night').time).toBe('evening');
+  it('a morning step never serves the evening goal, even if someone tags it for the evening, and an evening step does', () => {
+    const clothes = tpl('c-clothes');
+    const mistagged = { ...clothes, focus: [...clothes.focus, 'evening' as LifeFocus] };
+    expect(clothes.time).toBe('morning');
+    expect(servesGoal('evening', { t: mistagged, matches: ['evening'] })).toBe(false);
+    expect(servesGoal('morning', { t: clothes, matches: ['morning'] })).toBe(true);
+    expect(servesGoal('evening', { t: tpl('a-plan-tomorrow'), matches: ['evening'] })).toBe(true);
+  });
+
+  it('brushing your teeth is a routine step but not an improvement to one, morning or evening', () => {
+    expect(servesGoal('morning', { t: tpl('c-teeth'), matches: ['morning'] })).toBe(false);
+    expect(servesGoal('evening', { t: tpl('c-teeth-night'), matches: ['evening'] })).toBe(false);
   });
 });
 

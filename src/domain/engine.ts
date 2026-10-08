@@ -1,5 +1,6 @@
 import { PHASE_ORDER, TEMPLATES, type Template } from './catalog';
 import { deriveContext, type Ctx } from './context';
+import { nominalSplit } from './budget';
 import { assignSchedule } from './planner';
 import { buildLifeTasks } from './life';
 import { LADDER, isLife, occurrencesPerWeek, priorityOf } from './scoring';
@@ -50,6 +51,8 @@ export interface Plan {
   /** Which selected goals got a real task, and which were deferred (and why). Never faked. */
   goalCoverage: GoalCoverage[];
   homeShare: number;
+  /** Cleaning is one of the user's focus areas. */
+  homeOn: boolean;
   lifeActive: boolean;
   lifeBudget: number;
   /** Minutes per day the daily micro-habits may take out of cleaning's share. They also run on rest days. */
@@ -233,10 +236,10 @@ const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Cou
 };
 
 /** Split a long task into sessions that fit the user's realistic chunk size. */
-const splitTask = (t: Instance, limit: number, cnt: Counters): Instance[] => {
+const splitTask = (t: Instance, limit: number, cnt: Counters, slack = 1.25): Instance[] => {
   if (t.tier === 'deep' || t.frequency === 'daily' || t.habit) return [t];
-  if (t.minutes <= limit * 1.25) return [t];
-  const parts = Math.min(4, Math.max(2, Math.ceil(t.minutes / limit)));
+  if (t.minutes <= limit * slack) return [t];
+  const parts = Math.min(slack === 1 ? 6 : 4, Math.max(2, Math.ceil(t.minutes / limit)));
   const per = Math.max(3, Math.round(t.minutes / parts));
   cnt.splitCount++;
   const sliceSteps = (steps: string[], i: number): string[] => {
@@ -316,7 +319,8 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   const mess = messFloor(c);
   const homeOn = c.focus.has('home');
   const base = homeOn ? buildInstances(c, mess, cnt, false) : [];
-  let tasks: Instance[] = base.flatMap((t) => splitTask(t, c.chunkLimit, cnt));
+  // Not split yet: how big a part may be depends on how much of the day the daily habits take, worked out below.
+  let tasks: Instance[] = [...base];
 
   // ── Fit recurring load into the weekly time budget ──
   const recurring = () => tasks.filter((t) => t.tier === 'maintenance' && LADDER.includes(t.frequency) && !t.backlog);
@@ -324,6 +328,28 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   const weeklyLoad = () => nonHabit().reduce((s, t) => s + t.minutes * occurrencesPerWeek(t.frequency, c.activeDays.length, false), 0);
   const habits = () => recurring().filter((t) => t.habit);
   const habitPerDay = () => habits().reduce((s, t) => s + t.minutes * (occurrencesPerWeek(t.frequency, c.activeDays.length, true) / 7), 0);
+
+  let stretched = 0;
+  let guard = 0;
+  // Habits get their own daily micro-budget (they run on non-cleaning days too).
+  const baseHabitBudget = Math.max(6, Math.min(c.activeDays.length >= 5 ? 20 : 15, c.sessionMinutes));
+  // Habits are part of cleaning's share of the day, not on top of it, and never more than the share itself.
+  const homeNominal = nominalSplit(c.sessionMinutes, homeOn, c.lifeActive, c.homeShare).home;
+  const habitBudget = Math.min(homeNominal, c.lifeActive && homeOn ? Math.max(2, Math.min(baseHabitBudget, Math.round(homeNominal * 0.6))) : baseHabitBudget);
+  guard = 0;
+  while (habitPerDay() > habitBudget && guard++ < 200) {
+    const cands = habits().filter((t) => !t._keep && LADDER.indexOf(t.frequency) > LADDER.indexOf('weekly')).sort((a, b) => keepScore(a) - keepScore(b));
+    if (!cands.length) break;
+    cands[0].frequency = LADDER[LADDER.indexOf(cands[0].frequency) - 1];
+    stretched++;
+  }
+
+
+  // A part of a cleaning job must fit in what is left of an active day once the daily habits have had their minutes, or it could
+  // never be planned. (The day view enforces the budget exactly, so the plan has to be built to match it.)
+  const dayHabits = habits().filter((t) => t.frequency === 'daily' || t.frequency === 'twice-weekly').reduce((n, t) => n + t.minutes, 0);
+  const splitLimit = clamp(nominalSplit(c.sessionMinutes, homeOn, c.lifeActive, c.homeShare).home - dayHabits, 3, c.chunkLimit);
+  tasks = tasks.flatMap((t) => splitTask(t, splitLimit, cnt, 1));
 
   // When life-layer goals are on too, home cleaning shares the user's time with them.
   // (One shared budget: cleaning's share is 60% when habits are on too, and habits take the other 40%.)
@@ -337,8 +363,6 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
     t._essential ? 0 : t._tpl.tags?.some((g) => g === 'extra' || g === 'nicety') || t.score < 36 ? 2 : 1;
   const canStretch = (t: Instance) => !t._keep && LADDER.indexOf(t.frequency) > 0 && levels(t) < maxLevels(t);
   const naturalLoad = weeklyLoad();
-  let stretched = 0;
-  let guard = 0;
   while (weeklyLoad() > cap && guard++ < 3000) {
     // Spread the sacrifice: always relax the task that has given up the least and matters the least.
     const target = nonHabit().filter(canStretch).sort((a, b) => keepScore(a) + 22 * levels(a) - (keepScore(b) + 22 * levels(b)))[0];
@@ -355,17 +379,6 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
     parked.backlog = true;
   }
 
-  // Habits get their own daily micro-budget (they run on non-cleaning days too).
-  const baseHabitBudget = Math.max(6, Math.min(c.activeDays.length >= 5 ? 20 : 15, c.sessionMinutes));
-  // Habits are part of cleaning's share of the day, not on top of it.
-  const habitBudget = c.lifeActive && homeOn ? Math.max(4, Math.min(baseHabitBudget, Math.round(c.sessionMinutes * c.homeShare * 0.6))) : baseHabitBudget;
-  guard = 0;
-  while (habitPerDay() > habitBudget && guard++ < 200) {
-    const cands = habits().filter((t) => !t._keep && LADDER.indexOf(t.frequency) > LADDER.indexOf('weekly')).sort((a, b) => keepScore(a) - keepScore(b));
-    if (!cands.length) break;
-    cands[0].frequency = LADDER[LADDER.indexOf(cands[0].frequency) - 1];
-    stretched++;
-  }
   cnt.stretched += stretched;
 
   // ── Schedule ──
@@ -396,7 +409,7 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
 
   const notes = buildNotes(c, stats, cnt, mess, resetDays, final.filter((t) => !isLife(t)), life.tasks);
   return {
-    tasks: final, rooms: c.rooms, notes, stats, goalCoverage: life.coverage, homeShare: c.homeShare, lifeActive: c.lifeActive, lifeBudget: life.dayBudget, habitBudget,
+    tasks: final, rooms: c.rooms, notes, stats, goalCoverage: life.coverage, homeShare: c.homeShare, homeOn, lifeActive: c.lifeActive, lifeBudget: life.dayBudget, habitBudget,
     activeDays: c.activeDays, sessionMinutes: c.sessionMinutes,
     chunkLimit: c.chunkLimit, microSteps: c.microSteps, zones: c.zones, startDate: meta.startDate, mess,
   };

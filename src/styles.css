@@ -185,6 +185,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .btn.danger { background: var(--clay-soft); color: var(--clay-ink); }
 .btn.lg { min-height: 56px; font-size: 1.05rem; padding: 0 26px; border-radius: 16px; }
 .btn.sm { min-height: 40px; padding: 0 14px; font-size: 0.9rem; border-radius: 12px; }
+@media (pointer: coarse) { .btn.sm { min-height: 44px; } }
 .btn.block { width: 100%; }
 .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 .icon-btn {
@@ -234,6 +235,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .seg { display: inline-flex; padding: 4px; border-radius: 16px; background: var(--bg-deep); gap: 2px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .seg::-webkit-scrollbar { display: none; }
 .seg button { min-height: 40px; padding: 0 16px; border: 0; background: transparent; border-radius: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+@media (pointer: coarse) { .seg button { min-height: 44px; } }
 .seg button[aria-selected='true'] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
 
 /* ───────────── Task card ───────────── */
@@ -498,3 +500,9 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 @media (min-width: 600px) { .quick-actions.two { grid-template-columns: repeat(2, 1fr); } }
 .gc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .gc-list li { line-height: 1.4; }
+.gc-tasks { list-style: none; margin: 4px 0 6px; padding: 0 0 0 14px; border-left: 2px solid var(--line, rgba(0,0,0,0.12)); display: flex; flex-direction: column; gap: 6px; }
+.gc-tasks li { font-size: 0.9rem; }
+.gc-why { color: var(--ink-2); } /* the card is tinted; muted text would be 4.4:1 on it */
+.gc-role { font-weight: 600; }
+.gc-role.primary { color: var(--primary); opacity: 1; }
+.block { display: block; }

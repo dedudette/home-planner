@@ -190,7 +190,7 @@ describe('recommendation-ready events', () => {
 
   it('is capped so it can never grow without bound', () => {
     let d = demo('E');
-    for (let i = 0; i < 450; i++) d = reducer(d, { type: 'REC_EVENT', event: ev({ id: `r${i}` }) });
+    for (let i = 0; i < 450; i++) d = reducer(d, { type: 'REC_EVENT', event: ev({ id: `r${i}`, recommendationId: `rec-${i}` }) }); // distinct suggestions
     expect(d.recEvents).toHaveLength(400);
     expect(d.recEvents[d.recEvents.length - 1].id).toBe('r449');
   });
@@ -203,5 +203,121 @@ describe('recommendation-ready events', () => {
     expect(Object.keys(stored)).not.toContain('address');
     expect(stored.evidence).not.toHaveProperty('nested');
     expect(String(stored.evidence!.note).length).toBeLessThanOrEqual(80);
+  });
+});
+
+// ───────────────────────── Exposure energy: what it means when energy changes ─────────────────────────
+
+describe('exposure energy is an immutable snapshot, and a change in energy is appended, never written over', () => {
+  const at = (h: number) => new Date(2026, 9, 5, h, 0).toISOString();
+  const setEnergy = (d: AppData, level: 'low' | 'ok' | 'high', hour: number) => reducer(d, { type: 'DAY_ENERGY', level, stamp: st(hour, { now: at(hour) }) });
+  const expose = (d: AppData, hour: number) => {
+    const v = view(d);
+    const rec = buildExposure(v, at(hour), -120);
+    return hasNewExposure(v, rec) ? reducer(d, { type: 'RECORD_EXPOSURE', record: rec }) : d;
+  };
+  const today = (d: AppData) => d.exposures.find((e) => e.date === TODAY)!;
+
+  it('shown at high energy, then energy drops, task untouched, task later completed, another task shown after the drop', () => {
+    // 1. the morning list is shown on a high-energy day
+    let d = setEnergy(demo('E'), 'high', 7);
+    d = expose(d, 7);
+    const morning = today(d);
+    expect(morning.energy).toBe('high');
+    expect(morning.items.length).toBeGreaterThan(0);
+    expect(morning.items.every((i) => i.energy === 'high' && i.shownAt === at(7))).toBe(true);
+    const firstId = morning.items[0].taskId;
+
+    // 2. energy drops during the day
+    d = setEnergy(d, 'low', 15);
+    expect(today(d).energy).toBe('high');                                         // the day's first energy is not rewritten
+    expect(today(d).energyChanges).toEqual([{ at: at(15), level: 'low' }]);       // the change is appended
+    expect(d.energyLog[TODAY]).toBe('low');                                        // the day's latest is in the energy history
+
+    // 3. the task stays untouched: it is still recorded exactly as it was shown
+    const untouched = today(d).items.find((i) => i.taskId === firstId)!;
+    expect(untouched).toEqual(morning.items[0]);
+    expect(untouched.energy).toBe('high');
+
+    // 4. a later, lower-energy completion records its own energy on the log entry, without touching the exposure
+    const taskNow = todayPlan(view(d)).focus.concat(todayPlan(view(d)).life).map((i) => i.task)[0];
+    const done = reducer(d, { type: 'TASK_COMPLETE', task: taskNow, stamp: st(16, { now: at(16) }), via: 'checkoff', entryId: 'late1' });
+    expect(entries(done).find((e) => e.id === 'late1')!.energy).toBe('low');
+    expect(today(done).items.find((i) => i.taskId === taskNow.id)?.energy).toBe('high');
+
+    // 5. another task is exposed after the change: it carries the NEW energy, and the old ones keep theirs
+    const moved = todayPlan(view(d)).extra[0]?.task ?? view(d).tasks.find((t) => !today(d).items.some((i) => i.taskId === t.id) && !t.habit && !t.challenge);
+    expect(moved).toBeTruthy();
+    const withNew = reducer(d, { type: 'RECORD_EXPOSURE', record: { ...buildExposure(view(d), at(15), -120), items: [{ taskId: 'new-after-drop', templateId: null, domain: 'home', minutes: 5, difficulty: 1, kind: 'extra', shownAt: at(15), energy: 'low' }] } });
+    const added = today(withNew).items.find((i) => i.taskId === 'new-after-drop')!;
+    expect(added.energy).toBe('low');
+    expect(today(withNew).items.find((i) => i.taskId === firstId)!.energy).toBe('high');
+    expect(today(withNew).energy).toBe('high');
+  });
+
+  it('the same energy chosen twice in a row adds no change; going back to the first one still counts as a change', () => {
+    let d = expose(setEnergy(demo('E'), 'ok', 7), 7);
+    d = setEnergy(d, 'ok', 8);
+    expect(today(d).energyChanges).toBeUndefined();
+    d = setEnergy(d, 'low', 9); d = setEnergy(d, 'low', 10); d = setEnergy(d, 'ok', 11);
+    expect(today(d).energyChanges!.map((c) => c.level)).toEqual(['low', 'ok']);
+  });
+
+  it('energy chosen before the day was ever exposed simply becomes the first energy', () => {
+    const d = expose(setEnergy(demo('E'), 'low', 6), 7);
+    expect(today(d).energy).toBe('low');
+    expect(today(d).energyChanges).toBeUndefined();
+  });
+
+  it('survives save and load, and bad values are repaired', () => {
+    let d = expose(setEnergy(demo('E'), 'high', 7), 7);
+    d = setEnergy(d, 'low', 15);
+    const back = validateAppData(JSON.parse(JSON.stringify(d)))!.data;
+    expect(today(back).energyChanges).toEqual(today(d).energyChanges);
+    expect(today(back).items.map((i) => [i.energy, i.shownAt])).toEqual(today(d).items.map((i) => [i.energy, i.shownAt]));
+    const bad = JSON.parse(JSON.stringify(d));
+    bad.exposures.find((e: ExposureRecord) => e.date === TODAY).energyChanges = [{ at: 'x', level: 'low' }, { at: at(1), level: 'purple' }, 7];
+    expect(today(validateAppData(bad)!.data).energyChanges).toBeUndefined();
+  });
+});
+
+// ───────────────────────── Recommendation events are idempotent ─────────────────────────
+
+describe('suggestion events record once, however many times they are sent', () => {
+  const ev = (over: Partial<RecommendationEvent> = {}): RecommendationEvent => ({
+    id: `r_${Math.random()}`, at: new Date(2026, 9, 5, 9).toISOString(), date: TODAY, localHour: 9, kind: 'shown', recommendationId: 'skip-streak:t1', code: 'skip-streak', planVersion: 'p1', ...over,
+  });
+
+  it('a "shown" sent twice with different ids (what a development double-effect does) is one event', () => {
+    let d = demo('E');
+    d = reducer(d, { type: 'REC_EVENT', event: ev() });
+    d = reducer(d, { type: 'REC_EVENT', event: ev() });
+    expect(d.recEvents.filter((e) => e.kind === 'shown')).toHaveLength(1);
+  });
+
+  it('the same id is still ignored, and a different day or a different suggestion is a different event', () => {
+    let d = demo('E');
+    const e = ev();
+    d = reducer(reducer(d, { type: 'REC_EVENT', event: e }), { type: 'REC_EVENT', event: e });
+    d = reducer(d, { type: 'REC_EVENT', event: ev({ date: addDays(TODAY, 1) }) });
+    d = reducer(d, { type: 'REC_EVENT', event: ev({ recommendationId: 'level-up' }) });
+    expect(d.recEvents).toHaveLength(3);
+  });
+
+  it('shown, accepted and dismissed are each recorded once per suggestion per day', () => {
+    let d = demo('E');
+    for (let i = 0; i < 3; i++) {
+      d = reducer(d, { type: 'REC_EVENT', event: ev() });
+      d = reducer(d, { type: 'REC_EVENT', event: ev({ kind: 'accepted', action: 'shorter' }) });
+      d = reducer(d, { type: 'REC_EVENT', event: ev({ kind: 'dismissed', action: 'dismiss' }) });
+    }
+    expect(d.recEvents.map((e) => e.kind)).toEqual(['shown', 'accepted', 'dismissed']);
+  });
+
+  it('two different answers to the same suggestion on one day are both kept', () => {
+    let d = demo('E');
+    d = reducer(d, { type: 'REC_EVENT', event: ev({ kind: 'accepted', action: 'shorter' }) });
+    d = reducer(d, { type: 'REC_EVENT', event: ev({ kind: 'accepted', action: 'smaller' }) });
+    expect(d.recEvents).toHaveLength(2);
   });
 });

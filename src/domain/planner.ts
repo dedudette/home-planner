@@ -61,7 +61,7 @@ export const assignSchedule = (tasks: Task[], c: Ctx, meta: PlanMeta): { resetDa
   if (onceTasks.length) {
     let date = nextActiveDate(start, active);
     let used = 0;
-    const dayCap = Math.max(session * 1.1 - (heavyReset ? habitLoad : 0), session * 0.5);
+    const dayCap = Math.max(session - (heavyReset ? habitLoad : 0), session * 0.5);
     let daysUsed = 1;
     for (const t of onceTasks) {
       if (used > 0 && used + t.minutes > dayCap) {
@@ -121,7 +121,7 @@ export const assignSchedule = (tasks: Task[], c: Ctx, meta: PlanMeta): { resetDa
   const roomDays = new Map<string, Set<number>>();
 
   const ordered = [...toSlot].sort((a, b) => (a.frequency === 'twice-weekly' ? -1 : 0) - (b.frequency === 'twice-weekly' ? -1 : 0) || b.minutes - a.minutes);
-  const cap = session * 1.1;
+  const cap = session; // the day's promise: no slack, because the day view enforces it exactly
   const bestSlot = (t: Task, exclude: number[] = []): { wd: number; q: number } => {
     let best = { wd: active[0], q: 0, score: Infinity };
     const qs = t.frequency === 'weekly' || t.frequency === 'twice-weekly' ? [0] : t.frequency === 'biweekly' ? [0, 1] : [0, 1, 2, 3];

@@ -7,9 +7,9 @@ import { isLife } from '../../domain/scoring';
 import { Button, Sheet } from '../../ui/primitives';
 
 export const JustFiveSheet = () => {
-  const { data, closeSheet, complete, beginTimer, toast, dispatch } = useApp();
+  const { data, today, closeSheet, complete, beginTimer, toast, dispatch } = useApp();
   const seen = useRef<string[]>([]);
-  const [task, setTask] = useState<Task | null>(() => pickJustFive(data, []));
+  const [task, setTask] = useState<Task | null>(() => pickJustFive(data, [], today));
   const [phase, setPhase] = useState<'pick' | 'done'>('pick');
   const [rounds, setRounds] = useState(0);
 
@@ -20,7 +20,7 @@ export const JustFiveSheet = () => {
     if (task && phase === 'pick' && data.fiveRecent[0] === task.id) { setPhase('done'); setRounds((r) => r + 1); }
   }, [data.fiveRecent, task, phase]);
 
-  const next = () => { setTask(pickJustFive(data, seen.current)); setPhase('pick'); };
+  const next = () => { setTask(pickJustFive(data, seen.current, today)); setPhase('pick'); };
   const swap = () => { if (task) dispatch({ type: 'FIVE_SEEN', id: task.id }); next(); };
   const didIt = () => { if (!task) return; complete(task, { via: 'five', minutes: 5, quiet: true }); setPhase('done'); setRounds((r) => r + 1); };
   const RoomIcon = task ? (isLife(task) ? DOMAIN_ICON[task.domain!] : ROOM_ICON[task.roomKind]) : I.sparkles;

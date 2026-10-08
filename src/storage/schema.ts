@@ -6,7 +6,7 @@ import {
 } from '../domain/options';
 import type {
   AppData, CleaningSession, CustomTask, Domain, ExposureItem, ExposureRecord, Frequency, ISODate, LifeFocus, LifeLevel,
-  PlanVersion, Priority, RecommendationEvent, RoomCounts, SessionEntry, Supply, TaskState, TimeOfDay,
+  PlanVersion, Priority, RecommendationEvent, RetentionNote, RoomCounts, SessionEntry, Supply, TaskState, TimeOfDay,
 } from '../domain/types';
 
 /**
@@ -46,13 +46,35 @@ const TODS: readonly TimeOfDay[] = ['morning', 'afternoon', 'evening', 'anytime'
 const INTENSITIES = ['gentle', 'moderate', 'vigorous'] as const;
 const ENERGY_LEVELS = ['low', 'ok', 'high'] as const;
 
-const MAX = { sessions: 5000, entriesPerSession: 400, customTasks: 500, supplies: 300, exposures: 120, planVersions: 60, recEvents: 400, taskStates: 5000 };
+/**
+ * Sanity limits, not storage policy. They exist so a hostile or corrupt file cannot make the app build gigantic structures. They are
+ * far above anything real use reaches (storage fills first: see domain/retention.ts), and every time one bites, the person is told.
+ * Lists that are chronological keep their NEWEST items, because recent behaviour is what matters most.
+ */
+const MAX = { sessions: 50_000, entriesPerSession: 400, customTasks: 500, supplies: 300, exposures: 120, planVersions: 60, recEvents: 400, taskStates: 5000, energyDays: 3650, retention: 20 };
 
 class Ctx {
   repairs: string[] = [];
   dropped = 0;
   note(msg: string) { if (!this.repairs.includes(msg)) this.repairs.push(msg); }
 }
+
+/** The newest `max` of a chronological list, and a note saying how many older ones went. */
+const keepNewest = <T,>(arr: T[], max: number, c: Ctx, what: string): T[] => {
+  if (arr.length <= max) return arr;
+  const n = arr.length - max;
+  c.dropped += n;
+  c.note(`${n} older ${what} ${n === 1 ? 'was' : 'were'} left out because this version keeps at most ${max}. The newest were kept.`);
+  return arr.slice(-max);
+};
+/** The first `max` of a list that has no time order (the person's own tasks, supplies), and a note about the rest. */
+const keepFirst = <T,>(arr: T[], max: number, c: Ctx, what: string): T[] => {
+  if (arr.length <= max) return arr;
+  const n = arr.length - max;
+  c.dropped += n;
+  c.note(`${n} ${what} ${n === 1 ? 'was' : 'were'} left out because this version keeps at most ${max}.`);
+  return arr.slice(0, max);
+};
 
 const str = (v: unknown, d = '', max = 500): string => (typeof v === 'string' ? v.slice(0, max) : d);
 const bool = (v: unknown, d = false): boolean => (typeof v === 'boolean' ? v : d);
@@ -183,10 +205,10 @@ const validateSessions = (raw: unknown, c: Ctx): CleaningSession[] => {
   const out: CleaningSession[] = [];
   const seen = new Set<string>();
   let lost = 0;
-  for (const s of raw.slice(0, MAX.sessions)) {
+  for (const s of keepNewest(raw, MAX.sessions, c, 'history sessions')) {
     if (!isObj(s) || !Array.isArray(s.entries)) { lost++; continue; }
     const entries: SessionEntry[] = [];
-    for (const e of s.entries.slice(0, MAX.entriesPerSession)) {
+    for (const e of keepNewest(s.entries, MAX.entriesPerSession, c, 'entries in one session')) {
       const v = validateEntry(e);
       if (!v || seen.has(v.id)) { lost++; continue; }
       seen.add(v.id); entries.push(v);
@@ -205,7 +227,7 @@ const validateCustom = (raw: unknown, today: ISODate, c: Ctx): CustomTask[] => {
   if (!Array.isArray(raw)) { c.note('Your own tasks were unreadable and were reset.'); return []; }
   const out: CustomTask[] = [];
   const ids = new Set<string>();
-  for (const t of raw.slice(0, MAX.customTasks)) {
+  for (const t of keepFirst(raw, MAX.customTasks, c, 'of your own tasks')) {
     if (!isObj(t) || typeof t.id !== 'string' || !str(t.name).trim() || ids.has(t.id)) { c.dropped++; continue; }
     ids.add(t.id);
     out.push({
@@ -217,10 +239,10 @@ const validateCustom = (raw: unknown, today: ISODate, c: Ctx): CustomTask[] => {
   return out;
 };
 
-const validateSupplies = (raw: unknown): Supply[] => {
+const validateSupplies = (raw: unknown, c: Ctx): Supply[] => {
   if (!Array.isArray(raw)) return [];
   const out: Supply[] = [];
-  for (const s of raw.slice(0, MAX.supplies)) {
+  for (const s of keepFirst(raw, MAX.supplies, c, 'supplies')) {
     if (!isObj(s) || typeof s.id !== 'string' || !str(s.product).trim()) continue;
     const sup: Supply = {
       id: s.id.slice(0, 60), product: str(s.product, '', 80), category: oneOf(s.category, values(SUPPLY_CATEGORIES), 'other'),
@@ -232,6 +254,22 @@ const validateSupplies = (raw: unknown): Supply[] => {
   return out;
 };
 
+const validateRetention = (raw: unknown): RetentionNote[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: RetentionNote[] = [];
+  for (const n of raw.slice(-MAX.retention)) {
+    if (!isObj(n) || !date(n.removedThrough) || !date(n.oldestKept)) continue;
+    out.push({ at: isoStamp(n.at, ''), removedSessions: intn(n.removedSessions, 0, 0, 1e7), removedEntries: intn(n.removedEntries, 0, 0, 1e7), removedThrough: n.removedThrough as ISODate, oldestKept: n.oldestKept as ISODate });
+  }
+  return out;
+};
+
+const validateEnergyChanges = (raw: unknown): { energyChanges?: { at: string; level: (typeof ENERGY_LEVELS)[number] }[] } => {
+  if (!Array.isArray(raw)) return {};
+  const out = raw.filter(isObj).map((x) => ({ at: isoStamp(x.at, ''), level: oneOfOrNull(x.level, ENERGY_LEVELS) })).filter((x): x is { at: string; level: (typeof ENERGY_LEVELS)[number] } => !!x.level && !!x.at).slice(-12);
+  return out.length ? { energyChanges: out } : {};
+};
+
 const validateExposure = (raw: unknown): ExposureRecord | null => {
   if (!isObj(raw) || !date(raw.date) || !Array.isArray(raw.items)) return null;
   const items: ExposureItem[] = [];
@@ -241,6 +279,8 @@ const validateExposure = (raw: unknown): ExposureRecord | null => {
       taskId: i.taskId.slice(0, 120), templateId: typeof i.templateId === 'string' ? i.templateId.slice(0, 80) : null, domain: oneOf(i.domain, DOMAINS, 'home'),
       minutes: num(i.minutes, 0, 0, 1440), difficulty: (i.difficulty === 2 || i.difficulty === 3 ? i.difficulty : 1), kind: oneOf(i.kind, ['focus', 'life', 'extra', 'catchUp'] as const, 'focus'),
     };
+    if (typeof i.shownAt === 'string' && !Number.isNaN(Date.parse(i.shownAt))) it.shownAt = i.shownAt;
+    const ie = oneOfOrNull(i.energy, ENERGY_LEVELS); if (ie) it.energy = ie;
     if (i.level === 1 || i.level === 2 || i.level === 3) it.level = i.level;
     const inten = oneOfOrNull(i.intensity, INTENSITIES); if (inten) it.intensity = inten;
     const tod = oneOfOrNull(i.timeOfDay, TODS); if (tod) it.timeOfDay = tod;
@@ -249,7 +289,7 @@ const validateExposure = (raw: unknown): ExposureRecord | null => {
   }
   return {
     date: raw.date as ISODate, recordedAt: isoStamp(raw.recordedAt, `${raw.date}T00:00:00.000Z`), planVersion: str(raw.planVersion, '', 40), activeDay: bool(raw.activeDay, true),
-    energy: oneOf(raw.energy, ENERGY_LEVELS, 'ok'), tzOffsetMin: intn(raw.tzOffsetMin, 0, -900, 900), budgetMinutes: num(raw.budgetMinutes, 0, 0, 1440), items,
+    energy: oneOf(raw.energy, ENERGY_LEVELS, 'ok'), ...validateEnergyChanges(raw.energyChanges), tzOffsetMin: intn(raw.tzOffsetMin, 0, -900, 900), budgetMinutes: num(raw.budgetMinutes, 0, 0, 1440), items,
   };
 };
 
@@ -324,12 +364,12 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
 
   const states: Record<string, TaskState> = {};
   if (isObj(raw.taskStates)) {
-    for (const [k, v] of Object.entries(raw.taskStates).slice(0, MAX.taskStates)) { const s = validateTaskState(v); if (s) states[k] = s; else c.dropped++; }
+    for (const [k, v] of keepFirst(Object.entries(raw.taskStates), MAX.taskStates, c, 'task settings')) { const s = validateTaskState(v); if (s) states[k] = s; else c.dropped++; }
   } else if (raw.taskStates !== undefined) c.note('Your task settings were unreadable and were reset.');
 
   const resetRaw = raw.resetRun;
   const energyLog: AppData['energyLog'] = {};
-  if (isObj(raw.energyLog)) for (const [k, v] of Object.entries(raw.energyLog).slice(0, 800)) if (isISODate(k) && (ENERGY_LEVELS as readonly unknown[]).includes(v)) energyLog[k] = v as AppData['energyLog'][string];
+  if (isObj(raw.energyLog)) for (const [k, v] of keepNewest(Object.entries(raw.energyLog).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)), MAX.energyDays, c, 'days of energy history')) if (isISODate(k) && (ENERGY_LEVELS as readonly unknown[]).includes(v)) energyLog[k] = v as AppData['energyLog'][string];
   const dismissed: Record<string, ISODate> = {};
   if (isObj(raw.dismissedInsights)) for (const [k, v] of Object.entries(raw.dismissedInsights).slice(0, 200)) if (date(v)) dismissed[k.slice(0, 120)] = v as ISODate;
   const energyDay = isObj(raw.dayEnergy) && date(raw.dayEnergy.date) && (ENERGY_LEVELS as readonly unknown[]).includes(raw.dayEnergy.level)
@@ -348,17 +388,18 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
     taskStates: states,
     customTasks: validateCustom(raw.customTasks, t, c),
     sessions: validateSessions(raw.sessions, c),
-    supplies: validateSupplies(raw.supplies),
+    supplies: validateSupplies(raw.supplies, c),
     resetRun: isObj(resetRaw) && typeof resetRaw.startedAt === 'string'
       ? { startedAt: resetRaw.startedAt, doneIds: strList(resetRaw.doneIds, 400), ...(typeof resetRaw.finishedAt === 'string' ? { finishedAt: resetRaw.finishedAt } : {}) } : null,
     fiveRecent: strList(raw.fiveRecent, 8),
     dismissedInsights: dismissed,
     dayEnergy: energyDay,
     lastOpened: date(raw.lastOpened),
-    exposures: (Array.isArray(raw.exposures) ? raw.exposures : []).map(validateExposure).filter((x): x is ExposureRecord => !!x).slice(-MAX.exposures),
+    exposures: keepNewest((Array.isArray(raw.exposures) ? raw.exposures : []).map(validateExposure).filter((x): x is ExposureRecord => !!x), MAX.exposures, c, 'days of what was shown'),
     energyLog,
-    planVersions: (Array.isArray(raw.planVersions) ? raw.planVersions : []).map(validatePlanVersion).filter((x): x is PlanVersion => !!x).slice(-MAX.planVersions),
-    recEvents: (Array.isArray(raw.recEvents) ? raw.recEvents : []).map(validateRecEvent).filter((x): x is RecommendationEvent => !!x).slice(-MAX.recEvents),
+    planVersions: keepNewest((Array.isArray(raw.planVersions) ? raw.planVersions : []).map(validatePlanVersion).filter((x): x is PlanVersion => !!x), MAX.planVersions, c, 'plan versions'),
+    recEvents: keepNewest((Array.isArray(raw.recEvents) ? raw.recEvents : []).map(validateRecEvent).filter((x): x is RecommendationEvent => !!x), MAX.recEvents, c, 'suggestion events'),
+    retention: validateRetention(raw.retention),
   };
   const found = from;
   const fromFuture = found > SCHEMA_VERSION;

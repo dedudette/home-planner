@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { addDays, formatMinutes, formatLong } from '../../domain/dates';
 import { needsFreshStart } from '../../domain/learning';
-import { bucketLife, dayPlan, todayPlan, type DueItem } from '../../domain/view';
+import { bucketLife, dayPlan, todayPlan, type DeferReason, type DueItem } from '../../domain/view';
 import { GoalCoverageCard } from '../plan/GoalCoverage';
 import { TIME_LABEL } from '../../domain/options';
 import { TIME_ICON } from '../../ui/icons';
@@ -14,6 +14,13 @@ import { InsightCard, useInsights } from './Insights';
 const greeting = () => {
   const h = new Date().getHours();
   return h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+};
+
+/** Why something due is not in today's list. Every left-out task says so, in plain words. */
+const DEFER_NOTE: Record<DeferReason, (budget: number) => string> = {
+  time: (b) => `Left out so today stays within your ${b} minutes. It stays due.`,
+  energy: () => 'Left out because you said your energy is low today. It will come back.',
+  'rest-day': () => 'Saved for one of your cleaning days.',
 };
 
 export const FreshStartCard = ({ days }: { days: number }) => {
@@ -52,18 +59,23 @@ export const Today = () => {
   const restDay = homeOn && !t.isActiveDay;
   const plannedMinutes = t.totalPlanned;
   const buckets = bucketLife(t.life, hour);
+  // Home routines that belong to a part of the day (the evening dish reset, making the bed) follow the same Now / Later rules as
+  // habits. Untimed cleaning is always "now". Timed ones that are not for this part of the day are tucked away, never hidden or pushed.
+  const homeBuckets = bucketLife(t.focus, hour);
+  const nowCount = buckets.now.length + homeBuckets.now.length;
+  const laterCount = buckets.later.length + buckets.evening.length + homeBuckets.later.length + homeBuckets.evening.length;
   const mins = (xs: DueItem[]) => xs.reduce((n, i) => n + i.task.minutes, 0);
   const PhaseIcon = TIME_ICON[buckets.phase];
 
   /** A part of the day that is not "now". Collapsed by default so an evening routine never looks like a task for this morning. */
-  const quietBucket = (key: string, title: string, Ic: typeof PhaseIcon, items: DueItem[], hint: string) => items.length > 0 && (
-    <div className="stack" key={key} data-bucket={key}>
-      <button className="bucket-toggle" aria-expanded={!!openBuckets[key]} onClick={() => setOpenBuckets((o) => ({ ...o, [key]: !o[key] }))}>
+  const quietBucket = (key: string, title: string, Ic: typeof PhaseIcon, items: DueItem[], hint: string, scope = 'life') => items.length > 0 && (
+    <div className="stack" key={`${scope}-${key}`} data-bucket={key} data-scope={scope}>
+      <button className="bucket-toggle" aria-expanded={!!openBuckets[`${scope}-${key}`]} onClick={() => setOpenBuckets((o) => ({ ...o, [`${scope}-${key}`]: !o[`${scope}-${key}`] }))}>
         <Ic size={16} aria-hidden />
         <span className="grow"><b>{title}</b> <span className="muted small">· {items.length} · about {formatMinutes(mins(items))}</span><span className="xs muted bucket-hint">{hint}</span></span>
         <span aria-hidden>{openBuckets[key] ? '▲' : '▼'}</span>
       </button>
-      {openBuckets[key] && <div className="tasklist">{items.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>}
+      {openBuckets[`${scope}-${key}`] && <div className="tasklist">{items.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>}
     </div>
   );
 
@@ -71,7 +83,7 @@ export const Today = () => {
     <section aria-labelledby="life-h" className="stack" data-phase={buckets.phase}>
       <div className="section-title"><h2 id="life-h">Habits &amp; routine</h2><span className="small muted">{t.life.length} · about {formatMinutes(t.lifeMinutes)}</span></div>
       {buckets.now.length > 0 && (
-        <div className="stack" data-bucket="now">
+        <div className="stack" data-bucket="now" data-scope="life">
           <div className="group-title"><PhaseIcon size={16} aria-hidden /> Now · {TIME_LABEL[buckets.phase]}</div>
           <div className="tasklist">{buckets.now.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
         </div>
@@ -94,7 +106,7 @@ export const Today = () => {
       {fresh.show && <FreshStartCard days={fresh.daysAway} />}
 
       <section className="hero-card" aria-label="Today at a glance">
-        <p className="small" style={{ opacity: 0.9 }}>{restDay ? 'Rest day' : 'Today'}</p>
+        <p className="small" style={{ opacity: 0.9 }}>{restDay ? (lifeOn ? 'Rest day from cleaning' : 'Rest day') : 'Today'}</p>
         <h2 style={{ marginTop: 4 }}>
           {totalN === 0 ? (restDay ? 'Nothing planned. Enjoy it.' : 'Nothing due today.')
             : focusLeft === 0 ? 'All done for today. Nice work.'
@@ -108,11 +120,13 @@ export const Today = () => {
               {doneN} done{t.doneMinutes ? ` · ${formatMinutes(t.doneMinutes)} ${lifeOn ? 'logged' : 'cleaned'}` : ''}
               {lifeOn ? (t.totalBudget ? ` · daily goal ${t.totalBudget} min` : '') : (homeOn && !restDay && t.budget ? ` · session goal ${plan.sessionMinutes} min` : '')}
             </p>
-            {lifeOn && focusLeft > 0 && (buckets.later.length + buckets.evening.length) > 0 && (
-              <p className="small" style={{ marginTop: 4, opacity: 0.92 }}>{buckets.now.length + t.focus.length} for right now · {buckets.later.length + buckets.evening.length} for later today</p>
+            {focusLeft > 0 && laterCount > 0 && (
+              <p className="small" style={{ marginTop: 4, opacity: 0.92 }}>{nowCount} for right now · {laterCount} for later today</p>
             )}
-            {t.overBy > 0 && t.totalBudget > 0 && (
-              <p className="small" style={{ marginTop: 4, opacity: 0.92 }}>That is about {t.overBy} min over your {t.totalBudget}-minute goal, because some essentials are fixed. Anything marked optional can wait.</p>
+            {t.overBy > 0 && (
+              <p className="small" style={{ marginTop: 4, opacity: 0.92 }} role="status">
+                That is {t.overBy} min over your {t.totalBudget}-minute goal, because {t.overBecause.map((x) => `"${x.name}"`).join(' and ')} {t.overBecause.length === 1 ? 'is an urgent task' : 'are urgent tasks'} you added. Everything else was left out to keep to your time.
+              </p>
             )}
           </div>
         )}
@@ -168,7 +182,14 @@ export const Today = () => {
             {doneN > 0 ? "That's a good day's work." : 'Enjoy the breathing room. You can still grab a quick win below.'}
           </Empty>
         ) : (
-          <div className="tasklist">{t.focus.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
+          <>
+            {homeBuckets.now.length > 0
+              ? <div className="tasklist" data-bucket="now" data-scope="home">{homeBuckets.now.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
+              : <p className="small muted">Nothing for right now. What is planned for later is below.</p>}
+            {quietBucket('later', 'Later today', TIME_ICON.afternoon, homeBuckets.later, 'Coming up this afternoon', 'home')}
+            {quietBucket('evening', 'This evening', TIME_ICON.evening, homeBuckets.evening, 'Winds the day down. It will be here tonight.', 'home')}
+            {quietBucket('earlier', 'Earlier today', TIME_ICON.morning, homeBuckets.earlier, 'Still open, and that is fine. No rush.', 'home')}
+          </>
         )}
       </section>
       )}
@@ -184,9 +205,13 @@ export const Today = () => {
       {t.extra.length > 0 && (
         <section className="stack" aria-label="Extra tasks">
           <button className="btn secondary block" onClick={() => setShowExtra((s) => !s)} aria-expanded={showExtra}>
-            {showExtra ? 'Hide' : 'Show'} {t.extra.length} more if you have extra energy
+            {showExtra ? 'Hide' : 'Show'} {t.extra.length} more, left out of today
           </button>
-          {showExtra && <div className="tasklist">{t.extra.slice(0, 12).map((f) => <TaskCard key={f.task.id} task={f.task} compact />)}</div>}
+          {showExtra && (
+            <div className="tasklist">
+              {t.deferred.slice(0, 12).map((d) => <TaskCard key={d.item.task.id} task={d.item.task} compact note={DEFER_NOTE[d.reason](t.totalBudget)} />)}
+            </div>
+          )}
         </section>
       )}
 

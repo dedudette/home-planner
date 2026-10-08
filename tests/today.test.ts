@@ -66,41 +66,40 @@ describe('the daily time promise is honest', () => {
     const d = mix(['home', 'discipline', 'morning', 'evening'], { sessionMinutes: 30, daysPerWeek: 7, style: 'daily' });
     for (const t of week(d)) {
       expect(t.totalBudget).toBe(30);
-      expect(t.totalPlanned, `planned ${t.totalPlanned} of ${t.totalBudget}`).toBeLessThanOrEqual(30 * 1.15);
+      expect(t.totalPlanned, `planned ${t.totalPlanned} of ${t.totalBudget}`).toBeLessThanOrEqual(30);
     }
   });
 
-  it('holds across many configurations, and when it cannot the overshoot is stated, not hidden', () => {
-    let over = 0, n = 0;
+  it('holds across many configurations: what is planned never exceeds the promise', () => {
     for (const mins of [20, 30, 45, 60, 90]) for (const days of [3, 5, 7]) for (const focus of [['home', 'discipline'], ['home', 'study', 'evening'], ['home', 'active', 'morning', 'phone']] as LifeFocus[][]) {
       for (const t of week(mix(focus, { sessionMinutes: mins, daysPerWeek: days }))) {
-        n++;
-        expect(t.overBy).toBe(Math.max(0, t.totalPlanned - t.totalBudget));
-        if (t.totalPlanned > t.totalBudget * 1.15) over++;
+        expect(t.overBy).toBe(0);
+        expect(t.totalPlanned, `${mins}m ${days}d ${focus}`).toBeLessThanOrEqual(t.totalBudget);
       }
     }
-    expect(over / n, 'at most a small share of days exceed the promise by more than 15%').toBeLessThan(0.04);
   });
 
   it('habit-only users get exactly the time they asked for', () => {
     const d = mix(['discipline', 'study'], { sessionMinutes: 30, daysPerWeek: 7 });
     for (const t of week(d)) {
       expect(t.totalBudget).toBe(30);
-      expect(t.totalPlanned).toBeLessThanOrEqual(30 * 1.1);
+      expect(t.totalPlanned).toBeLessThanOrEqual(30);
     }
   });
 
   it('the cleaning list is sized to cleaning\'s share, so the two never add up to more than the day', () => {
     const d = mix(['home', 'discipline', 'morning'], { sessionMinutes: 30, daysPerWeek: 7, style: 'daily' });
-    for (const t of week(d)) { expect(t.budget).toBe(18); expect(t.plannedMinutes).toBeLessThanOrEqual(18 * 1.3); }
+    for (const t of week(d)) { expect(t.budget).toBe(18); expect(t.plannedMinutes).toBeLessThanOrEqual(18); }
   });
 
   it('on a rest day only the basics remain, and the promise says so', () => {
     const d = mix(['home', 'discipline'], { sessionMinutes: 30, daysPerWeek: 2 });
     const rest = week(d).find((t) => !t.isActiveDay)!;
-    expect(rest.budget).toBe(0);
+    // Cleaning shrinks to the daily basics, so the promise is smaller than a cleaning day's, and still holds.
+    expect(rest.budget).toBeLessThan(18);
     expect(rest.totalBudget).toBeLessThan(30);
-    expect(rest.totalPlanned).toBeLessThanOrEqual(rest.totalBudget * 1.4);
+    expect(rest.totalPlanned).toBeLessThanOrEqual(rest.totalBudget);
+    expect(rest.focus.every((f) => f.task.habit)).toBe(true);
   });
 
   it('low energy shrinks the whole promise, not just cleaning', () => {
@@ -116,10 +115,11 @@ describe('the daily time promise is honest', () => {
   });
 });
 
-describe('home-cleaning without habits is exactly as it was', () => {
-  // Fingerprints taken from the version before this pass: any drift in a home-only plan or in what Today shows fails here.
+describe('home-cleaning without habits stays pinned', () => {
+  // Fingerprints of home-only plans and a week of Today screens. They were deliberately regenerated when the daily budget became exact
+  // (cleaning jobs are now sized to fit the day beside the daily basics, and Today never exceeds the promise). Any other drift fails here.
   const GOLDEN: Record<string, [string, string]> = {
-    A: ['df6e6f1f', '9850b9be'], B: ['d265d92d', '8fd07605'], C: ['a4925f97', '4114d5a8'], D: ['87d2f9d7', '73605bea'],
+    A: ['17b848e8', '8b98c2ec'], B: ['3d177abb', '200b8845'], C: ['40646c0c', 'abcd4c23'], D: ['fd688e61', 'e82b0576'],
   };
   for (const id of ['A', 'B', 'C', 'D'] as const) {
     it(`demo ${id}: plan and a week of Today screens are unchanged`, () => {
@@ -152,5 +152,55 @@ describe('life-only plans contain no cleaning', () => {
     const d = { ...mix(['discipline']), customTasks: [{ id: 'c1', domain: 'home' as const, name: 'Water the plants', roomId: 'other', frequency: 'once' as const, minutes: 5, priority: 'MEDIUM' as const, notes: '', startDate: TODAY, createdAt: TODAY }] };
     const t = todayPlan(view(d));
     expect([...t.focus, ...t.extra].some((i) => i.task.id === 'c1')).toBe(true);
+  });
+});
+
+describe('home routines follow the same time of day rules as habits', () => {
+  const hours = [0, 6, 8, 12, 15, 18, 21, 23];
+  const tod = (i: DueItem) => i.task.timeOfDay ?? 'anytime';
+  const home = (d: AppData) => todayPlan(view(d)).focus;
+
+  // A home with routines tied to a time of day: the evening dish reset and tidy, and (with the morning goal) making the bed.
+  const data = () => mix(['home', 'morning', 'evening'], { sessionMinutes: 60, daysPerWeek: 7, style: 'daily' });
+
+  it('the plan really has timed home routines to test with', () => {
+    const f = home(data());
+    expect(f.some((i) => tod(i) === 'evening')).toBe(true);
+    expect(f.some((i) => tod(i) === 'anytime')).toBe(true);
+  });
+
+  it('REGRESSION: at 8:00 an evening home routine is tucked under "this evening", never a current task; at 20:00 it is current', () => {
+    const f = home(data());
+    const am = bucketLife(f, 8);
+    expect(am.now.some((i) => tod(i) === 'evening')).toBe(false);
+    expect(am.evening.some((i) => tod(i) === 'evening')).toBe(true);
+    expect(bucketLife(f, 20).now.some((i) => tod(i) === 'evening')).toBe(true);
+  });
+
+  it('a morning home routine is not offered as a current action in the afternoon or at night, but is never lost', () => {
+    const f = home(data());
+    const morning = f.filter((i) => tod(i) === 'morning');
+    for (const h of [12, 15, 18, 21, 23, 0]) {
+      const b = bucketLife(f, h);
+      expect(b.now.some((i) => tod(i) === 'morning'), `${h}:00`).toBe(false);
+      if (morning.length) expect(b.earlier.some((i) => tod(i) === 'morning'), `${h}:00`).toBe(true);
+    }
+    if (morning.length) expect(bucketLife(f, 6).now.some((i) => tod(i) === 'morning')).toBe(true);
+  });
+
+  it('every home task lands in exactly one bucket at every hour, and untimed cleaning is always "now"', () => {
+    const f = home(data());
+    for (const h of hours) {
+      const b = bucketLife(f, h);
+      const all = [...b.now, ...b.later, ...b.evening, ...b.earlier];
+      expect(all.length, `${h}:00`).toBe(f.length);
+      expect(new Set(all.map((i) => i.task.id)).size).toBe(f.length);
+      for (const i of f) if (tod(i) === 'anytime') expect(b.now.includes(i), `${h}:00 ${i.task.name}`).toBe(true);
+    }
+  });
+
+  it('home-only users with no timed routines see no change at any hour', () => {
+    const f = todayPlan(view(mix(['home'], { sessionMinutes: 30, daysPerWeek: 7, style: 'daily' }))).focus.filter((i) => tod(i) === 'anytime');
+    for (const h of hours) expect(bucketLife(f, h).now).toHaveLength(f.length);
   });
 });

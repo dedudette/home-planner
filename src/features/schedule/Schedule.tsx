@@ -20,13 +20,21 @@ const DayList = ({ day, showHeader }: { day: DayPlan; showHeader?: boolean }) =>
       {showHeader && (
         <div className="row between" style={{ marginBottom: 8 }}>
           <div><h2 className="h3">{formatDay(day.date, today)}</h2></div>
-          <span className="small muted">{day.tasks.length ? `${day.tasks.length} · ${formatMinutes(day.minutes)}` : rest ? 'Rest day' : 'Free'}</span>
+          <span className="small muted">{day.tasks.length ? `${day.tasks.length} · ${formatMinutes(day.minutes)}${day.budget ? ` of ${day.budget} min` : ''}` : rest ? 'Rest day' : 'Free'}</span>
         </div>
       )}
+      {!showHeader && day.tasks.length > 0 && day.budget > 0 && <p className="small muted" data-testid="day-total">{formatMinutes(day.minutes)} planned, out of your {day.budget} min</p>}
       {day.tasks.length === 0 && day.done.length === 0 && <p className="small muted">{rest ? 'A rest day, with nothing planned.' : 'Nothing planned.'}</p>}
       <div className="tasklist">
         {day.tasks.map((t) => <TaskCard key={t.id} task={t} compact hideTimer={day.date !== today} />)}
       </div>
+      {day.overBy > 0 && <p className="small" style={{ marginTop: 8 }} role="status">{day.overBy} min over the {day.budget}-minute goal, because of urgent tasks you added.</p>}
+      {day.deferred.some((d) => d.reason === 'time') && (
+        <p className="small muted" style={{ marginTop: 8 }} data-testid="left-out">
+          Left out to keep to your {day.budget} minutes: {day.deferred.filter((d) => d.reason === 'time').slice(0, 3).map((d) => d.task.name).join(', ')}
+          {day.deferred.filter((d) => d.reason === 'time').length > 3 ? ` and ${day.deferred.filter((d) => d.reason === 'time').length - 3} more` : ''}. They stay due.
+        </p>
+      )}
       {day.done.length > 0 && <p className="small muted" style={{ marginTop: 8 }}>✓ {day.done.length} done · {formatMinutes(day.done.reduce((s, e) => s + e.actualMinutes, 0))}</p>}
     </div>
   );
@@ -106,7 +114,7 @@ export const Schedule = () => {
           {weekPlan(view, range === 'week' ? weekStart : addDays(weekStart, 7)).map((d) => (
             <div key={d.date}>
               <DayList day={d} showHeader />
-              <div className="progress-track" style={{ margin: '6px 4px 0' }} aria-hidden><div className="progress-fill" style={{ width: `${Math.min(100, (d.minutes / Math.max(1, view.plan.sessionMinutes * 1.2)) * 100)}%`, background: d.minutes > view.plan.sessionMinutes * 1.15 ? 'var(--clay)' : undefined }} /></div>
+              <div className="progress-track" style={{ margin: '6px 4px 0' }} aria-hidden><div className="progress-fill" style={{ width: `${Math.min(100, (d.minutes / Math.max(1, d.budget)) * 100)}%`, background: d.overBy > 0 ? 'var(--clay)' : undefined }} /></div>
             </div>
           ))}
         </div>

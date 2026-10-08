@@ -20,6 +20,8 @@ export interface LoadResult {
   /** Monotonic write counter of what was loaded. Pass it back to `save` as `baseRev`. */
   rev: number;
   repairs: string[];
+  /** Size of the stored text in characters (what counts against the browser's storage limit). */
+  bytes?: number;
   /** Raw text, only for `unreadable`. Keep it, offer it for download, never overwrite it silently. */
   raw?: string;
   reason?: string;
@@ -28,6 +30,8 @@ export interface LoadResult {
 export interface SaveResult {
   ok: boolean;
   rev: number;
+  /** Size of what was just written, in characters. */
+  bytes?: number;
   /** Set when another writer got there first. The caller should merge its own changes on top of this and save again. */
   conflict?: AppData;
   error?: 'quota' | 'blocked';
@@ -37,9 +41,15 @@ export interface BackupInfo { id: string; at: string; reason: string; entries: n
 
 export interface Repository {
   load(): Promise<LoadResult>;
+  /** What is stored right now, interpreted. A pure read: no backups, no stashing, no writes. */
+  peek?(): LoadResult;
   save(data: AppData, baseRev: number): Promise<SaveResult>;
   /** Synchronous variant for `pagehide`, where an async write may never finish. */
   saveSync?(data: AppData, baseRev: number): SaveResult;
+  /**
+   * Keep a copy of `data`. Returns null when the copy could not be made (no storage, quota). Callers about to destroy something
+   * must treat null as "not safe to continue". Identical content is kept once, however many times it is offered.
+   */
   backup(data: AppData | string, reason: string): BackupInfo | null;
   listBackups(): BackupInfo[];
   readBackup(id: string): AppData | null;
@@ -70,6 +80,20 @@ const MAX_BACKUP_BYTES = 1_500_000;
 
 interface StoredBackup extends BackupInfo { json: string }
 
+/**
+ * Newest first, at most MAX_BACKUPS. When something has to go, drop the oldest copy whose reason a newer copy also covers, so one
+ * of each kind (unreadable, before-import, migrated…) survives. Only if every kind is unique does the oldest go.
+ */
+const evict = (list: StoredBackup[]): StoredBackup[] => {
+  const out = [...list];
+  while (out.length > MAX_BACKUPS) {
+    let drop = -1;
+    for (let i = out.length - 1; i > 0 && drop < 0; i--) if (out.slice(0, i).some((b) => b.reason === out[i].reason)) drop = i;
+    out.splice(drop < 0 ? out.length - 1 : drop, 1);
+  }
+  return out;
+};
+
 /** What `load` reports for a piece of stored text. Pure: used by the repository, the storage event and the tests. */
 export const interpret = (txt: string | null): LoadResult => {
   if (txt === null) return { status: 'empty', data: null, rev: 0, repairs: [] };
@@ -80,7 +104,7 @@ export const interpret = (txt: string | null): LoadResult => {
   const v = validateAppData(parsed);
   if (!v) return { status: 'unreadable', data: null, rev, repairs: [], raw: txt, reason: 'The saved data could not be read.' };
   const status: LoadStatus = v.fromFuture ? 'newer' : v.foundVersion < SCHEMA_VERSION ? 'migrated' : v.repairs.length ? 'repaired' : 'ok';
-  return { status, data: v.data, rev, repairs: v.repairs };
+  return { status, data: v.data, rev, repairs: v.repairs, bytes: txt.length };
 };
 
 export class LocalStorageRepository implements Repository {
@@ -96,6 +120,10 @@ export class LocalStorageRepository implements Repository {
 
   readRaw(): string | null {
     try { return this.ls()?.getItem(this.key) ?? null; } catch { return null; }
+  }
+
+  peek(): LoadResult {
+    return interpret(this.readRaw());
   }
 
   async load(): Promise<LoadResult> {
@@ -114,8 +142,9 @@ export class LocalStorageRepository implements Repository {
       const cur = interpret(store.getItem(this.key));
       if (cur.status !== 'empty' && cur.status !== 'unreadable' && cur.data && cur.rev > baseRev) return { ok: false, rev: cur.rev, conflict: cur.data };
       const rev = Math.max(baseRev, cur.rev) + 1;
-      store.setItem(this.key, JSON.stringify({ ...data, _rev: rev }));
-      return { ok: true, rev };
+      const text = JSON.stringify({ ...data, _rev: rev });
+      store.setItem(this.key, text);
+      return { ok: true, rev, bytes: text.length };
     } catch (e) {
       const quota = e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22);
       return { ok: false, rev: baseRev, error: quota ? 'quota' : 'blocked' };
@@ -141,14 +170,19 @@ export class LocalStorageRepository implements Repository {
     const at = new Date().toISOString();
     let entries = 0;
     try { const p = typeof data === 'string' ? JSON.parse(data) : data; entries = looksLikeAppData(p) && Array.isArray((p as { sessions?: unknown }).sessions) ? ((p as { sessions: { entries?: unknown[] }[] }).sessions.reduce((n, s) => n + (Array.isArray(s?.entries) ? s.entries.length : 0), 0)) : 0; } catch { /* unreadable text: entries stays 0 */ }
+    const existing = this.readBackups();
+    // The same bytes are already safe: loading the same unreadable or old file ten times must not push real recovery points out.
+    const same = existing.find((b) => b.json === json);
+    if (same) { const { json: _j, ...info } = same; void _j; return info; }
     const info: StoredBackup = { id: `b_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at, reason, entries, bytes: json.length, json };
-    let list = [info, ...this.readBackups()];
-    // Newest first. Keep a handful, and never let backups crowd out the real data.
-    list = list.slice(0, MAX_BACKUPS);
-    while (list.length > 1 && list.reduce((n, b) => n + b.bytes, 0) > MAX_BACKUP_BYTES) list.pop();
-    try { store.setItem(BACKUP_KEY, JSON.stringify(list)); return info; } catch {
-      try { store.setItem(BACKUP_KEY, JSON.stringify([info])); return info; } catch { return null; }
-    }
+    let list = evict([info, ...existing]);
+    while (list.length > 1 && list.reduce((n, b) => n + b.bytes, 0) > MAX_BACKUP_BYTES) list = list.slice(0, -1);
+    const write = (l: StoredBackup[]): boolean => {
+      try { store.setItem(BACKUP_KEY, JSON.stringify(l)); return this.readBackups().some((b) => b.id === info.id); } catch { return false; }
+    };
+    // If it does not fit alongside the older copies, the new one replaces them. If it still does not fit, report failure and leave the old copies alone.
+    if (write(list) || write([info])) { const { json: _j, ...out } = info; void _j; return out; }
+    return null;
   }
 
   listBackups(): BackupInfo[] {
@@ -167,7 +201,8 @@ export class LocalStorageRepository implements Repository {
 
   overwrite(data: AppData): SaveResult {
     const cur = this.readRaw();
-    if (cur !== null) this.backup(cur, 'before-restore');
+    // Never overwrite the only copy: if the safety copy cannot be made, stop and say so.
+    if (cur !== null && !this.backup(cur, 'before-restore')) return { ok: false, rev: interpret(cur).rev, error: 'quota' };
     return this.saveSync(data, interpret(cur).rev);
   }
 

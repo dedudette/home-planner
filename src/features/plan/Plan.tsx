@@ -224,7 +224,7 @@ export const Plan = ({ tab }: { tab: string | null }) => {
   const current = homeOn && (tab === 'rooms' || tab === 'deep') ? tab : 'overview';
   return (
     <div className="page">
-      <PageHead title="Your plan" sub="Built from your home, your time and your energy."
+      <PageHead title="Your plan" sub={homeOn ? 'Built from your home, your time and your energy.' : 'Built from your goals, your time and your energy.'}
         action={<Button variant="soft" size="sm" icon={I.plus} onClick={() => openSheet({ kind: 'taskForm' })}>Add task</Button>} />
       {homeOn && (
         <Segmented label="Plan views" value={current} onChange={(v) => navigate(v === 'overview' ? 'plan' : `plan?tab=${v}`)}

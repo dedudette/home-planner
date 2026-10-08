@@ -1,4 +1,5 @@
 import { uid } from '../domain/appdata';
+import { compactHistory } from '../domain/retention';
 import { applyTypeDefaults } from '../domain/context';
 import { appDataForDemo, type DemoProfile } from '../domain/demo';
 import { buildResetTasks, generatePlan } from '../domain/engine';
@@ -42,6 +43,8 @@ export type Action =
   | { type: 'RECORD_EXPOSURE'; record: ExposureRecord }
   | { type: 'RECORD_PLAN_VERSION'; version: PlanVersion }
   | { type: 'REC_EVENT'; event: RecommendationEvent }
+  /** Keep the newest history that fits, remove the oldest, and leave a note saying so. Only ever sent after the person agreed. */
+  | { type: 'COMPACT_HISTORY'; at: string; target?: number }
   | { type: 'TASK_PATCH'; id: string; patch: Partial<TaskState> }
   | { type: 'TASK_OVERRIDE'; id: string; override: NonNullable<TaskState['override']> | null }
   | { type: 'RESET_PLAN'; stamp: Stamp }
@@ -255,13 +258,18 @@ export const reducer = (data: AppData, a: Action): AppData => {
       }
       return { ...data, plan: a.plan, lastOpened: a.lastOpened, taskStates: states };
     }
+    case 'COMPACT_HISTORY': return compactHistory(data, a.target, a.at).data;
     case 'RECORD_EXPOSURE': return recordExposure(data, a.record);
     case 'RECORD_PLAN_VERSION': {
       if (data.planVersions.some((v) => v.id === a.version.id) && data.planVersions[data.planVersions.length - 1]?.id === a.version.id) return data;
       return { ...data, planVersions: [...data.planVersions, a.version].slice(-60) };
     }
     case 'REC_EVENT': {
-      if (data.recEvents.some((e) => e.id === a.event.id)) return data;
+      // Idempotent by what the event MEANS, not by its random id: one "shown" per suggestion per day, one answer per suggestion per
+      // day. A double effect (React StrictMode in development), a double click, or a replay after a merge records it once.
+      const dup = (e: RecommendationEvent) => e.id === a.event.id
+        || (e.kind === a.event.kind && e.recommendationId === a.event.recommendationId && e.date === a.event.date && e.action === a.event.action);
+      if (data.recEvents.some(dup)) return data;
       return { ...data, recEvents: [...data.recEvents, a.event].slice(-400) };
     }
     case 'TASK_PATCH':
@@ -307,7 +315,20 @@ export const reducer = (data: AppData, a: Action): AppData => {
     }
     case 'RESET_RUN_FINISH': return data.resetRun ? { ...data, resetRun: { ...data.resetRun, finishedAt: a.stamp.now } } : data;
     case 'FIVE_SEEN': return { ...data, fiveRecent: [a.id, ...data.fiveRecent.filter((x) => x !== a.id)].slice(0, 8) };
-    case 'DAY_ENERGY': return { ...data, dayEnergy: { date: a.stamp.today, level: a.level }, energyLog: { ...data.energyLog, [a.stamp.today]: a.level } };
+    case 'DAY_ENERGY': {
+      // The day's exposure keeps its first energy; a change is appended to its history, never written over it.
+      const idx = data.exposures.findIndex((e) => e.date === a.stamp.today);
+      let exposures = data.exposures;
+      if (idx >= 0) {
+        const cur = data.exposures[idx];
+        const last = cur.energyChanges?.[cur.energyChanges.length - 1]?.level ?? cur.energy;
+        if (last !== a.level) {
+          exposures = [...data.exposures];
+          exposures[idx] = { ...cur, energyChanges: [...(cur.energyChanges ?? []), { at: a.stamp.now, level: a.level }].slice(-12) };
+        }
+      }
+      return { ...data, exposures, dayEnergy: { date: a.stamp.today, level: a.level }, energyLog: { ...data.energyLog, [a.stamp.today]: a.level } };
+    }
     case 'DISMISS_INSIGHT': return { ...data, dismissedInsights: { ...data.dismissedInsights, [a.id]: a.stamp.today } };
     case 'SET_SESSION_CAP': return { ...data, preferences: { ...data.preferences, learnedSessionCap: a.minutes } };
     case 'SET_OPENED': return { ...data, lastOpened: a.stamp.today };

@@ -7,8 +7,8 @@ import { Button, ProgressBar, Sheet } from '../../ui/primitives';
 import { TaskCard } from '../tasks/TaskCard';
 
 export const EmergencySheet = () => {
-  const { data, plan, closeSheet, dispatch, stamp, complete, toast } = useApp();
-  const stages = useMemo(() => resetSequence(data), [data.home, data.preferences]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { data, today, plan, closeSheet, dispatch, stamp, complete, toast } = useApp();
+  const stages = useMemo(() => resetSequence(data, today), [data.home, data.preferences, data.dayEnergy, today]); // eslint-disable-line react-hooks/exhaustive-deps
   const run = data.resetRun && !data.resetRun.finishedAt ? data.resetRun : null;
   const all = stages.flatMap((s) => s.tasks);
   const done = all.filter((t) => isResetDone(data, t.id));

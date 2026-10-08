@@ -1,6 +1,7 @@
 import { deriveContext, type Ctx } from './context';
 import { DOMAIN_SHORT } from './options';
-import type { AppData, LifeDomain, LifeFocus, ProblemArea, Room, RoomKind, Task } from './types';
+import { dayEnergyOf, energyOk } from './safety';
+import type { AppData, ISODate, LifeDomain, LifeFocus, ProblemArea, Room, RoomKind, Task } from './types';
 
 /**
  * "Just 5 Minutes": a pool of genuinely tiny actions. The picker chooses ONE
@@ -131,10 +132,14 @@ export const microCandidates = (data: AppData): { task: Task; micro: Micro }[] =
 };
 
 /** Pick ONE five-minute task. `exclude` carries the ids the user just saw/did. */
-export const pickJustFive = (data: AppData, exclude: string[] = []): Task | null => {
+export const pickJustFive = (data: AppData, exclude: string[] = [], today?: ISODate): Task | null => {
   const c = deriveContext(data.home, data.preferences);
+  const energy = today ? dayEnergyOf(data, today) : 'ok';
   const recent = [...exclude, ...data.fiveRecent];
-  const scored = microCandidates(data).map(({ task, micro }) => {
+  const scored = microCandidates(data)
+    // On a low-energy day: the same rule as every other list, and nothing that needs more than the smallest effort.
+    .filter(({ task, micro }) => energyOk(task, energy) && (energy !== 'low' || micro.effort === 1))
+    .map(({ task, micro }) => {
     let s = micro.impact * 10;
     const hits = (micro.topics ?? []).filter((t) => c.problems.has(t)).length;
     s += hits * 12;

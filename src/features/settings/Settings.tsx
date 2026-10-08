@@ -1,3 +1,4 @@
+import { compactHistory, describeRetention, HARD_CHARS, serializedSize } from '../../domain/retention';
 import { useMemo, useRef, useState } from 'react';
 import { DEMO_PROFILES, appDataForDemo } from '../../domain/demo';
 import { exportJSON, importJSON } from '../../storage/repository';
@@ -18,7 +19,7 @@ const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.g
 const REASON: Record<string, string> = { demo: 'before loading a demo', import: 'before restoring a file', restore: 'before restoring a backup', unreadable: 'unreadable data', repaired: 'before repairing', migrated: 'before upgrading', newer: 'newer version', 'before-restore': 'before a restore' };
 
 export const Settings = () => {
-  const { data, dispatch, stamp, view, toast, repo, replaceAll, confirm } = useApp();
+  const { data, dispatch, stamp, view, toast, repo, replaceAll, confirm, storage, offerCompaction } = useApp();
   const file = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState(true);
   const [version, setVersion] = useState(0); // bumps after anything that changes the backup list
@@ -32,7 +33,11 @@ export const Settings = () => {
     if (!f) return;
     const res = importJSON(await f.text());
     if (!res.ok || !res.data) { toast(res.error ?? "That file doesn't look like a CleanFlow backup."); return; }
-    const imported = res.data;
+    // A file bigger than this browser can store would be "restored" into memory and then fail to save. Say so up front and import the
+    // newest part instead; the file itself is untouched, so nothing is lost.
+    const tooBig = serializedSize(res.data) >= HARD_CHARS;
+    const fit = tooBig ? compactHistory(res.data) : null;
+    const imported = fit ? fit.data : res.data;
     const sum = summarize(imported);
     confirm({
       title: 'Replace your data with this backup?',
@@ -40,19 +45,20 @@ export const Settings = () => {
         <>
           <p>This file contains <b>{sum.entries}</b> completed or logged actions across <b>{sum.days}</b> days{sum.name ? ` for ${sum.name}` : ''}.</p>
           <p>Restoring <b>replaces everything you have now</b>. CleanFlow keeps an automatic backup of your current data first, so you can undo this.</p>
+          {fit && fit.removedEntries > 0 && <p><b>This file is larger than this browser can store.</b> CleanFlow will import the newest {sum.entries} entries (from {fit.oldestKept}) and leave out the oldest {fit.removedEntries}. Your file is not changed, so nothing is lost.</p>}
           {res.repairs.length > 0 && <p className="small muted">The file needed small repairs: {res.repairs.join(' ')}</p>}
         </>
       ),
       confirmLabel: 'Replace my data',
       danger: true,
       extra: hasUserData(data) ? { label: 'Download current data first', run: download } : undefined,
-      onConfirm: () => { replaceAll(imported, 'import', 'Backup restored.'); setVersion((v) => v + 1); },
+      onConfirm: () => { if (replaceAll(imported, 'import', 'Backup restored.')) setVersion((v) => v + 1); },
     });
   };
 
   const tryDemo = (id: (typeof DEMO_PROFILES)[number]['id'], title: string) => {
     const next = appDataForDemo(id, { withHistory: history, today: stamp().today });
-    const go = () => { replaceAll({ ...next, supplies: data.supplies }, 'demo', `Loaded: ${title}`); setVersion((v) => v + 1); navigate('today'); };
+    const go = () => { if (replaceAll({ ...next, supplies: data.supplies }, 'demo', `Loaded: ${title}`)) { setVersion((v) => v + 1); navigate('today'); } };
     // A demo home is throwaway, so replacing one needs no ceremony. Replacing the user's own data does.
     if (!hasUserData(data) || data.user.demo) { go(); return; }
     confirm({
@@ -78,7 +84,7 @@ export const Settings = () => {
       body: <p>This replaces your current data with the copy from <b>{when(at)}</b>. Your current data is backed up first.</p>,
       confirmLabel: 'Restore',
       danger: true,
-      onConfirm: () => { replaceAll(b, 'restore', 'Backup restored.'); setVersion((v) => v + 1); },
+      onConfirm: () => { if (replaceAll(b, 'restore', 'Backup restored.')) setVersion((v) => v + 1); },
     });
   };
 
@@ -138,6 +144,17 @@ export const Settings = () => {
       <section className="card stack" aria-labelledby="s-data">
         <h2 id="s-data" className="h3">Your data</h2>
         <p className="small muted">CleanFlow stores everything on this device. There is no account and nothing you enter is sent anywhere.</p>
+        {storage.chars > 0 && (
+          <div className="stack" data-testid="storage-usage">
+            <p className="small"><b>{(storage.chars / 1_000_000).toFixed(2)} MB</b> of about 5 MB of browser storage used by your data{storage.level === 'ok' ? '.' : storage.level === 'large' ? '. It is getting large: download a copy now and then.' : '. It is close to full.'}</p>
+            {storage.level !== 'ok' && <div><Button size="sm" variant="soft" onClick={() => { if (!offerCompaction()) toast('There is no old history to remove.'); }}>Make room…</Button></div>}
+          </div>
+        )}
+        {data.retention.length > 0 && (
+          <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }} aria-label="History that was removed">
+            {data.retention.slice(-3).map((n) => <li key={n.at + n.removedThrough}>{describeRetention(n)}</li>)}
+          </ul>
+        )}
         <div className="row wrap" style={{ gap: 8 }}>
           <Button variant="secondary" icon={I.arrow} onClick={download}>Export backup</Button>
           <Button variant="secondary" onClick={() => file.current?.click()}>Restore from a file</Button>

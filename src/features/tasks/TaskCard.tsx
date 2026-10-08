@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FREQ_LABEL } from '../../domain/schedule';
 import type { Task } from '../../domain/types';
 import { useApp } from '../../state/store';
@@ -9,21 +9,23 @@ import { Button, Dots, PriorityTag, cx } from '../../ui/primitives';
 
 export const DIFF_LABEL = ['', 'Easy', 'Medium', 'Hard'];
 
-export const TaskMenu = ({ task, onClose }: { task: Task; onClose: () => void }) => {
+export const TaskMenu = ({ task, onClose, returnFocus }: { task: Task; onClose: () => void; returnFocus?: () => void }) => {
   const { openSheet, skip, snooze, moveTo, today } = useApp();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // Closing from the keyboard puts focus back on the button that opened the menu, not on the page.
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { onClose(); returnFocus?.(); } };
     document.addEventListener('mousedown', down);
     document.addEventListener('keydown', key);
     ref.current?.querySelector<HTMLElement>('button')?.focus();
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
-  }, [onClose]);
+  }, [onClose, returnFocus]);
   const tomorrow = new Date(`${today}T12:00:00`);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tISO = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
-  const act = (fn: () => void) => () => { onClose(); fn(); };
+  // Focus goes back to the trigger first, so a sheet opened by the action returns here when it closes.
+  const act = (fn: () => void) => () => { onClose(); returnFocus?.(); fn(); };
   return (
     <div className="menu-pop" role="menu" ref={ref}>
       <button role="menuitem" onClick={act(() => openSheet({ kind: 'task', id: task.id, task }))}><I.list size={18} /> Details &amp; steps</button>
@@ -51,6 +53,9 @@ interface Props {
 export const TaskCard = ({ task, done, overdue, dueLabel, hideTimer, hideMenu, compact, note, onComplete, via }: Props) => {
   const { complete, openSheet, plan } = useApp();
   const [menu, setMenu] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setMenu(false), []);
+  const focusTrigger = useCallback(() => trigger.current?.focus(), []);
   const life = isLife(task);
   const RoomIcon = life ? DOMAIN_ICON[task.domain!] : ROOM_ICON[task.roomKind];
   const TodIcon = TIME_ICON[task.timeOfDay ?? 'anytime'];
@@ -82,8 +87,8 @@ export const TaskCard = ({ task, done, overdue, dueLabel, hideTimer, hideMenu, c
       <div className="task-actions">
         {!hideMenu && (
           <div className="menu">
-            <button className="icon-btn" aria-label={`More options for ${task.name}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><I.more size={22} aria-hidden /></button>
-            {menu && <TaskMenu task={task} onClose={() => setMenu(false)} />}
+            <button ref={trigger} className="icon-btn" aria-label={`More options for ${task.name}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><I.more size={22} aria-hidden /></button>
+            {menu && <TaskMenu task={task} onClose={closeMenu} returnFocus={focusTrigger} />}
           </div>
         )}
       </div>

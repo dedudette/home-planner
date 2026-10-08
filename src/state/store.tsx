@@ -11,7 +11,9 @@ import {
 } from '../domain/timer';
 import type { AppData, ISODate, RecommendationEvent, Task } from '../domain/types';
 import { buildView, type PlanView } from '../domain/view';
-import { LocalStorageRepository, type LoadResult, type Repository } from '../storage/repository';
+import { LocalStorageRepository, exportJSON, type LoadResult, type Repository } from '../storage/repository';
+import { downloadText } from '../ui/download';
+import { compactHistory, storageLevel, type StorageLevel } from '../domain/retention';
 import { hasUserData } from '../storage/schema';
 import { reducer, type Action, type Stamp } from './reducer';
 import { playChime } from './chime';
@@ -26,6 +28,8 @@ export interface ConfirmOptions {
   danger?: boolean;
   /** Optional extra action shown next to Cancel (for example "Download a backup first"). */
   extra?: { label: string; run: () => void };
+  /** The confirm button stays disabled until the extra action has been used (for example, until a download has been started). */
+  requireExtra?: boolean;
   onConfirm: () => void;
 }
 
@@ -63,8 +67,12 @@ interface Store {
   loadNotice: string[] | null;
   dismissNotice: () => void;
   saveError: 'quota' | 'blocked' | null;
+  /** How full browser storage is. History is only ever removed after the person agrees, and a download is always offered first. */
+  storage: { chars: number; level: StorageLevel };
+  /** Ask whether to make room by removing the oldest history (offers a full download first). Returns false when there is nothing to remove. */
+  offerCompaction: () => boolean;
   /** Replace everything with `next` after taking an automatic backup. Always call this instead of dispatching LOAD for user-initiated replacement. */
-  replaceAll: (next: AppData, reason: string, message: string) => void;
+  replaceAll: (next: AppData, reason: string, message: string) => boolean;
   confirm: (o: ConfirmOptions) => void;
   // task actions
   complete: (task: Task, opts?: { minutes?: number; via?: 'checkoff' | 'timer' | 'five' | 'timebox' | 'reset' | 'plan'; quiet?: boolean }) => void;
@@ -126,6 +134,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   const [recovery, setRecovery] = useState<Recovery | null>(null);
   const [loadNotice, setLoadNotice] = useState<string[] | null>(null);
   const [saveError, setSaveError] = useState<'quota' | 'blocked' | null>(null);
+  const [storageChars, setStorageChars] = useState(0);
   const [today, setToday] = useState<ISODate>(todayISO());
   const [hour, setHour] = useState(new Date().getHours());
 
@@ -147,13 +156,26 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
     rawDispatch({ kind: 'act', a, seq });
   }, []);
 
-  /** Take `base` as the truth and put our unsaved actions back on top of it. */
-  const adopt = useCallback((base: AppData, baseRev: number, opts: { clean?: boolean } = {}) => {
+  /**
+   * Take `base` (something that is already in storage at revision `baseRev`) as the truth and put our unsaved local actions back on
+   * top of it.
+   *
+   * Revision semantics, the part that matters: a revision is only ever bumped by a *local mutation* being written. Adopting someone
+   * else's state is not a mutation, so it must not cause a write. Only two things need writing after an adopt:
+   *   - our own unsaved actions (`replay`), and
+   *   - the `dirty` case, where the stored text is older or repaired and should be rewritten in the current format.
+   * With neither, the adopted state is by definition already saved and the sequence number is marked saved. Without this, tab A's
+   * write woke tab B, whose adopt wrote again, which woke tab A, and so on forever.
+   *
+   * `discard` drops the pending actions (load, start fresh) instead of replaying them.
+   */
+  const adopt = useCallback((base: AppData, baseRev: number, opts: { discard?: boolean; dirty?: boolean } = {}) => {
     const seq = ++seqRef.current;
-    const replay = opts.clean ? [] : [...pending.current];
+    const replay = opts.discard ? [] : [...pending.current];
     mirror.current = replay.reduce((d, p) => reducer(d, p.a), base);
     rev.current = baseRev;
-    if (opts.clean) { pending.current = []; savedSeq.current = seq; }
+    if (opts.discard) pending.current = [];
+    if (replay.length === 0 && !opts.dirty) savedSeq.current = seq;
     rawDispatch({ kind: 'adopt', data: base, replay, seq });
   }, []);
 
@@ -169,10 +191,11 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
         saveBlocked.current = false;
         if (r.data) {
           // A migrated or repaired file should be rewritten in the current format; a "newer" one stays untouched until the user acts.
-          adopt(r.data, r.rev, { clean: r.status === 'ok' || r.status === 'newer' });
+          adopt(r.data, r.rev, { discard: true, dirty: r.status === 'migrated' || r.status === 'repaired' });
           if (r.status === 'repaired' || r.status === 'newer') setLoadNotice(r.repairs.length ? r.repairs : ['Your data was opened in a compatible way.']);
         } else rev.current = r.rev;
       }
+      setStorageChars(r.bytes ?? 0);
       setReady(true);
     });
     return () => { alive = false; };
@@ -188,6 +211,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
       rev.current = res.rev; savedSeq.current = Math.max(savedSeq.current, snap.seq);
       pending.current = pending.current.filter((p) => p.seq > snap.seq);
       setSaveError(null);
+      if (res.bytes !== undefined) setStorageChars(res.bytes);
     } else if (res.conflict) {
       adopt(res.conflict, res.rev); // another tab saved first: merge, and the effect below saves the merged result
     } else if (res.error) setSaveError(res.error);
@@ -204,15 +228,14 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   useEffect(() => {
     const flush = () => {
       if (saveBlocked.current || !repo.saveSync) return;
-      const snap = stateRef.current;
-      if (snap.seq <= savedSeq.current) return;
-      let toSave = mirror.current;
-      for (let i = 0; i < 2; i++) {
-        const res = repo.saveSync(toSave, rev.current);
-        if (res.ok) { rev.current = res.rev; savedSeq.current = snap.seq; pending.current = []; return; }
+      if (seqRef.current <= savedSeq.current) return;
+      for (let i = 0; i < 3; i++) {
+        const res = repo.saveSync(mirror.current, rev.current);
+        if (res.ok) { rev.current = res.rev; savedSeq.current = seqRef.current; pending.current = []; if (res.bytes !== undefined) setStorageChars(res.bytes); return; }
         if (!res.conflict) return;
-        toSave = pending.current.reduce((d, p) => reducer(d, p.a), res.conflict);
-        rev.current = res.rev;
+        // Someone saved while we were away. Take their state into memory as well as into the file, so what this tab shows, what it
+        // writes next and what is on disk can never disagree, then try again with our own actions on top.
+        adopt(res.conflict, res.rev);
       }
     };
     const onVis = () => { if (document.visibilityState === 'hidden') flush(); };
@@ -220,7 +243,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
     window.addEventListener('beforeunload', flush);
     document.addEventListener('visibilitychange', onVis);
     return () => { window.removeEventListener('pagehide', flush); window.removeEventListener('beforeunload', flush); document.removeEventListener('visibilitychange', onVis); };
-  }, [repo]);
+  }, [repo, adopt]);
 
   // ── other tabs: merge their changes in as soon as they happen (and when this tab wakes up) ──
   useEffect(() => {
@@ -229,7 +252,8 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
       adopt(r.data, r.rev);
     };
     const unsub = repo.subscribe?.(merge);
-    const onShow = () => { if (document.visibilityState === 'visible') void repo.load().then(merge); };
+    // A pure read: waking a tab must never create backups or touch storage.
+    const onShow = () => { if (document.visibilityState === 'visible') { if (repo.peek) merge(repo.peek()); else void repo.load().then(merge); } };
     document.addEventListener('visibilitychange', onShow);
     window.addEventListener('pageshow', onShow);
     return () => { unsub?.(); document.removeEventListener('visibilitychange', onShow); window.removeEventListener('pageshow', onShow); };
@@ -318,21 +342,12 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
     dispatch({ type: 'REC_EVENT', event: { ...e, id: uid('r'), at: s.now, date: s.today, localHour: s.hour ?? 0, planVersion: planVersionOf(mirror.current) } });
   }, [dispatch]);
 
-  // ── destructive replacement: always backed up, always undoable ──
-  const replaceAll: Store['replaceAll'] = useCallback((next, reason, message) => {
-    const prev = mirror.current;
-    const protect = hasUserData(prev);
-    if (protect) repo.backup(prev, reason);
-    dispatch({ type: 'LOAD', data: next });
-    toast(message, protect ? { label: 'Undo', run: () => dispatch({ type: 'LOAD', data: prev }) } : undefined);
-  }, [repo, dispatch, toast]);
-
   const startFresh = useCallback(() => {
     // The unreadable text is already stashed under its own key; dropping the main key never destroys it.
     repo.dropMain();
     saveBlocked.current = false;
     setRecovery(null);
-    adopt(emptyAppData(), 0, { clean: true });
+    adopt(emptyAppData(), 0, { discard: true });
   }, [repo, adopt]);
 
   // ── sheets ──
@@ -341,6 +356,93 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   const closeSheet = useCallback(() => setSheets((x) => x.slice(0, -1)), []);
   const closeAllSheets = useCallback(() => setSheets([]), []);
   const confirm = useCallback((o: ConfirmOptions) => setSheets((x) => [...x, { kind: 'confirm', ...o }]), []);
+
+  // ── destructive replacement: always backed up, always undoable ──
+  /**
+   * Pull in anything another tab saved since this one last looked, so that what we are about to back up (or undo to) is the latest
+   * state and not what a backgrounded tab remembers. Returns the reconciled data.
+   */
+  const reconcile = useCallback((): AppData => {
+    const r = repo.peek?.();
+    if (r && r.data && !saveBlocked.current && r.rev > rev.current) adopt(r.data, r.rev);
+    return mirror.current;
+  }, [repo, adopt]);
+
+  /**
+   * Replacing everything is the one action that can destroy history, so the order is fixed: reconcile, copy, verify the copy, and
+   * only then replace. If the copy cannot be made (storage full or blocked) nothing is replaced: the user is told, and offered
+   * the current data as a file instead. Returns whether the replacement happened.
+   */
+  const replaceAll: Store['replaceAll'] = useCallback((next, reason, message) => {
+    const prev = reconcile();
+    const protect = hasUserData(prev);
+    const replace = () => {
+      dispatch({ type: 'LOAD', data: next });
+      toast(message, protect ? { label: 'Undo', run: () => dispatch({ type: 'LOAD', data: prev }) } : undefined);
+    };
+    if (protect && !repo.backup(prev, reason)) {
+      // No room for the automatic copy. Nothing happens until the person has a copy of their own: the replace button stays
+      // disabled until the download has been started, and "keep everything" changes nothing.
+      confirm({
+        title: 'No room for an automatic safety copy',
+        body: (
+          <>
+            <p>This browser's storage is too full for CleanFlow to keep its usual safety copy of your current data first, so <b>nothing has been replaced yet</b>.</p>
+            <p>Download your current data. Once you have, you can go ahead; or keep everything as it is.</p>
+          </>
+        ),
+        confirmLabel: 'I have my copy: replace my data',
+        cancelLabel: 'Keep everything as it is',
+        danger: true,
+        extra: { label: 'Download my current data', run: () => downloadText(`cleanflow-backup-${nowStamp().today}.json`, exportJSON(prev)) },
+        requireExtra: true,
+        onConfirm: replace,
+      });
+      return false;
+    }
+    replace();
+    return true;
+  }, [repo, dispatch, toast, reconcile, confirm]);
+
+
+  /**
+   * Compaction is the only thing that ever removes history, and only after this question. The download comes first and is always
+   * offered; the answer "not now" leaves everything exactly as it was.
+   */
+  const offerCompaction = useCallback((): boolean => {
+    const cur = reconcile();
+    const preview = compactHistory(cur);
+    if (preview.removedEntries === 0) return false;
+    const mb = (n: number) => (n / 1_000_000).toFixed(1);
+    const now = nowStamp();
+    confirm({
+      title: 'Make room by removing the oldest history?',
+      body: (
+        <>
+          <p>Your history has grown to about <b>{mb(storageChars || preview.chars)} MB</b>, close to what this browser can store. If it fills up, new entries could not be saved.</p>
+          <p>CleanFlow can keep your newest <b>{preview.data.sessions.reduce((n, x) => n + x.entries.length, 0)}</b> entries and remove the oldest <b>{preview.removedEntries}</b> (up to {preview.removedThrough}). Your home, plan and settings are not touched.</p>
+          <p className="small muted">Download everything first if you want to keep the old entries. This can't be undone.</p>
+        </>
+      ),
+      confirmLabel: `Remove ${preview.removedEntries} oldest entries`,
+      cancelLabel: 'Not now',
+      danger: true,
+      extra: { label: 'Download everything first', run: () => downloadText(`cleanflow-backup-${now.today}.json`, exportJSON(cur)) },
+      onConfirm: () => {
+        dispatch({ type: 'COMPACT_HISTORY', at: now.now });
+        toast(`Removed ${preview.removedEntries} oldest entries. Your history now starts ${preview.oldestKept}.`);
+      },
+    });
+    return true;
+  }, [reconcile, confirm, dispatch, toast, storageChars]);
+
+  // When storage is nearly full, ask once per visit (never silently).
+  const askedCompact = useRef(false);
+  useEffect(() => {
+    if (!ready || recovery || askedCompact.current || storageLevel(storageChars) !== 'full') return;
+    askedCompact.current = true;
+    offerCompaction();
+  }, [ready, recovery, storageChars, offerCompaction]);
 
   // ── timer ──
   const [timer, setTimer] = useState<TimerState | null>(() => {
@@ -422,6 +524,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
 
   const value: Store = {
     ready, data, dispatch, plan, view, today, hour, stamp, repo, recovery, startFresh, loadNotice, dismissNotice: () => setLoadNotice(null), saveError,
+    storage: { chars: storageChars, level: storageLevel(storageChars) }, offerCompaction,
     replaceAll, confirm, complete, skip, snooze, moveTo, recordRec,
     sheets, openSheet, closeSheet, closeAllSheets, toasts, toast,
     timer, timerNow, beginTimer, pauseResume, addTime, finishTimer, discardTimer,

@@ -2,9 +2,9 @@ import type { ExposureItem, ExposureRecord, ISODate } from './types';
 import { planVersionOf } from './planVersion';
 import { todayPlan, type DueItem, type PlanView } from './view';
 
-const item = (i: DueItem, kind: ExposureItem['kind']): ExposureItem => {
+const item = (i: DueItem, kind: ExposureItem['kind'], at: string, energy: ExposureItem['energy']): ExposureItem => {
   const t = i.task;
-  const e: ExposureItem = { taskId: t.id, templateId: t.templateId, domain: t.domain ?? 'home', minutes: t.minutes, difficulty: t.difficulty, kind };
+  const e: ExposureItem = { taskId: t.id, templateId: t.templateId, domain: t.domain ?? 'home', minutes: t.minutes, difficulty: t.difficulty, kind, shownAt: at, energy };
   if (t.level) e.level = t.level;
   if (t.intensity) e.intensity = t.intensity;
   if (t.timeOfDay) e.timeOfDay = t.timeOfDay;
@@ -19,10 +19,10 @@ const item = (i: DueItem, kind: ExposureItem['kind']): ExposureItem => {
 export const buildExposure = (v: PlanView, at: string, tzOffsetMin: number): ExposureRecord => {
   const t = todayPlan(v);
   const items: ExposureItem[] = [
-    ...t.focus.map((i) => item(i, 'focus')),
-    ...t.life.map((i) => item(i, 'life')),
-    ...t.extra.map((i) => item(i, 'extra')),
-    ...t.catchUp.map((i) => item(i, 'catchUp')),
+    ...t.focus.map((i) => item(i, 'focus', at, t.energy)),
+    ...t.life.map((i) => item(i, 'life', at, t.energy)),
+    ...t.extra.map((i) => item(i, 'extra', at, t.energy)),
+    ...t.catchUp.map((i) => item(i, 'catchUp', at, t.energy)),
   ];
   return { date: v.today as ISODate, recordedAt: at, planVersion: planVersionOf(v.data), activeDay: t.isActiveDay, energy: t.energy, tzOffsetMin, budgetMinutes: t.totalBudget ?? t.budget, items };
 };

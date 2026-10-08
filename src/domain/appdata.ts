@@ -22,6 +22,7 @@ export const emptyAppData = (today = todayISO()): AppData => ({
   energyLog: {},
   planVersions: [],
   recEvents: [],
+  retention: [],
 });
 
 export const uid = (prefix = 'id'): string => `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;

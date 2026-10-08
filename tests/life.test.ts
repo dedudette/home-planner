@@ -281,10 +281,11 @@ describe('morning / evening goal coverage', () => {
     scheduled(d).filter((t) => t.routine && t.timeOfDay === when && t.domain !== 'home');
 
   it('a morning task that merely lists "evening" among its goals does not satisfy the evening goal', () => {
-    const teeth = LIFE_TEMPLATES.find((t) => t.id === 'c-teeth')!;
-    expect(teeth.time).toBe('morning'); // a morning task, even if someone tags it for evening later
-    expect(servesGoal('evening', { t: teeth, matches: ['evening'] })).toBe(false);
-    expect(servesGoal('morning', { t: teeth, matches: ['morning'] })).toBe(true);
+    const clothes = LIFE_TEMPLATES.find((t) => t.id === 'c-clothes')!;
+    const mistagged = { ...clothes, focus: [...clothes.focus, 'evening' as const] };
+    expect(clothes.time).toBe('morning'); // a morning task, even if someone tags it for evening later
+    expect(servesGoal('evening', { t: mistagged, matches: ['evening'] })).toBe(false);
+    expect(servesGoal('morning', { t: clothes, matches: ['morning'] })).toBe(true);
     const planTomorrow = LIFE_TEMPLATES.find((t) => t.id === 'a-plan-tomorrow')!;
     expect(servesGoal('evening', { t: planTomorrow, matches: ['evening'] })).toBe(true);
     expect(servesGoal('evening', { t: planTomorrow, matches: [] })).toBe(false); // must also match the user's goals

@@ -1,7 +1,8 @@
 import { PHASE_LABEL, PHASE_ORDER, PHASE_WHY } from './catalog';
 import { buildResetTasks } from './engine';
 import { dueInfo } from './schedule';
-import type { AppData, ResetPhase, Task } from './types';
+import type { AppData, ISODate, ResetPhase, Task } from './types';
+import { energyOk, dayEnergyOf } from './safety';
 import { entriesOn, type PlanView } from './view';
 
 // ───────────────────────── "I only have X minutes" ─────────────────────────
@@ -25,10 +26,12 @@ export interface TimeBoxResult {
 export const timeBox = (v: PlanView, minutes: number): TimeBoxResult => {
   const doneToday = new Set(entriesOn(v.data, v.today).filter((e) => e.outcome === 'completed').map((e) => e.taskId));
   const mess = v.plan.mess;
+  const energy = dayEnergyOf(v.data, v.today);
   const pool: { task: Task; value: number }[] = [];
   for (const task of v.tasks) {
     const st = v.states[task.id];
     if (st?.done || task.challenge || (doneToday.has(task.id) && !task.repeatable)) continue;
+    if (!energyOk(task, energy)) continue; // the same low-energy rule as every other list
     if (task.tier === 'deep' && minutes < 45) continue;
     const info = dueInfo(task, st, v.today);
     let w = 0.55; // not due soon
@@ -73,8 +76,9 @@ export const timeBox = (v: PlanView, minutes: number): TimeBoxResult => {
 
 export interface ResetStage { phase: ResetPhase; label: string; why: string; tasks: Task[]; minutes: number }
 
-export const resetSequence = (data: AppData): ResetStage[] => {
-  const tasks = buildResetTasks(data.home, data.preferences);
+export const resetSequence = (data: AppData, today?: ISODate, source: Task[] = buildResetTasks(data.home, data.preferences)): ResetStage[] => {
+  const energy = today ? dayEnergyOf(data, today) : 'ok';
+  const tasks = source.filter((t) => energyOk(t, energy));
   return PHASE_ORDER.map((phase) => {
     const ts = tasks.filter((t) => t.phase === phase);
     return { phase, label: PHASE_LABEL[phase], why: PHASE_WHY[phase], tasks: ts, minutes: ts.reduce((s, t) => s + t.minutes, 0) };

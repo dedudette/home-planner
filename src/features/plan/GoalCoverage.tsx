@@ -12,16 +12,23 @@ const SHORT: Record<string, string> = {
 };
 export const goalName = (g: string): string => SHORT[g] ?? LABEL.get(g as never) ?? g;
 
-/** Plain-language reason a goal is not in the plan. Never blames the user, always says what would change it. */
+/**
+ * Plain-language reason a goal is not in the plan: the actual cause, never a generic excuse. Never blames the user, and always says
+ * what would change it.
+ */
 export const deferredReason = (c: Coverage, budget: number): string => {
-  if (c.reason === 'budget') {
-    const need = c.needMinutes ?? 0;
-    return need <= budget
-      ? `Your other goals used the ${budget} min of habit time first. It needs only ${need} min once there is room.`
-      : `It needs at least ${need} min, and your day only has room for about ${budget} min of habits.`;
+  switch (c.reason) {
+    case 'budget': {
+      const need = c.needMinutes ?? 0;
+      return need <= budget
+        ? `Your other goals used the ${budget} min of habit time first. It needs only ${need} min once there is room.`
+        : `It needs at least ${need} min, and your day only has room for about ${budget} min of habits.`;
+    }
+    case 'cap': return `There was room in the minutes, but to stay manageable your plan holds at most ${maxLifeTasks(budget)} habits a day, only a few of one kind, and no near-duplicates.`;
+    case 'safety': return "Every task for it is too demanding for your current fitness level or energy, so we left it out to keep you safe. It will open up as you build up.";
+    case 'context': return "Its tasks need something you haven't set up yet, such as equipment or an outdoor space. You can add it under My Home.";
+    default: return 'Nothing suits your current level yet.';
   }
-  if (c.reason === 'cap') return `Your plan is capped at ${maxLifeTasks(budget)} habits a day so it stays manageable.`;
-  return 'Nothing suits your current level, equipment or energy yet.';
 };
 
 /**
@@ -49,7 +56,17 @@ export const GoalCoverageCard = ({ compact = false }: { compact?: boolean }) => 
         {(compact ? deferred : all).map((c) => (
           <li key={c.goal}>
             <span className="strong">{c.status === 'covered' ? '✓ ' : '• '}{goalName(c.goal)}</span>
-            <span className="small">{c.status === 'covered' ? ' · has a task' : ` · deferred. ${deferredReason(c, budget)}`}</span>
+            {c.status === 'deferred' && <span className="small">{` · deferred. ${deferredReason(c, budget)}`}</span>}
+            {!compact && c.cover.length > 0 && (
+              <ul className="gc-tasks" aria-label={`Tasks for ${goalName(c.goal)}`}>
+                {c.cover.map((x) => (
+                  <li key={x.taskId}>
+                    <span><b>{x.name}</b> · {x.minutes} min · <span className={x.role === 'primary' ? 'gc-role primary' : 'gc-role'}>{x.role === 'primary' ? 'Primary' : 'Supporting'}</span></span>
+                    <span className="xs block gc-why">{x.why}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>
