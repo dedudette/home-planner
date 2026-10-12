@@ -1,5 +1,5 @@
 import { addDays, daysInRange, diffDays, endOfMonth, formatShort, startOfMonth, startOfWeek } from './dates';
-import { ROOM_MODE_LABEL, allEntries, projectRemaining, type PlanView } from './view';
+import { ROOM_MODE_LABEL, allEntries, plannedRemaining, type PlanView } from './view';
 import { DOMAIN_SHORT } from './options';
 import { isLife } from './scoring';
 import type { ISODate, LifeDomain, Progress, RoomKind } from './types';
@@ -35,8 +35,9 @@ export const computeProgress = (v: PlanView): Progress => {
   const inRange = (from: ISODate, to: ISODate) => done.filter((e) => e.date >= from && e.date <= to);
   const weekDone = inRange(weekStart, weekEnd).length;
   const monthDone = inRange(monthStart, monthEnd).length;
-  const weekPlanned = weekDone + projectRemaining(v, today, weekEnd);
-  const monthPlanned = monthDone + projectRemaining(v, today, monthEnd);
+  // "Planned" is what the day fit puts on each remaining day, so the ring never promises the unfitted calendar.
+  const weekPlanned = weekDone + plannedRemaining(v, today, weekEnd);
+  const monthPlanned = monthDone + plannedRemaining(v, today, monthEnd);
 
   const last7 = daysInRange(addDays(today, -6), today).map((date) => {
     const es = done.filter((e) => e.date === date);

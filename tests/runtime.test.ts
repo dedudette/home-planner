@@ -337,7 +337,8 @@ describe('learning', () => {
   it('offers four options after a task is skipped three times in a row', () => {
     let d = demo('B');
     const t = view(d).tasks.find((x) => x.cadence.kind === 'every' && x.frequency === 'weekly')!;
-    for (let i = 0; i < 3; i++) d = reducer(d, { type: 'TASK_SKIP', task: t, stamp: stamp() });
+    // three skips on three different days: one bad afternoon is not a pattern
+    for (let i = 3; i >= 1; i--) d = reducer(d, { type: 'TASK_SKIP', task: t, stamp: stamp(addDays(TODAY, -i)), entryId: `sk${i}` });
     const ins = computeInsights(view(d)).find((i) => i.id === `skip:${t.id}`)!;
     expect(ins.actions.map((a) => a.id)).toEqual(expect.arrayContaining(['smaller', 'less-often', 'move', 'remove']));
     // make it smaller → half the time and tiny steps

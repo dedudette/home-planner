@@ -246,6 +246,19 @@ export interface TaskState {
 
 export type EntryOutcome = 'completed' | 'skipped' | 'snoozed' | 'moved' | 'stopped';
 export type EntryVia = 'checkoff' | 'timer' | 'five' | 'timebox' | 'reset' | 'plan';
+/**
+ * Where the action was taken. `via` says how (a tick, a timer, "Just 5 minutes"…) and is ambiguous across screens ('plan' covers
+ * skips from Today, Plan and Schedule alike), so this says which screen or sheet it came from. Absent on older entries: unknown.
+ */
+export type EntrySurface = 'today' | 'plan' | 'schedule' | 'progress' | 'home' | 'supplies' | 'settings' | 'more' | 'detail' | 'timebox' | 'five' | 'reset' | 'rough' | 'timer' | 'other';
+/**
+ * How the task related to the day's planner decision at the moment of the action:
+ *  selected    the planner had put it on the day's list
+ *  left-out    the planner had left it out of the day's list (for the reason recorded in that day's `left`)
+ *  not-planned the planner had not considered it for the day (a Quick win browsed in the Plan, Just 5 minutes, a reset step…)
+ * Absent: there was no decision record for that day (older data), so the relation is unknown. It is never guessed.
+ */
+export type EntryPlanned = 'selected' | 'left-out' | 'not-planned';
 
 export interface SessionEntry {
   id: string;
@@ -276,9 +289,17 @@ export interface SessionEntry {
   goals?: LifeFocus[];
   planVersion?: string;
   energy?: 'low' | 'ok' | 'high';
-  /** For moves and snoozes: where the task was due before and where it is due now. */
+  /**
+ * The due date of the occurrence this action answers (for completions and skips), or where the task was due before the move or
+ * snooze. Null when the task has no schedule of its own (Just 5 minutes, rough-day steps). Absent on older entries: unknown.
+ */
   fromDue?: ISODate | null;
+  /** For moves and snoozes: where the task is due now. */
   toDue?: ISODate | null;
+  surface?: EntrySurface;
+  planned?: EntryPlanned;
+  /** For a task that was split into parts: which part. The parts have their own task ids, so each part is one occurrence. */
+  part?: { index: number; of: number };
 }
 
 /** A "bout" of cleaning: entries less than 45 minutes apart belong together. */
@@ -344,16 +365,30 @@ export interface Progress {
 export type EnergyLevel = 'low' | 'ok' | 'high';
 export interface DayEnergy { date: ISODate; level: EnergyLevel }
 
-/** One scheduled task as the user saw it on a given day. The denominator for every adherence statistic. */
+/**
+ * A task the planner SELECTED for a day (it is on the day's list). It is not the same as "the person saw it": see `seenAt`.
+ *
+ * Contract 2 (the current one) separates three different facts that were once blurred into "exposure":
+ *  1. SELECTED by the planner: this record's `items`, each with the time (`selectedAt`) and the energy declared at that moment.
+ *  2. LEFT OUT by the planner: the record's `left`, each with the reason, decided at that moment. Never an exposure.
+ *  3. SEEN: `seenAt`, set only when the Today screen actually rendered the task while the page was visible (a task in a collapsed
+ *     group is seen only once the group is opened).
+ * Records written before contract 2 have no `contract`: what they list was planned, whether it was seen is unknown, their
+ * 'extra' items were left out for an unrecorded reason, and `shownAt` is the time it was planned, not displayed.
+ */
 export interface ExposureItem {
   taskId: string;
   templateId: string | null;
   domain: Domain;
   minutes: number;
   difficulty: Difficulty;
-  /** What it was when it was first shown (planned, left out, or catch-up). Never rewritten, even if a later change moves it. */
+  /** Where the planner put it. 'extra' only appears in records written before contract 2, where it meant "left out". */
   kind: 'focus' | 'life' | 'extra' | 'catchUp';
-  /** When this task was first shown to the person, and how they said they felt at that moment. Immutable: see ExposureRecord. */
+  /** Contract 2: when the planner selected it, and the energy the person had declared at that moment. Immutable. */
+  selectedAt?: string;
+  /** Contract 2: when it was first rendered on the Today screen while the page was visible. Absent = not seen (as far as recorded). */
+  seenAt?: string;
+  /** Before contract 2 this was called "shown" but meant "planned". Kept so old data round-trips; read it as `selectedAt`. */
   shownAt?: string;
   energy?: EnergyLevel;
   level?: LifeLevel;
@@ -362,8 +397,35 @@ export interface ExposureItem {
   goals?: LifeFocus[];
 }
 
+/** Why the planner left a due task out of a day's list. These are the planner's decisions, never the person's. */
+export type PlannerExclusion = 'not-enough-time' | 'low-energy-day' | 'not-a-cleaning-day';
+
+/** A task that was due and considered but not put on the day's list. It is NOT an exposure: the person may never have seen it. */
+export interface LeftOutItem {
+  taskId: string;
+  templateId: string | null;
+  domain: Domain;
+  minutes: number;
+  difficulty: Difficulty;
+  reason: PlannerExclusion;
+  /** When the planner decided this, the energy declared then, and the day's minutes then (the three things the reason depends on). */
+  at: string;
+  energy: EnergyLevel;
+  budget: number;
+  /** When the person opened the "left out" list and it was rendered. Absent = never revealed. */
+  seenAt?: string;
+  level?: LifeLevel;
+  intensity?: Intensity;
+  timeOfDay?: TimeOfDay;
+  goals?: LifeFocus[];
+}
+
 /**
- * What was scheduled for a day, recorded once the day is opened. Tasks that were ignored are visible here.
+ * What the planner decided for a day, recorded when the app is first opened (visible) that day. Contract 2 records exist for every
+ * day the app was visible, even a day with nothing planned, so a day with no record is a day it was not opened (see behaviour.ts).
+ *
+ * Do not read "no completion" as "skipped": a skip is something the person did (an entry with outcome 'skipped'); a task that was
+ * seen and has no entry simply has no recorded action.
  *
  * What "energy" means in an exposure, because it can change during a day:
  *  - `ExposureItem.energy`  the energy the person had declared at the moment THAT task was first shown. An immutable fact about the
@@ -375,6 +437,8 @@ export interface ExposureItem {
  */
 export interface ExposureRecord {
   date: ISODate;
+  /** 2 = the current contract described above. Absent = written before it (display and exclusion reasons unknown). */
+  contract?: 2;
   recordedAt: string;
   planVersion: string;
   activeDay: boolean;
@@ -383,12 +447,16 @@ export interface ExposureRecord {
   tzOffsetMin: number;
   budgetMinutes: number;
   items: ExposureItem[];
+  /** Contract 2: due tasks the planner left out, with the reason, decided at that moment. Each (task, reason) is recorded once. */
+  left?: LeftOutItem[];
 }
 
 /** A snapshot of the inputs the plan was generated from, so a behaviour change is never confused with a plan change. */
 export interface PlanVersion {
   id: string;
   at: string;
+  /** Goals the plan could not serve when it was generated, with why (minutes, cap, safety, context, none). Absent on older versions. */
+  deferredGoals?: { goal: LifeFocus; reason: GoalDeferReason; needMinutes?: number }[];
   focus: LifeFocus[];
   lifeLevel: LifeLevel;
   fitnessLevel: FitnessLevel;

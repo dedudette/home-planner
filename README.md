@@ -11,7 +11,7 @@ npm run dev        # http://localhost:5173
 npm test           # 451 tests at the time of writing: engine, scheduler, daily budget, low-energy safety, goal coverage, persistence, backups, retention, reducer, analytics
 npm run build      # typecheck + production build into dist/
 npm run check      # type-check + tests
-npm run e2e        # four browser suites: flow, responsive (7 widths), integrity, sync (two tabs). The dev server must be running; set CHROME_PATH if needed
+npm run e2e        # five browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records). The dev server must be running; set CHROME_PATH if needed
 ```
 
 No account or backend: data lives in `localStorage`. The Welcome screen (and Settings) can load seven example profiles.
@@ -64,7 +64,7 @@ src/domain/scoring.ts       shared frequency ladder / priority / isLife()
 6. **Schedule** – reset tasks first (maintenance deferred for messy homes), daily habits run even on rest days, the rest is balanced by weekday and grouped by zone.
 7. **Explain** – every adaptation is recorded and shown ("Why this plan?").
 
-Learning is rule-based and always asks first (shorter sessions, repeated skips, steady routines).
+Learning is rule-based and always asks first (shorter sessions, repeated skips, steady routines, a step up or an easier stretch). What each rule reads, and what it refuses to read, is under **Behaviour insights** below.
 
 ## Safety
 The Supplies screen shows a permanent chemical-safety warning (never mix products, especially bleach with ammonia or acids) and warns when the user's own stash contains dangerous pairs. The app never gives mixing instructions.
@@ -81,7 +81,24 @@ The Supplies screen shows a permanent chemical-safety warning (never mix product
 - A running timer carries its task, so a "Just 5 minutes" habit finished after a reload is still logged as that habit.
 
 ## Analytics foundation (data only, no analytics UI yet)
-Every logged entry now records the template, level, difficulty, intensity, planned time of day, goals, plan version, day energy, local hour, timezone offset and, for moves and snoozes, where the task was due and where it went. Each day's scheduled tasks are recorded (`exposures`), so a task that was shown and ignored is visible. Every exposure is an immutable snapshot: each item keeps the energy declared when it was first shown (`energy`, `shownAt`), the day keeps its first energy plus an appended list of changes, and the log entry records the energy at completion. Day energy is kept per day (`energyLog`), plan inputs get a stable `planVersion`, and suggestions emit `recEvents` (shown / accepted / dismissed, with a reason code and the numbers behind it), each recorded once however many times a screen renders. Nothing leaves the device.
+Every logged entry records the template, level, difficulty, intensity, planned time of day, goals, plan version, day energy, local hour, timezone offset and, for moves and snoozes, where the task was due and where it went. Day energy is kept per day (`energyLog`), plan inputs get a stable `planVersion` (and a snapshot of the goals that plan could not serve, with the reason), and suggestions emit `recEvents` (shown / accepted / dismissed, with a reason code and the numbers behind it), each recorded once however many times a screen renders. Nothing leaves the device.
 
-## Testing
-`npm test` covers the pure domain, the reducer and the storage layer. `npm run e2e` drives a real browser: `flow.mjs` (the main journey), `responsive.mjs` (every screen, sheet, onboarding step and the newer states at 320, 360, 390, 430, 768, 1024 and 1366 px, with overflow and accessibility checks), `integrity.mjs` (recovery, confirmation, duplicates, closing mid-save, timers, time-aware Today and home routines, life-only users, goal coverage, budgets on Today / Tomorrow / the week, low energy, a three-year history) and `sync.mjs` (two tabs on the same data: no write loop, both tabs' work survives, a stale tab backs up the latest state, no room for a backup).
+### What a day's record says (contract 2)
+Three different facts are kept apart, because mixing them is how "ignored" gets invented:
+- **Selected**: what the planner put on the day (`exposures[].items`, with `selectedAt` and the energy it was selected under). Not the same as shown.
+- **Left out**: due tasks the planner considered and did not select (`exposures[].left`), each with the planner's own reason (`not-enough-time`, `low-energy-day`, `not-a-cleaning-day`), the time, energy and budget at that moment. A left-out task is not an exposure and is never counted as skipped or failed.
+- **Seen**: set by the Today screen, only while the page is visible, when the task is actually rendered (`seenAt`; for left-out tasks, when the "left out of today" list is opened). Rendered, not scrolled to or read. Opening Settings first records the day's selection and marks nothing seen.
+
+A day record is written when the app is opened while visible, even if nothing is planned, so a day with no record between two records means the app was not opened. Before records began, in removed history, or under the older record format, a day is **unknown**, never "not opened". Records written before contract 2 keep their unknowns (no invented seen, no invented reasons), and a same-day old-format record is left exactly as it was. Re-renders, StrictMode, reloads and a second tab add nothing: first-seen times are never overwritten and a repeat adds no write.
+
+Each entry also says which screen it came from (`surface`), whether the task was selected, left out, or not planned that day (`planned`; absent = unknown), the date the occurrence was due (`fromDue`; `null` for Just 5 minutes and rough-day steps), and which part of a split task it was (`part`).
+
+## Behaviour insights
+There is no Behaviour Analysis screen yet. The suggestions that exist read only what the person **did** (entries), and, where Today recorded it, what was shown. They share these rules (`src/domain/behaviour.ts`, `learning.ts`, `progression.ts`):
+- "No completion" is never a skip. A skip is an explicit skip; a snooze, a move and a timer stopped early are each their own thing.
+- Days the person declared low energy are not read as "this is too big". Just 5 minutes, the rough-day steps and the reset sequence are not the routines and are left out of routine evidence.
+- A window that reaches into history removed to save space is not read at all (a short count there would look like a quiet stretch). Where the evidence is unreliable, the suggestion is withheld, not softened.
+- Nothing says why anyone did or did not do something. Every suggestion is optional and shows its numbers. Only the step up adds work; it needs a yes, and it is held back on low-energy stretches, by missing history, and when most of what was shown went undone (judged only once ten days of that are known).
+
+## ## Testing
+`npm test` covers the pure domain, the reducer and the storage layer. `npm run e2e` drives a real browser: `flow.mjs` (the main journey), `responsive.mjs` (every screen, sheet, onboarding step and the newer states at 320, 360, 390, 430, 768, 1024 and 1366 px, with overflow and accessibility checks), `integrity.mjs` (recovery, confirmation, duplicates, closing mid-save, timers, time-aware Today and home routines, life-only users, goal coverage, budgets on Today / Tomorrow / the week, low energy, a three-year history) `sync.mjs` (two tabs on the same data: no write loop, both tabs' work survives, a stale tab backs up the latest state, no room for a backup) and `behaviour.mjs` (what a day records: selected vs left out vs seen, Settings-first opens, a background tab, two tabs, the fresh-start wording).

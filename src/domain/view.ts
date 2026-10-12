@@ -365,7 +365,18 @@ export const roomTasks = (v: PlanView, kind: RoomKind): Task[] =>
     .filter((t) => energyOk(t, viewEnergy(v)))
     .sort((a, b) => Number(!!a.backlog) - Number(!!b.backlog) || b.score - a.score);
 
-/** How many task occurrences are still expected in [from, to] (ignores things already done). */
+/**
+ * How many tasks are still PLANNED in [from, to]: what the day fit actually puts on each day (so the same budget, energy-free
+ * assumptions and left-out rules as Today, Tomorrow and the Schedule), not every occurrence the calendar could produce. Today counts
+ * only what is still to do.
+ */
+export const plannedRemaining = (v: PlanView, from: ISODate, to: ISODate): number => {
+  let n = 0;
+  for (let d = from, i = 0; d <= to && i < 400; d = addDays(d, 1), i++) n += dayPlan(v, d).tasks.length;
+  return n;
+};
+
+/** How many task occurrences are still expected in [from, to] (ignores things already done). Not budget-fitted: see plannedRemaining. */
 export const projectRemaining = (v: PlanView, from: ISODate, to: ISODate): number => {
   let n = 0;
   for (const task of v.tasks) {

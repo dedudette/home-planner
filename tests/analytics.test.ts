@@ -68,11 +68,14 @@ describe('every logged action carries what a future recommender needs', () => {
 describe('what was scheduled is recorded, so ignored tasks are visible', () => {
   const rec = (d: AppData, today = TODAY): ExposureRecord => buildExposure(view(d, today), `${today}T06:00:00.000Z`, -120);
 
-  it('lists every task shown today with its template, level, difficulty and time of day, including ones never touched', () => {
+  it('lists every task the planner selected today with its template, level, difficulty and time of day, including ones never touched; left-out tasks are kept apart', () => {
     const d = demo('G');
     const r = rec(d);
     const t = todayPlan(view(d));
-    expect(r.items.length).toBe(t.focus.length + t.life.length + t.extra.length + t.catchUp.length);
+    expect(r.contract).toBe(2);
+    expect(r.items.length).toBe(t.focus.length + t.life.length + t.catchUp.length);
+    expect(r.items.some((i) => i.kind === 'extra')).toBe(false);
+    expect(r.left!.length).toBe(t.deferred.length);
     const life = r.items.filter((i) => i.kind === 'life');
     expect(life.length).toBe(t.life.length);
     for (const i of life) {
@@ -93,7 +96,7 @@ describe('what was scheduled is recorded, so ignored tasks are visible', () => {
     d = reducer(d, { type: 'TASK_COMPLETE', task: a, stamp: st(9), via: 'checkoff', entryId: 'a1' });
     const ids = d.exposures[0].items.map((i) => i.taskId);
     expect(ids).toContain(a.id);
-    expect(ids).toContain(b.id); // ignored, but we know it was offered
+    expect(ids).toContain(b.id); // not acted on, but we know the planner selected it
     expect(entries(d).map((e) => e.taskId)).not.toContain(b.id);
   });
 
@@ -172,7 +175,7 @@ describe('recommendation-ready events', () => {
     const d0 = demo('E');
     const task = firstLife(d0);
     let d: AppData = d0;
-    for (let i = 0; i < 3; i++) d = reducer(d, { type: 'TASK_SKIP', task, stamp: st(9 + i), entryId: `s${i}` });
+    for (let i = 1; i <= 3; i++) d = reducer(d, { type: 'TASK_SKIP', task, stamp: st(9, { today: addDays(TODAY, -i), now: new Date(2026, 9, 5 - i, 9, 30).toISOString() }), entryId: `s${i}` });
     const skip = computeInsights(view(d)).find((i) => i.id === `skip:${task.id}`)!;
     expect(skip.code).toBe('skip-streak');
     expect(skip.evidence).toMatchObject({ streak: 3 });
@@ -225,7 +228,7 @@ describe('exposure energy is an immutable snapshot, and a change in energy is ap
     const morning = today(d);
     expect(morning.energy).toBe('high');
     expect(morning.items.length).toBeGreaterThan(0);
-    expect(morning.items.every((i) => i.energy === 'high' && i.shownAt === at(7))).toBe(true);
+    expect(morning.items.every((i) => i.energy === 'high' && i.selectedAt === at(7) && i.seenAt === undefined)).toBe(true);
     const firstId = morning.items[0].taskId;
 
     // 2. energy drops during the day
@@ -248,7 +251,7 @@ describe('exposure energy is an immutable snapshot, and a change in energy is ap
     // 5. another task is exposed after the change: it carries the NEW energy, and the old ones keep theirs
     const moved = todayPlan(view(d)).extra[0]?.task ?? view(d).tasks.find((t) => !today(d).items.some((i) => i.taskId === t.id) && !t.habit && !t.challenge);
     expect(moved).toBeTruthy();
-    const withNew = reducer(d, { type: 'RECORD_EXPOSURE', record: { ...buildExposure(view(d), at(15), -120), items: [{ taskId: 'new-after-drop', templateId: null, domain: 'home', minutes: 5, difficulty: 1, kind: 'extra', shownAt: at(15), energy: 'low' }] } });
+    const withNew = reducer(d, { type: 'RECORD_EXPOSURE', record: { ...buildExposure(view(d), at(15), -120), items: [{ taskId: 'new-after-drop', templateId: null, domain: 'home', minutes: 5, difficulty: 1, kind: 'focus', selectedAt: at(15), energy: 'low' }] } });
     const added = today(withNew).items.find((i) => i.taskId === 'new-after-drop')!;
     expect(added.energy).toBe('low');
     expect(today(withNew).items.find((i) => i.taskId === firstId)!.energy).toBe('high');
@@ -274,7 +277,7 @@ describe('exposure energy is an immutable snapshot, and a change in energy is ap
     d = setEnergy(d, 'low', 15);
     const back = validateAppData(JSON.parse(JSON.stringify(d)))!.data;
     expect(today(back).energyChanges).toEqual(today(d).energyChanges);
-    expect(today(back).items.map((i) => [i.energy, i.shownAt])).toEqual(today(d).items.map((i) => [i.energy, i.shownAt]));
+    expect(today(back).items.map((i) => [i.energy, i.selectedAt])).toEqual(today(d).items.map((i) => [i.energy, i.selectedAt]));
     const bad = JSON.parse(JSON.stringify(d));
     bad.exposures.find((e: ExposureRecord) => e.date === TODAY).energyChanges = [{ at: 'x', level: 'low' }, { at: at(1), level: 'purple' }, 7];
     expect(today(validateAppData(bad)!.data).energyChanges).toBeUndefined();

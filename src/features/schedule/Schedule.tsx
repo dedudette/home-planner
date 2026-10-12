@@ -124,7 +124,7 @@ export const Schedule = () => {
       {view.tasks.length === 0 && <Empty title="No tasks yet" />}
 
       <section className={`card ${fresh.show ? 'sun' : 'soft'} stack`} aria-label="Reset my plan">
-        <div className="row"><I.undo size={20} aria-hidden /><h2 className="h3">{fresh.show ? `Back after ${fresh.daysAway} days? Start fresh.` : 'Fallen behind? Start fresh.'}</h2></div>
+        <div className="row"><I.undo size={20} aria-hidden /><h2 className="h3">{fresh.show ? `Nothing logged for ${fresh.daysAway} days? Start fresh.` : 'Fallen behind? Start fresh.'}</h2></div>
         <p className="small">Resetting re-spreads your plan from today. Missed tasks aren't dumped on today. They simply disappear from the backlog. Your history and progress stay.</p>
         <div><Button variant={fresh.show ? 'primary' : 'secondary'} icon={I.undo} onClick={doReset}>Reset my plan</Button></div>
       </section>

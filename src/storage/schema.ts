@@ -6,7 +6,7 @@ import {
 } from '../domain/options';
 import type {
   AppData, CleaningSession, CustomTask, Domain, ExposureItem, ExposureRecord, Frequency, ISODate, LifeFocus, LifeLevel,
-  PlanVersion, Priority, RecommendationEvent, RetentionNote, RoomCounts, SessionEntry, Supply, TaskState, TimeOfDay,
+  LeftOutItem, PlanVersion, Priority, RecommendationEvent, RetentionNote, RoomCounts, SessionEntry, Supply, TaskState, TimeOfDay,
 } from '../domain/types';
 
 /**
@@ -44,6 +44,9 @@ const VIAS = ['checkoff', 'timer', 'five', 'timebox', 'reset', 'plan'] as const;
 const ROOM_KINDS = ['kitchen', 'bathroom', 'bedroom', 'living', 'dining', 'office', 'hallway', 'laundry', 'storage', 'balcony', 'garage', 'basement', 'attic', 'other', 'home'] as const;
 const TODS: readonly TimeOfDay[] = ['morning', 'afternoon', 'evening', 'anytime'];
 const INTENSITIES = ['gentle', 'moderate', 'vigorous'] as const;
+const SURFACES = ['today', 'plan', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more', 'detail', 'timebox', 'five', 'reset', 'rough', 'timer', 'other'] as const;
+const PLANNED = ['selected', 'left-out', 'not-planned'] as const;
+const EXCLUSIONS = ['not-enough-time', 'low-energy-day', 'not-a-cleaning-day'] as const;
 const ENERGY_LEVELS = ['low', 'ok', 'high'] as const;
 
 /**
@@ -196,6 +199,9 @@ const validateEntry = (raw: unknown): SessionEntry | null => {
   const en = oneOfOrNull(raw.energy, ENERGY_LEVELS); if (en) e.energy = en;
   if (raw.fromDue === null || date(raw.fromDue)) e.fromDue = (raw.fromDue as ISODate | null);
   if (raw.toDue === null || date(raw.toDue)) e.toDue = (raw.toDue as ISODate | null);
+  const surf = oneOfOrNull(raw.surface, SURFACES); if (surf) e.surface = surf;
+  const planned = oneOfOrNull(raw.planned, PLANNED); if (planned) e.planned = planned;
+  if (isObj(raw.part)) { const of = intn(raw.part.of, 0, 0, 50), index = intn(raw.part.index, 0, 0, 50); if (of >= 2 && index >= 1 && index <= of) e.part = { index, of }; }
   return e;
 };
 
@@ -264,6 +270,33 @@ const validateRetention = (raw: unknown): RetentionNote[] => {
   return out;
 };
 
+const validateLeft = (raw: unknown): LeftOutItem[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: LeftOutItem[] = [];
+  const seen = new Set<string>();
+  for (const i of raw.slice(0, 80)) {
+    if (!isObj(i) || typeof i.taskId !== 'string') continue;
+    const reason = oneOfOrNull(i.reason, EXCLUSIONS);
+    const energy = oneOfOrNull(i.energy, ENERGY_LEVELS);
+    // a left-out entry without its reason is not a fact we can use, so it is dropped rather than given a reason
+    if (!reason || !energy || typeof i.at !== 'string' || Number.isNaN(Date.parse(i.at))) continue;
+    const key = `${i.taskId}|${reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const it: LeftOutItem = {
+      taskId: i.taskId.slice(0, 120), templateId: typeof i.templateId === 'string' ? i.templateId.slice(0, 80) : null, domain: oneOf(i.domain, DOMAINS, 'home'),
+      minutes: num(i.minutes, 0, 0, 1440), difficulty: (i.difficulty === 2 || i.difficulty === 3 ? i.difficulty : 1), reason, at: i.at, energy, budget: num(i.budget, 0, 0, 1440),
+    };
+    if (typeof i.seenAt === 'string' && !Number.isNaN(Date.parse(i.seenAt))) it.seenAt = i.seenAt;
+    if (i.level === 1 || i.level === 2 || i.level === 3) it.level = i.level;
+    const inten = oneOfOrNull(i.intensity, INTENSITIES); if (inten) it.intensity = inten;
+    const tod = oneOfOrNull(i.timeOfDay, TODS); if (tod) it.timeOfDay = tod;
+    const goals = list(i.goals, values(FOCUS_OPTIONS)); if (goals.length) it.goals = goals as LifeFocus[];
+    out.push(it);
+  }
+  return out;
+};
+
 const validateEnergyChanges = (raw: unknown): { energyChanges?: { at: string; level: (typeof ENERGY_LEVELS)[number] }[] } => {
   if (!Array.isArray(raw)) return {};
   const out = raw.filter(isObj).map((x) => ({ at: isoStamp(x.at, ''), level: oneOfOrNull(x.level, ENERGY_LEVELS) })).filter((x): x is { at: string; level: (typeof ENERGY_LEVELS)[number] } => !!x.level && !!x.at).slice(-12);
@@ -280,6 +313,8 @@ const validateExposure = (raw: unknown): ExposureRecord | null => {
       minutes: num(i.minutes, 0, 0, 1440), difficulty: (i.difficulty === 2 || i.difficulty === 3 ? i.difficulty : 1), kind: oneOf(i.kind, ['focus', 'life', 'extra', 'catchUp'] as const, 'focus'),
     };
     if (typeof i.shownAt === 'string' && !Number.isNaN(Date.parse(i.shownAt))) it.shownAt = i.shownAt;
+    if (typeof i.selectedAt === 'string' && !Number.isNaN(Date.parse(i.selectedAt))) it.selectedAt = i.selectedAt;
+    if (typeof i.seenAt === 'string' && !Number.isNaN(Date.parse(i.seenAt))) it.seenAt = i.seenAt;
     const ie = oneOfOrNull(i.energy, ENERGY_LEVELS); if (ie) it.energy = ie;
     if (i.level === 1 || i.level === 2 || i.level === 3) it.level = i.level;
     const inten = oneOfOrNull(i.intensity, INTENSITIES); if (inten) it.intensity = inten;
@@ -287,10 +322,22 @@ const validateExposure = (raw: unknown): ExposureRecord | null => {
     const goals = list(i.goals, values(FOCUS_OPTIONS)); if (goals.length) it.goals = goals as LifeFocus[];
     items.push(it);
   }
+  const left = raw.contract === 2 ? validateLeft(raw.left) : undefined;
   return {
-    date: raw.date as ISODate, recordedAt: isoStamp(raw.recordedAt, `${raw.date}T00:00:00.000Z`), planVersion: str(raw.planVersion, '', 40), activeDay: bool(raw.activeDay, true),
-    energy: oneOf(raw.energy, ENERGY_LEVELS, 'ok'), ...validateEnergyChanges(raw.energyChanges), tzOffsetMin: intn(raw.tzOffsetMin, 0, -900, 900), budgetMinutes: num(raw.budgetMinutes, 0, 0, 1440), items,
+    date: raw.date as ISODate, ...(raw.contract === 2 ? { contract: 2 as const } : {}), recordedAt: isoStamp(raw.recordedAt, `${raw.date}T00:00:00.000Z`), planVersion: str(raw.planVersion, '', 40), activeDay: bool(raw.activeDay, true),
+    energy: oneOf(raw.energy, ENERGY_LEVELS, 'ok'), ...validateEnergyChanges(raw.energyChanges), tzOffsetMin: intn(raw.tzOffsetMin, 0, -900, 900), budgetMinutes: num(raw.budgetMinutes, 0, 0, 1440), items, ...(left ? { left } : {}),
   };
+};
+
+const validateDeferredGoals = (raw: unknown): { deferredGoals?: NonNullable<PlanVersion['deferredGoals']> } => {
+  if (!Array.isArray(raw)) return {};
+  const goals = values(FOCUS_OPTIONS) as readonly string[];
+  const out = raw.filter(isObj).flatMap((g) => {
+    const reason = oneOfOrNull(g.reason, ['budget', 'cap', 'safety', 'context', 'none'] as const);
+    if (typeof g.goal !== 'string' || !goals.includes(g.goal) || !reason) return [];
+    return [{ goal: g.goal as LifeFocus, reason, ...(typeof g.needMinutes === 'number' ? { needMinutes: intn(g.needMinutes, 0, 0, 1440) } : {}) }];
+  }).slice(0, 12);
+  return Array.isArray(raw) ? { deferredGoals: out } : {};
 };
 
 const validatePlanVersion = (raw: unknown): PlanVersion | null => {
@@ -299,6 +346,7 @@ const validatePlanVersion = (raw: unknown): PlanVersion | null => {
     id: raw.id.slice(0, 40), at: isoStamp(raw.at, new Date(0).toISOString()), focus: list(raw.focus, values(FOCUS_OPTIONS)) as LifeFocus[],
     lifeLevel: intn(raw.lifeLevel, 1, 1, 3) as LifeLevel, fitnessLevel: oneOf(raw.fitnessLevel, values(FITNESS_LEVELS), 'beginner'),
     sessionMinutes: typeof raw.sessionMinutes === 'number' ? intn(raw.sessionMinutes, 20, 5, 180) : null, daysPerWeek: typeof raw.daysPerWeek === 'number' ? intn(raw.daysPerWeek, 4, 1, 7) : null,
+    ...validateDeferredGoals(raw.deferredGoals),
   };
 };
 

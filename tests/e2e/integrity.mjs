@@ -562,6 +562,9 @@ for (const h of [0, 6, 8, 12, 15, 18, 21, 23]) {
     const size = await page.evaluate(() => localStorage.getItem('cleanflow:v1').length);
     check(`it now fits with room to spare (${(size / 1e6).toFixed(2)} M characters)`, size <= 1_950_000, String(size));
     check('Settings tells the person, in words', /older entries .* removed to keep saving working/.test(await page.locator('main').innerText()));
+    await page.evaluate(() => (location.hash = '#/progress')); await page.waitForSelector('[data-testid=history-note]');
+    const note = await page.getByTestId('history-note').innerText();
+    check('Progress says its numbers start where the kept history starts', /These counts start from \d{4}-\d{2}-\d{2}: older history was removed/.test(note), note.slice(0, 200));
     await page.evaluate(() => (location.hash = '#/today')); await page.reload(); await page.waitForSelector('.hero-card'); await page.waitForTimeout(500);
     check('and it does not ask again', (await page.locator('text=Make room by removing the oldest history?').count()) === 0);
   }, page);

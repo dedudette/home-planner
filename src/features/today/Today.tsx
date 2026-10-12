@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { addDays, formatMinutes, formatLong } from '../../domain/dates';
 import { needsFreshStart } from '../../domain/learning';
 import { bucketLife, dayPlan, todayPlan, type DeferReason, type DueItem } from '../../domain/view';
@@ -23,14 +23,14 @@ const DEFER_NOTE: Record<DeferReason, (budget: number) => string> = {
   'rest-day': () => 'Saved for one of your cleaning days.',
 };
 
-export const FreshStartCard = ({ days }: { days: number }) => {
+export const FreshStartCard = ({ days, neverLogged }: { days: number; neverLogged: boolean }) => {
   const { dispatch, stamp, toast } = useApp();
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
   return (
     <div className="card sun stack" role="region" aria-label="Fresh start">
-      <div className="row"><I.sun size={22} aria-hidden /><h2 className="h3">Welcome back. Life happens.</h2></div>
-      <p className="small">It's been {days} days. Instead of piling everything you missed onto today, we can start your plan fresh from today. Nothing is lost and nothing is owed.</p>
+      <div className="row"><I.sun size={22} aria-hidden /><h2 className="h3">{neverLogged ? 'Want to start fresh?' : 'A fresh start?'}</h2></div>
+      <p className="small">{neverLogged ? `Nothing has been logged since your plan began ${days} days ago.` : `Nothing has been logged for ${days} days.`} Instead of piling everything that is due onto today, we can start your plan fresh from today. Nothing is lost and nothing is owed.</p>
       <div className="row wrap" style={{ gap: 8 }}>
         <Button onClick={() => { dispatch({ type: 'RESET_PLAN', stamp: stamp() }); toast('Fresh start. Your plan now begins today.'); }} icon={I.undo}>Reset my plan</Button>
         <Button variant="secondary" onClick={() => setHidden(true)}>Keep it as is</Button>
@@ -40,7 +40,7 @@ export const FreshStartCard = ({ days }: { days: number }) => {
 };
 
 export const Today = () => {
-  const { view, data, today, hour, openSheet, dispatch, stamp, plan } = useApp();
+  const { view, data, today, hour, openSheet, dispatch, stamp, plan, visible } = useApp();
   const t = todayPlan(view);
   const insights = useInsights().filter((i) => !(data.dismissedInsights[i.id] && data.dismissedInsights[i.id] === today)).slice(0, 2);
   const fresh = needsFreshStart(view);
@@ -95,6 +95,20 @@ export const Today = () => {
   );
   const showEnergy = data.preferences.energy === 'varies' || t.energy !== 'ok';
 
+  // What is actually on screen right now. A task counts as SEEN only when it is rendered here while the page is visible: tasks in a
+  // closed group ("Later today", "This evening", "Earlier today") count once the group is opened, and tasks the planner left out
+  // count as revealed only once their list is opened. This is "rendered", not "scrolled to" or "read".
+  const groups: [string, DueItem[]][] = [['life-later', buckets.later], ['life-evening', buckets.evening], ['life-earlier', buckets.earlier], ['home-later', homeBuckets.later], ['home-evening', homeBuckets.evening], ['home-earlier', homeBuckets.earlier]];
+  const onScreen = [...buckets.now, ...homeBuckets.now, ...t.catchUp, ...groups.filter(([k]) => openBuckets[k]).flatMap(([, xs]) => xs)].map((i) => i.task.id);
+  const revealed = showExtra ? t.deferred.slice(0, 12).map((d) => d.item.task.id) : [];
+  const dayRecord = data.exposures.find((e) => e.date === today);
+  useEffect(() => {
+    if (!visible || dayRecord?.contract !== 2) return;
+    const ids = onScreen.filter((id) => dayRecord.items.some((i) => i.taskId === id && !i.seenAt));
+    const rev = revealed.filter((id) => dayRecord.left?.some((i) => i.taskId === id && !i.seenAt));
+    if (ids.length || rev.length) dispatch({ type: 'RECORD_SEEN', date: today, ids, revealed: rev, at: new Date().toISOString() });
+  }, [visible, dayRecord, onScreen.join('|'), revealed.join('|'), today]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="page">
       <PageHead
@@ -103,7 +117,7 @@ export const Today = () => {
         action={<IconButton icon={I.plus} label="Add your own task" onClick={() => openSheet({ kind: 'taskForm' })} className="btn soft" style={{ width: 48, height: 48 }} />}
       />
 
-      {fresh.show && <FreshStartCard days={fresh.daysAway} />}
+      {fresh.show && <FreshStartCard days={fresh.daysAway} neverLogged={fresh.neverLogged} />}
 
       <section className="hero-card" aria-label="Today at a glance">
         <p className="small" style={{ opacity: 0.9 }}>{restDay ? (lifeOn ? 'Rest day from cleaning' : 'Rest day') : 'Today'}</p>

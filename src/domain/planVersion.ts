@@ -1,3 +1,4 @@
+import { generatePlan } from './engine';
 import type { AppData, Home, PlanVersion, Preferences } from './types';
 
 /** Short, stable hash (FNV-1a). Not cryptographic: it only has to change when the inputs change. */
@@ -19,7 +20,15 @@ export const planVersionId = (home: Home, prefs: Preferences, resetCount: number
 
 export const planVersionOf = (data: AppData): string => planVersionId(data.home, data.preferences, data.plan.resetCount);
 
-export const snapshotPlanVersion = (data: AppData, at: string): PlanVersion => ({
-  id: planVersionOf(data), at, focus: [...data.preferences.focus], lifeLevel: data.preferences.lifeLevel, fitnessLevel: data.preferences.fitnessLevel,
-  sessionMinutes: data.preferences.sessionMinutes, daysPerWeek: data.preferences.daysPerWeek,
-});
+/**
+ * A snapshot of the inputs, plus the goals the plan could not serve and why, taken when the plan was generated. The reasons are the
+ * plan's own (minutes, cap, safety, context, none), so a goal missing from the plan is never mistaken for one the person dropped.
+ */
+export const snapshotPlanVersion = (data: AppData, at: string): PlanVersion => {
+  const plan = generatePlan(data.home, data.preferences, data.plan);
+  return {
+    id: planVersionOf(data), at, focus: [...data.preferences.focus], lifeLevel: data.preferences.lifeLevel, fitnessLevel: data.preferences.fitnessLevel,
+    sessionMinutes: data.preferences.sessionMinutes, daysPerWeek: data.preferences.daysPerWeek,
+    deferredGoals: plan.goalCoverage.filter((g) => g.status === 'deferred').map((g) => ({ goal: g.goal, reason: g.reason ?? 'none', ...(g.needMinutes ? { needMinutes: g.needMinutes } : {}) })),
+  };
+};

@@ -1,5 +1,6 @@
 import { uid } from '../domain/appdata';
 import { compactHistory } from '../domain/retention';
+import { MAX_LEFT_PER_DAY, leftKey } from '../domain/exposure';
 import { applyTypeDefaults } from '../domain/context';
 import { appDataForDemo, type DemoProfile } from '../domain/demo';
 import { buildResetTasks, generatePlan } from '../domain/engine';
@@ -7,7 +8,7 @@ import {
   dueInfo, markComplete, markMove, markSkip, markSnooze, resetStates,
 } from '../domain/schedule';
 import type {
-  AppData, CleaningSession, CustomTask, EnergyLevel, EntryOutcome, EntryVia, ExposureRecord, Home, ISODate, PlanMeta, PlanVersion, Preferences,
+  AppData, CleaningSession, CustomTask, EnergyLevel, EntryOutcome, EntryPlanned, EntrySurface, EntryVia, ExposureRecord, Home, ISODate, PlanMeta, PlanVersion, Preferences,
   RecommendationEvent, ResetRun, SessionEntry, Supply, Task, TaskState,
 } from '../domain/types';
 import { planVersionOf } from '../domain/planVersion';
@@ -33,14 +34,19 @@ export type Action =
   | { type: 'FINISH_ONBOARDING'; stamp: Stamp }
   | { type: 'LOAD_DEMO'; id: DemoProfile['id']; withHistory: boolean; stamp: Stamp }
   // `entryId` makes every logged action idempotent and individually undoable. Callers generate it; tests may omit it.
-  | { type: 'TASK_COMPLETE'; task: Task; stamp: Stamp; minutes?: number; via: EntryVia; entryId?: string }
-  | { type: 'TASK_SKIP'; task: Task; stamp: Stamp; via?: EntryVia; minutes?: number; entryId?: string }
-  | { type: 'TASK_STOP'; task: Task; stamp: Stamp; minutes: number; entryId?: string }
-  | { type: 'TASK_SNOOZE'; task: Task; stamp: Stamp; entryId?: string }
-  | { type: 'TASK_MOVE'; task: Task; to: ISODate; stamp: Stamp; label?: 'moved' | 'snoozed'; entryId?: string }
+  | { type: 'TASK_COMPLETE'; task: Task; stamp: Stamp; minutes?: number; via: EntryVia; entryId?: string; surface?: EntrySurface }
+  | { type: 'TASK_SKIP'; task: Task; stamp: Stamp; via?: EntryVia; minutes?: number; entryId?: string; surface?: EntrySurface }
+  | { type: 'TASK_STOP'; task: Task; stamp: Stamp; minutes: number; entryId?: string; surface?: EntrySurface }
+  | { type: 'TASK_SNOOZE'; task: Task; stamp: Stamp; entryId?: string; surface?: EntrySurface }
+  | { type: 'TASK_MOVE'; task: Task; to: ISODate; stamp: Stamp; label?: 'moved' | 'snoozed'; entryId?: string; surface?: EntrySurface }
   | { type: 'UNDO'; entryId: string; taskId: string; before: TaskState | null; after: TaskState | null; undoReset?: boolean; fiveBefore?: string[] }
   | { type: 'UNDO_RESET_PLAN'; plan: PlanMeta; lastOpened: ISODate | null; before: Record<string, Pick<TaskState, 'anchor' | 'due' | 'skipStreak'>> }
   | { type: 'RECORD_EXPOSURE'; record: ExposureRecord }
+  /**
+   * The Today screen rendered these tasks while the page was visible (`ids` are selected tasks; `revealed` are left-out tasks the
+   * person opened the list of). The first time wins, so repeats, StrictMode, reloads and a second tab record nothing new.
+   */
+  | { type: 'RECORD_SEEN'; date: ISODate; ids: string[]; revealed?: string[]; at: string }
   | { type: 'RECORD_PLAN_VERSION'; version: PlanVersion }
   | { type: 'REC_EVENT'; event: RecommendationEvent }
   /** Keep the newest history that fits, remove the oldest, and leave a note saying so. Only ever sent after the person agreed. */
@@ -86,16 +92,35 @@ const energyOn = (data: AppData, today: ISODate): EnergyLevel =>
 const entryCount = (data: AppData) => data.sessions.reduce((n, s) => n + s.entries.length, 0);
 const defaultEntryId = (data: AppData, stamp: Stamp, task: Task, outcome: EntryOutcome) => `e:${stamp.now}:${task.id}:${outcome}:${entryCount(data)}`;
 
+/**
+ * How a task relates to the day's planner decision *right now* (selected, left out, or not considered). Unknown when there is no
+ * contract 2 record for the day: then nothing is guessed.
+ */
+const plannedRelation = (data: AppData, task: Task, today: ISODate): EntryPlanned | undefined => {
+  const rec = data.exposures.find((e) => e.date === today);
+  if (!rec || rec.contract !== 2) return undefined;
+  if (rec.items.some((i) => i.taskId === task.id)) return 'selected';
+  if ((rec.left ?? []).some((i) => i.taskId === task.id)) return 'left-out';
+  return 'not-planned';
+};
+
 const entryFor = (
   data: AppData, task: Task, stamp: Stamp, outcome: EntryOutcome, via: EntryVia, minutes: number, id: string | undefined,
-  extra: Partial<Pick<SessionEntry, 'fromDue' | 'toDue'>> = {},
+  extra: Partial<Pick<SessionEntry, 'fromDue' | 'toDue'>> = {}, surface?: EntrySurface,
 ): SessionEntry => {
   const e: SessionEntry = {
     id: id ?? defaultEntryId(data, stamp, task, outcome), at: stamp.now, date: stamp.today, taskId: task.id, name: task.name, roomKind: task.roomKind, roomName: task.roomName,
     category: task.category, plannedMinutes: task.minutes, actualMinutes: Math.max(0, Math.round(minutes)), outcome, via, domain: task.domain,
     templateId: task.templateId, difficulty: task.difficulty, localHour: localHourOf(stamp), tzOffsetMin: tzOf(stamp),
-    planVersion: planVersionOf(data), energy: energyOn(data, stamp.today), ...extra,
+    planVersion: planVersionOf(data), energy: energyOn(data, stamp.today),
+    // The occurrence this answers: the date it was due (null for tasks with no schedule of their own).
+    fromDue: isEphemeral(task) ? null : dueInfo(task, data.taskStates[task.id], stamp.today).due,
+    ...extra,
   };
+  if (surface) e.surface = surface;
+  const planned = plannedRelation(data, task, stamp.today);
+  if (planned) e.planned = planned;
+  if (task.part) e.part = { index: task.part.index, of: task.part.of };
   if (task.level) e.level = task.level;
   if (task.intensity) e.intensity = task.intensity;
   if (task.timeOfDay) e.timeOfDay = task.timeOfDay;
@@ -169,16 +194,37 @@ const undo = (data: AppData, a: Extract<Action, { type: 'UNDO' }>): AppData => {
   return next;
 };
 
+
 const recordExposure = (data: AppData, rec: ExposureRecord): AppData => {
   const idx = data.exposures.findIndex((e) => e.date === rec.date);
   if (idx < 0) return { ...data, exposures: [...data.exposures, rec].sort((x, y) => (x.date < y.date ? -1 : 1)).slice(-120) };
-  // Same day seen again (the plan changed, or a task was moved here): add what is new, never rewrite what was already recorded.
   const cur = data.exposures[idx];
+  // A day recorded before contract 2 stays exactly as it was: its display and exclusion facts are unknown and are never filled in.
+  if (cur.contract !== 2 && rec.contract === 2) return data;
+  // Same day seen again (the plan changed, or the energy did): add what is new, never rewrite what was already recorded.
   const known = new Set(cur.items.map((i) => i.taskId));
   const added = rec.items.filter((i) => !known.has(i.taskId));
-  if (!added.length) return data;
+  const knownLeft = new Set((cur.left ?? []).map(leftKey));
+  const room = Math.max(0, MAX_LEFT_PER_DAY - (cur.left ?? []).length);
+  const addedLeft = (rec.left ?? []).filter((x) => !knownLeft.has(leftKey(x))).slice(0, room);
+  if (!added.length && !addedLeft.length) return data;
   const exposures = [...data.exposures];
-  exposures[idx] = { ...cur, items: [...cur.items, ...added] };
+  exposures[idx] = { ...cur, items: [...cur.items, ...added], ...(cur.contract === 2 ? { left: [...(cur.left ?? []), ...addedLeft] } : {}) };
+  return { ...data, exposures };
+};
+
+/** Mark selected tasks as seen, and left-out tasks as revealed. Only the first time counts; nothing else on the record changes. */
+const recordSeen = (data: AppData, a: Extract<Action, { type: 'RECORD_SEEN' }>): AppData => {
+  const idx = data.exposures.findIndex((e) => e.date === a.date);
+  const cur = data.exposures[idx];
+  if (idx < 0 || cur.contract !== 2) return data;
+  const ids = new Set(a.ids), rev = new Set(a.revealed ?? []);
+  let changed = false;
+  const items = cur.items.map((i) => (ids.has(i.taskId) && !i.seenAt ? (changed = true, { ...i, seenAt: a.at }) : i));
+  const left = cur.left?.map((i) => (rev.has(i.taskId) && !i.seenAt ? (changed = true, { ...i, seenAt: a.at }) : i));
+  if (!changed) return data;
+  const exposures = [...data.exposures];
+  exposures[idx] = { ...cur, items, ...(left ? { left } : {}) };
   return { ...data, exposures };
 };
 
@@ -211,7 +257,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
     case 'TASK_COMPLETE': {
       const { task, stamp } = a;
       if (isDuplicateCompletion(data, task, stamp, a.via, a.entryId)) return data;
-      let next = logEntry(data, entryFor(data, task, stamp, 'completed', a.via, a.minutes ?? task.minutes, a.entryId));
+      let next = logEntry(data, entryFor(data, task, stamp, 'completed', a.via, a.minutes ?? task.minutes, a.entryId, {}, a.surface));
       if (!isEphemeral(task)) {
         next = { ...next, taskStates: { ...next.taskStates, [task.id]: markComplete(task, next.taskStates[task.id], stamp.today) } };
       } else if (task.id.startsWith('five:')) next = { ...next, fiveRecent: [task.id, ...next.fiveRecent].slice(0, 8) };
@@ -223,7 +269,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
     case 'TASK_SKIP': {
       const { task, stamp } = a;
       if (a.entryId && hasEntry(data, a.entryId)) return data;
-      let next = logEntry(data, entryFor(data, task, stamp, 'skipped', a.via ?? 'plan', 0, a.entryId));
+      let next = logEntry(data, entryFor(data, task, stamp, 'skipped', a.via ?? 'plan', 0, a.entryId, {}, a.surface));
       if (!isEphemeral(task)) next = { ...next, taskStates: { ...next.taskStates, [task.id]: markSkip(task, next.taskStates[task.id], stamp.today) } };
       return next;
     }
@@ -231,21 +277,21 @@ export const reducer = (data: AppData, a: Action): AppData => {
       // Timer stopped before finishing: log the effort, keep the task due. No shame.
       const { task, stamp } = a;
       if (a.entryId && hasEntry(data, a.entryId)) return data;
-      return logEntry(data, entryFor(data, task, stamp, 'stopped', 'timer', a.minutes, a.entryId));
+      return logEntry(data, entryFor(data, task, stamp, 'stopped', 'timer', a.minutes, a.entryId, {}, a.surface));
     }
     case 'TASK_SNOOZE': {
       const { task, stamp } = a;
       if (a.entryId && hasEntry(data, a.entryId)) return data;
       const fromDue = dueInfo(task, data.taskStates[task.id], stamp.today).due;
       const state = markSnooze(data.taskStates[task.id], stamp.today);
-      const next = logEntry(data, entryFor(data, task, stamp, 'snoozed', 'plan', 0, a.entryId, { fromDue, toDue: state.due ?? null }));
+      const next = logEntry(data, entryFor(data, task, stamp, 'snoozed', 'plan', 0, a.entryId, { fromDue, toDue: state.due ?? null }, a.surface));
       return { ...next, taskStates: { ...next.taskStates, [task.id]: state } };
     }
     case 'TASK_MOVE': {
       const { task, stamp } = a;
       if (a.entryId && hasEntry(data, a.entryId)) return data;
       const fromDue = dueInfo(task, data.taskStates[task.id], stamp.today).due;
-      const next = logEntry(data, entryFor(data, task, stamp, a.label ?? 'moved', 'plan', 0, a.entryId, { fromDue, toDue: a.to }));
+      const next = logEntry(data, entryFor(data, task, stamp, a.label ?? 'moved', 'plan', 0, a.entryId, { fromDue, toDue: a.to }, a.surface));
       return { ...next, taskStates: { ...next.taskStates, [task.id]: markMove(next.taskStates[task.id], a.to) } };
     }
     case 'UNDO': return undo(data, a);
@@ -260,6 +306,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
     }
     case 'COMPACT_HISTORY': return compactHistory(data, a.target, a.at).data;
     case 'RECORD_EXPOSURE': return recordExposure(data, a.record);
+    case 'RECORD_SEEN': return recordSeen(data, a);
     case 'RECORD_PLAN_VERSION': {
       if (data.planVersions.some((v) => v.id === a.version.id) && data.planVersions[data.planVersions.length - 1]?.id === a.version.id) return data;
       return { ...data, planVersions: [...data.planVersions, a.version].slice(-60) };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveContext } from '../src/domain/context';
+import { addDays } from '../src/domain/dates';
 import { computeInsights } from '../src/domain/learning';
 import { LIFE_DOMAINS, LIFE_TEMPLATES, SAFETY_LINE } from '../src/domain/lifeCatalog';
 import { roughDayTasks, servesGoal } from '../src/domain/life';
@@ -255,7 +256,8 @@ describe('completion, progression and the rough-day reset', () => {
     // The user has been at level 2 for a month, and keeps skipping.
     let e: AppData = { ...d0, plan: { ...d0.plan, startDate: '2026-09-01' }, preferences: { ...d0.preferences, lifeLevel: 2, levelSince: '2026-09-01' } };
     const t2 = todayPlan(view(e)).life.map((i) => i.task);
-    for (let i = 0; i < 4; i++) for (const t of t2) e = reducer(e, { type: 'TASK_SKIP', task: t, stamp: { today: TODAY, now: `${TODAY}T1${i}:00:00.000Z` } });
+    // skipped across five different days, not all in one afternoon
+    for (let i = 1; i <= 5; i++) for (const t of t2) e = reducer(e, { type: 'TASK_SKIP', task: t, stamp: { today: addDays(TODAY, -i), now: `${addDays(TODAY, -i)}T10:00:00.000Z` } });
     expect(computeInsights(view(e)).some((i) => i.id === 'level-down')).toBe(true);
     expect(e.preferences.lifeLevel).toBe(2); // nothing changes until the user says yes
   });

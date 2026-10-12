@@ -9,7 +9,7 @@ import { planVersionOf, snapshotPlanVersion } from '../domain/planVersion';
 import {
   extendTimer, pauseTimer, resolveTimerTask, resumeTimer, startTimer, tick, elapsedMinutes, type TimerState,
 } from '../domain/timer';
-import type { AppData, ISODate, RecommendationEvent, Task } from '../domain/types';
+import type { AppData, EntrySurface, ISODate, RecommendationEvent, Task } from '../domain/types';
 import { buildView, type PlanView } from '../domain/view';
 import { LocalStorageRepository, exportJSON, type LoadResult, type Repository } from '../storage/repository';
 import { downloadText } from '../ui/download';
@@ -60,6 +60,8 @@ interface Store {
   /** Local hour of day (0-23). Drives the Now / Later / Evening split on Today. */
   hour: number;
   stamp: () => Stamp;
+  /** The page is visible right now (not a background tab). Display is only ever recorded while this is true. */
+  visible: boolean;
   repo: Repository;
   // data safety
   recovery: Recovery | null;
@@ -125,6 +127,25 @@ const wrappedReducer = (s: Wrapped, i: Internal): Wrapped =>
     // Someone else changed the saved data: take theirs as the base and re-apply our own unsaved actions on top.
     : { data: i.replay.reduce((d, p) => reducer(d, p.a), i.data), seq: i.seq };
 
+/**
+ * Which screen or sheet an action is being taken from, read at the moment of the action. A sheet on top wins (the "I only have…" list,
+ * Just 5 minutes, the reset sequence, the rough-day steps, a task's own page); otherwise it is the screen behind it.
+ */
+export const currentSurface = (sheets: Sheet[]): EntrySurface => {
+  const top = sheets[sheets.length - 1]?.kind;
+  switch (top) {
+    case 'timebox': return 'timebox';
+    case 'five': return 'five';
+    case 'emergency': return 'reset';
+    case 'roughDay': return 'rough';
+    case 'timer': return 'timer';
+    case 'task': case 'timerPick': case 'reschedule': return 'detail';
+    default: break;
+  }
+  const route = (typeof window === 'undefined' ? '' : window.location.hash).replace(/^#\/?/, '').split(/[/?]/)[0] || 'today';
+  return (['today', 'plan', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more'] as const).find((r) => r === route) ?? 'other';
+};
+
 const nowStamp = (): Stamp => { const d = new Date(); return { now: d.toISOString(), today: todayISO(), hour: d.getHours(), tz: d.getTimezoneOffset() }; };
 
 export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactNode; repo?: Repository }) => {
@@ -142,6 +163,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   const mirror = useRef<AppData>(data);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const sheetsRef = useRef<Sheet[]>([]);
   const seqRef = useRef(0);
   const pending = useRef<Pending[]>([]);
   const savedSeq = useRef(0);
@@ -282,11 +304,20 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
     if (data.planVersions[data.planVersions.length - 1]?.id === pvId) return;
     dispatch({ type: 'RECORD_PLAN_VERSION', version: snapshotPlanVersion(data, new Date().toISOString()) });
   }, [ready, recovery, pvId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The planner's decision for the day is recorded when the app is VISIBLE: a tab left open overnight in the background has not "opened"
+  // the new day, so it must not record that someone did. The record exists even when nothing is planned (a day with no record is a day
+  // the app was not opened). Re-renders, StrictMode, reloads and a second tab add nothing: see hasNewExposure.
+  const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
   useEffect(() => {
-    if (!ready || recovery || !data.onboardingComplete) return;
+    const on = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', on);
+    return () => document.removeEventListener('visibilitychange', on);
+  }, []);
+  useEffect(() => {
+    if (!ready || recovery || !visible || !data.onboardingComplete) return;
     const rec = buildExposure(view, new Date().toISOString(), new Date().getTimezoneOffset());
-    if (hasNewExposure(view, rec) && rec.items.length) dispatch({ type: 'RECORD_EXPOSURE', record: rec });
-  }, [ready, recovery, view, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (hasNewExposure(view, rec)) dispatch({ type: 'RECORD_EXPOSURE', record: rec });
+  }, [ready, recovery, visible, view, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── toasts ──
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -321,20 +352,20 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
 
   const complete: Store['complete'] = useCallback((task, opts = {}) => {
     const entryId = uid('e');
-    const a: Action = { type: 'TASK_COMPLETE', task, stamp: nowStamp(), minutes: opts.minutes, via: opts.via ?? 'checkoff', entryId };
+    const a: Action = { type: 'TASK_COMPLETE', task, stamp: nowStamp(), minutes: opts.minutes, via: opts.via ?? 'checkoff', entryId, surface: currentSurface(sheetsRef.current) };
     act(opts.quiet ? null : DONE_LINES[Math.floor(Math.random() * DONE_LINES.length)], a, task.id, entryId);
   }, [act]);
   const skip: Store['skip'] = useCallback((task, opts = {}) => {
     const entryId = uid('e');
-    act(opts.quiet ? null : 'Skipped. It will come back around when it fits.', { type: 'TASK_SKIP', task, stamp: nowStamp(), entryId }, task.id, entryId);
+    act(opts.quiet ? null : 'Skipped. It will come back around when it fits.', { type: 'TASK_SKIP', task, stamp: nowStamp(), entryId, surface: currentSurface(sheetsRef.current) }, task.id, entryId);
   }, [act]);
   const snooze: Store['snooze'] = useCallback((task) => {
     const entryId = uid('e');
-    act('Snoozed for two days.', { type: 'TASK_SNOOZE', task, stamp: nowStamp(), entryId }, task.id, entryId);
+    act('Snoozed for two days.', { type: 'TASK_SNOOZE', task, stamp: nowStamp(), entryId, surface: currentSurface(sheetsRef.current) }, task.id, entryId);
   }, [act]);
   const moveTo: Store['moveTo'] = useCallback((task, date, label) => {
     const entryId = uid('e');
-    act(label ?? 'Moved.', { type: 'TASK_MOVE', task, to: date, stamp: nowStamp(), entryId }, task.id, entryId);
+    act(label ?? 'Moved.', { type: 'TASK_MOVE', task, to: date, stamp: nowStamp(), entryId, surface: currentSurface(sheetsRef.current) }, task.id, entryId);
   }, [act]);
 
   const recordRec: Store['recordRec'] = useCallback((e) => {
@@ -352,6 +383,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
 
   // ── sheets ──
   const [sheets, setSheets] = useState<Sheet[]>([]);
+  sheetsRef.current = sheets;
   const openSheet = useCallback((s: Sheet) => setSheets((x) => [...x, s]), []);
   const closeSheet = useCallback(() => setSheets((x) => x.slice(0, -1)), []);
   const closeAllSheets = useCallback(() => setSheets([]), []);
@@ -513,9 +545,9 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
     const minutes = elapsedMinutes(t, Date.now());
     const st = nowStamp();
     const entryId = uid('e');
-    if (outcome === 'complete') dispatch({ type: 'TASK_COMPLETE', task, stamp: st, minutes: Math.max(1, minutes), via: 'timer', entryId });
-    else if (outcome === 'skip') dispatch({ type: 'TASK_SKIP', task, stamp: st, via: 'timer', entryId });
-    else dispatch({ type: 'TASK_STOP', task, stamp: st, minutes, entryId });
+    if (outcome === 'complete') dispatch({ type: 'TASK_COMPLETE', task, stamp: st, minutes: Math.max(1, minutes), via: 'timer', entryId, surface: 'timer' });
+    else if (outcome === 'skip') dispatch({ type: 'TASK_SKIP', task, stamp: st, via: 'timer', entryId, surface: 'timer' });
+    else dispatch({ type: 'TASK_STOP', task, stamp: st, minutes, entryId, surface: 'timer' });
     setTimer(null);
     setSheets((x) => x.filter((s) => s.kind !== 'timer'));
   }, [dispatch]);
@@ -523,7 +555,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   const discardTimer = useCallback(() => { setTimer(null); setSheets((x) => x.filter((s) => s.kind !== 'timer')); }, []);
 
   const value: Store = {
-    ready, data, dispatch, plan, view, today, hour, stamp, repo, recovery, startFresh, loadNotice, dismissNotice: () => setLoadNotice(null), saveError,
+    ready, data, dispatch, plan, view, today, hour, stamp, visible, repo, recovery, startFresh, loadNotice, dismissNotice: () => setLoadNotice(null), saveError,
     storage: { chars: storageChars, level: storageLevel(storageChars) }, offerCompaction,
     replaceAll, confirm, complete, skip, snooze, moveTo, recordRec,
     sheets, openSheet, closeSheet, closeAllSheets, toasts, toast,

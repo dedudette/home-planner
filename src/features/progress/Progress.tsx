@@ -21,6 +21,12 @@ export const Progress = () => {
     <div className="page">
       <PageHead title="Your progress" sub="A record of what you've done, not a scorecard." />
 
+      {data.retention.length > 0 && (
+        <p className="small muted" role="note" data-testid="history-note">
+          These counts start from {data.retention[data.retention.length - 1].oldestKept}: older history was removed to keep saving working, so lifetime totals and best streak are lower than they were.
+        </p>
+      )}
+
       <div className="stat-grid">
         <div className="stat"><div className="v">{p.tasksCompleted}</div><div className="l">Tasks completed</div></div>
         <div className="stat"><div className="v">{formatMinutes(p.minutesCleaned)}</div><div className="l">{homeOnly ? 'Minutes cleaned' : 'Active minutes'}</div></div>
