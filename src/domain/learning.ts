@@ -1,4 +1,4 @@
-import { dayFacts, historyKnownFrom, isHomeEntry, isScheduledEntry, summarizeWindow } from './behaviour';
+import { dayFacts, historyKnownFrom, isHomeEntry, isScheduledEntry, MIN_PATTERN_DAYS, summarizeWindow } from './behaviour';
 import { addDays, daysInRange, diffDays } from './dates';
 import { FREQ_LABEL } from './schedule';
 import { LADDER } from './engine';
@@ -31,9 +31,9 @@ export interface Insight {
 const WINDOW_DAYS = 21;
 /** How far back a run of skips on one task is looked for. */
 const STREAK_WINDOW_DAYS = 28;
-const STREAK_MIN_DAYS = 3;
+const STREAK_MIN_DAYS = MIN_PATTERN_DAYS;
 const SHORTER_MIN_DAYS = 2;
-const STEADY_MIN_DAYS = 3;
+const STEADY_MIN_DAYS = MIN_PATTERN_DAYS;
 
 export const lowerFrequency = (f: Frequency): Frequency | null => {
   const i = LADDER.indexOf(f);

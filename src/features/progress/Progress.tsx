@@ -35,6 +35,12 @@ export const Progress = () => {
       </div>
       <div className="card tint row"><I.sparkles size={20} aria-hidden style={{ color: 'var(--primary)' }} /><p className="small">{msg}{p.bestStreak > p.streak ? ` Your best so far: ${p.bestStreak} days.` : ''}</p></div>
 
+      <a className="card row" style={{ textDecoration: 'none', color: 'inherit' }} href="#/patterns" data-testid="patterns-link">
+        <span className="ic" style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--primary-soft)', color: 'var(--primary)', display: 'grid', placeItems: 'center' }}><I.chart size={22} aria-hidden /></span>
+        <span className="grow"><b>Your patterns</b><br /><span className="small muted">What was shown, done and left out in the last 1 to 4 weeks</span></span>
+        <I.right size={20} aria-hidden />
+      </a>
+
       {empty && <Empty title="Your first completed task will show up here">Start with "Just 5 minutes" on the Today tab. It counts.</Empty>}
 
       <div className="profile-grid">

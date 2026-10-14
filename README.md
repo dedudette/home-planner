@@ -8,13 +8,14 @@ engine builds a realistic plan, with tiny-step and "just 5 minutes" modes for ov
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 451 tests at the time of writing: engine, scheduler, daily budget, low-energy safety, goal coverage, persistence, backups, retention, reducer, analytics
+npm test           # 643 tests at the time of writing: engine, scheduler, daily budget, low-energy safety, goal coverage, persistence, backups, retention, reducer, analytics
 npm run build      # typecheck + production build into dist/
 npm run check      # type-check + tests
-npm run e2e        # five browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records). The dev server must be running; set CHROME_PATH if needed
+npm run e2e        # six browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records), coach (Your patterns and the optional AI). The dev server must be running; set CHROME_PATH if needed
+npm run build:server && npm start   # optional: one Node process serving the built app and the AI coach endpoint (see "AI coach")
 ```
 
-No account or backend: data lives in `localStorage`. The Welcome screen (and Settings) can load seven example profiles.
+No account, and your plan and history live in `localStorage`; the app has no backend of its own. The one piece of server code is the optional AI coach endpoint (see "AI coach"); without it everything else works exactly the same. The Welcome screen (and Settings) can load seven example profiles.
 
 ## Architecture
 
@@ -100,5 +101,33 @@ There is no Behaviour Analysis screen yet. The suggestions that exist read only 
 - A window that reaches into history removed to save space is not read at all (a short count there would look like a quiet stretch). Where the evidence is unreliable, the suggestion is withheld, not softened.
 - Nothing says why anyone did or did not do something. Every suggestion is optional and shows its numbers. Only the step up adds work; it needs a yes, and it is held back on low-energy stretches, by missing history, and when most of what was shown went undone (judged only once ten days of that are known).
 
-## ## Testing
-`npm test` covers the pure domain, the reducer and the storage layer. `npm run e2e` drives a real browser: `flow.mjs` (the main journey), `responsive.mjs` (every screen, sheet, onboarding step and the newer states at 320, 360, 390, 430, 768, 1024 and 1366 px, with overflow and accessibility checks), `integrity.mjs` (recovery, confirmation, duplicates, closing mid-save, timers, time-aware Today and home routines, life-only users, goal coverage, budgets on Today / Tomorrow / the week, low energy, a three-year history) `sync.mjs` (two tabs on the same data: no write loop, both tabs' work survives, a stale tab backs up the latest state, no room for a backup) and `behaviour.mjs` (what a day records: selected vs left out vs seen, Settings-first opens, a background tab, two tabs, the fresh-start wording).
+## ## Your patterns
+A read-only page (Progress → "Your patterns", or More) that summarises what the app recorded over the last 7, 14 or 28 days. It uses `summarizeWindow` and `dayStatus` from `src/domain/behaviour.ts` and adds no model of its own (`src/domain/patterns.ts`).
+- **Days**: opened, not opened, used but not tracked, unknown, each with a text equivalent. A gap is "not opened" only when records exist on both sides of it.
+- **Tasks shown on Today**: completed, skipped, snoozed, moved, timer stopped early, and **shown with no recorded action** (the absence of an entry: never a skip, and the page says it does not know why). Today is not over, so what was shown today with nothing logged yet is "still open", not "no action".
+- **Selected, but not shown**, and **left out by the planner** grouped by the planner's recorded reason. A left-out task is never counted as shown.
+- **Notes**: days whose history was removed to save space (never treated as quiet), and days recorded before display tracking (unknown, left out of the counts, never filled in).
+- **Not enough recorded yet**: below 3 opened days or 5 shown tasks in the window, the page shows the day coverage and that notice instead of counts. The thresholds are app choices (`PATTERN_RULES`), not statistics.
+"Shown" means Today displayed the task while the page was visible. It does not mean it was read.
+
+## AI coach (optional)
+Off until you choose it. "Ask AI for suggestions" first shows exactly what would be sent (a list of counts and the exact JSON), who receives it, and what is not sent; nothing leaves the browser until you press Send, and Cancel sends nothing.
+- **What is sent**: the window length and 24 named counts (`src/domain/coach/metrics.ts`). No name, task or room text, dates, ids or notes: there is nowhere for free text to go, and the server rejects any request that is not exactly that shape or whose counts cannot add up. It is only offered when the window has enough recorded data.
+- **What it may do**: explain the counts in plain language and offer up to three optional ideas that point at things that change nothing in the plan ("Just 5 minutes", "I only have…", the "left out of today" list, the Tomorrow tab, this page). **What it may not**: diagnose, guess at causes or feelings, claim something was seen, skipped or ignored unless that count is recorded, rest an idea on unknown days or removed history, or change anything. It has no access to your data or plan; it can only produce text.
+- **Checked in code, not trusted**: every answer is validated against the exact request (`validateCoachOutput`): each cited count must be in the request, every number in the text must be a cited count, banned wording (causes, emotions, health, pressure, plan changes, "ignored") and unsupported words (skipped, snoozed, shown… without that count above zero) are dropped, and the strength label is capped by how much data there is. If nothing survives you see "I couldn't create a reliable suggestion from this data." The browser checks the server's answer again against the request you reviewed. Each answer shows its evidence window and counts, is labelled AI-generated, and can be dismissed or asked for again.
+
+### Provider and deployment
+The AI needs a server: the key must never be in the browser, so a static host alone (GitHub Pages and similar) shows the coach as unavailable and sends nothing. Three ways to run the endpoint, all the same code (`server/coach/handler.ts`, a plain `(Request) => Response`):
+1. **Local development**: `ANTHROPIC_API_KEY=… npm run dev` (also `npm run preview`). Set the variable in your shell; do not put it in a client-visible `VITE_` variable or commit it.
+2. **One Node process** serving the built app and the endpoint: `npm run build && npm run build:server && ANTHROPIC_API_KEY=… npm start` (`PORT`, `HOST`, default `127.0.0.1`; use `0.0.0.0` in a container).
+3. **A serverless or edge platform**: mount `createCoachHandler()` from `server/coach/handler.ts` behind `/api/coach` and `/api/coach/status`. That glue is not written or tested here.
+
+The only adapter so far is Anthropic's, through the official SDK (`server/coach/anthropic.ts`); `server/coach/provider.ts` is the small interface to implement for another. Settings are server environment variables only: `ANTHROPIC_API_KEY` (required), `COACH_MODEL` (default `claude-opus-5-5`), `COACH_PROVIDER`, `COACH_API_BASE_URL`, `COACH_DISABLED=1`, `COACH_TIMEOUT_MS`, `COACH_MAX_OUTPUT_TOKENS`, `COACH_COOLDOWN_SECONDS`, `COACH_DAILY_PER_CLIENT`, `COACH_DAILY_TOTAL`, `COACH_ALLOWED_ORIGINS`, `COACH_TRUST_PROXY` (documented in `server/coach/config.ts`). A start-up line says whether the coach is on, naming settings but never values.
+
+### Cost and privacy
+- **Cost**: each request calls a paid provider API, billed to whoever owns the key. This is separate from any Claude or coding-assistant subscription or credits. The default model is the most capable and the most expensive; set `COACH_MODEL` to a cheaper one if you prefer. Controls: one small request per click, a token cap, a cooldown between requests (default 30 s), per-client (20) and whole-process (300) daily limits, retries off. The limits live in memory per process, so on several instances each enforces its own; set a spend limit with the provider as the real backstop.
+- **Privacy**: the request and the answer are never logged or stored by the server (log lines carry an event name and a short code only), and provider error text is never passed on. The answer is not saved in your data. The provider receives the counts you reviewed, under its own data policy.
+- **Not live until configured**: the server code is tested against a stand-in for the provider's HTTP API; a real call needs your key and has to be tried separately.
+
+## Testing
+`npm test` covers the pure domain, the reducer and the storage layer. `npm run e2e` drives a real browser: `flow.mjs` (the main journey), `responsive.mjs` (every screen, sheet, onboarding step and the newer states at 320, 360, 390, 430, 768, 1024 and 1366 px, with overflow and accessibility checks), `integrity.mjs` (recovery, confirmation, duplicates, closing mid-save, timers, time-aware Today and home routines, life-only users, goal coverage, budgets on Today / Tomorrow / the week, low energy, a three-year history), `sync.mjs` (two tabs on the same data: no write loop, both tabs' work survives, a stale tab backs up the latest state, no room for a backup), `behaviour.mjs` (what a day records: selected vs left out vs seen, Settings-first opens, a background tab, two tabs, the fresh-start wording) and `coach.mjs` (Your patterns and the AI flow against a stand-in provider on its own dev servers: counts against an independent oracle, nothing sent before Send, Cancel, grounded and ungrounded answers, timeouts, the key absent from every response, storage and the built bundle, layout at every width).

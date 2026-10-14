@@ -5,8 +5,8 @@ import { BASE, DEMOS, OUT, WIDTHS, auditPage, fresh, launch, loadDemo, newContex
 const { check, step, done } = runner('responsive');
 const browser = await launch();
 const errors = [];
-const ROUTES_BOTH = ['today', 'plan', 'plan?tab=rooms', 'plan?tab=deep', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more'];
-const ROUTES_LIFE = ['today', 'plan', 'schedule', 'progress', 'home', 'settings', 'more'];
+const ROUTES_BOTH = ['today', 'plan', 'plan?tab=rooms', 'plan?tab=deep', 'schedule', 'progress', 'patterns', 'home', 'supplies', 'settings', 'more'];
+const ROUTES_LIFE = ['today', 'plan', 'schedule', 'progress', 'patterns', 'home', 'settings', 'more'];
 
 const verdict = (label, a) => {
   const problems = [];

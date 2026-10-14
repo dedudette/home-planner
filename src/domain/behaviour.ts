@@ -16,6 +16,12 @@ import type { AppData, EntryOutcome, ExposureItem, ISODate, LeftOutItem, Planner
  *    oldest kept record, it is unknown. History removed to save space (a retention note) is unknown too.
  */
 
+/**
+ * The fewest distinct days any rule here treats as a pattern. The skip-streak and steady-room insights and the "Your patterns" page all
+ * share it, so "enough days" means the same thing everywhere.
+ */
+export const MIN_PATTERN_DAYS = 3;
+
 /** Entries that are the person's response to the day's scheduled list, as opposed to one-off helpers with no schedule of their own. */
 export const isEphemeralTask = (taskId: string): boolean => taskId.startsWith('five:') || taskId.startsWith('rough:');
 export const isScheduledEntry = (e: Pick<SessionEntry, 'taskId' | 'via'>): boolean => !isEphemeralTask(e.taskId) && e.via !== 'five' && e.via !== 'reset';
@@ -118,6 +124,10 @@ export interface WindowSummary {
   stopped: number;
   /** Seen, and no action recorded by the end of that day. Only days before `to`'s own day are counted: today is not over. */
   seenNoAction: number;
+  /** Seen on `to`'s own day with no action yet. The day is not over, so this is neither "no action" nor anything else. */
+  seenPending: number;
+  /** Seen, with no action on file, but history was removed for that day, so "no action" cannot be said. */
+  seenActionsUnknown: number;
   leftOut: Record<PlannerExclusion | 'unknown', number>;
   /** True when history was removed inside the window, so counts of actions are incomplete. */
   partial: boolean;
@@ -127,7 +137,7 @@ export interface WindowSummary {
 export const summarizeWindow = (d: AppData, from: ISODate, to: ISODate, filter: (i: SelectedFact) => boolean = () => true): WindowSummary => {
   const out: WindowSummary = {
     from, to, days: { opened: 0, acted: 0, notOpened: 0, unknown: 0 }, selected: 0, seen: 0, notSeen: 0, seenUnknown: 0, completed: 0, skipped: 0, snoozed: 0, moved: 0, stopped: 0,
-    seenNoAction: 0, leftOut: { 'not-enough-time': 0, 'low-energy-day': 0, 'not-a-cleaning-day': 0, unknown: 0 }, partial: false,
+    seenNoAction: 0, seenPending: 0, seenActionsUnknown: 0, leftOut: { 'not-enough-time': 0, 'low-energy-day': 0, 'not-a-cleaning-day': 0, unknown: 0 }, partial: false,
   };
   const known = historyKnownFrom(d);
   out.partial = !!known && known > from;
@@ -144,7 +154,11 @@ export const summarizeWindow = (d: AppData, from: ISODate, to: ISODate, filter: 
       else if (s.action === 'snoozed') out.snoozed++;
       else if (s.action === 'moved') out.moved++;
       else if (s.action === 'stopped') out.stopped++;
-      else if (s.seen === true && day < to && f.actionsKnown) out.seenNoAction++;
+      else if (s.seen === true) {
+        if (!f.actionsKnown) out.seenActionsUnknown++;
+        else if (day < to) out.seenNoAction++;
+        else out.seenPending++;
+      }
     }
   }
   return out;

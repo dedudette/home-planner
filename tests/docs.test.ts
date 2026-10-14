@@ -32,8 +32,8 @@ describe('the README states only what the source says', () => {
   it('goals', () => {
     expect(FOCUS_OPTIONS.filter((f) => f.value !== 'home')).toHaveLength(11);
   });
-  it('names the five browser suites', () => {
-    for (const f of ['flow.mjs', 'responsive', 'integrity', 'sync', 'behaviour']) expect(readme).toContain(f.replace('.mjs', ''));
-    expect(readme).toMatch(/five browser suites/);
+  it('names the six browser suites', () => {
+    for (const f of ['flow.mjs', 'responsive', 'integrity', 'sync', 'behaviour', 'coach']) expect(readme).toContain(f.replace('.mjs', ''));
+    expect(readme).toMatch(/six browser suites/);
   });
 });

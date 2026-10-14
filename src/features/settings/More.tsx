@@ -19,6 +19,7 @@ export const More = () => {
         {homeOn && <Row href="#/supplies" icon={I.package} title="Cleaning supplies" sub="What you own and what you can clean with it" />}
         <Row onClick={() => openSheet({ kind: 'taskForm' })} icon={I.plus} title="Add your own task" sub="One-off or repeating" />
         <Row onClick={() => openSheet({ kind: 'five' })} icon={I.timer} title="Just 5 minutes" sub="One tiny task" />
+        <Row href="#/patterns" icon={I.chart} title="Your patterns" sub="What the app recorded, plus optional AI suggestions" />
         <Row href="#/settings" icon={I.settings} title="Settings" sub="Backup, restore, demos and reset" />
       </div>
     </div>

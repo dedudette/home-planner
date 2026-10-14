@@ -506,3 +506,30 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .gc-role { font-weight: 600; }
 .gc-role.primary { color: var(--primary); opacity: 1; }
 .block { display: block; }
+
+/* ───────────── Your patterns ───────────── */
+.pday-strip { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.pday-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pday-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.pday { display: inline-block; width: 16px; height: 16px; border-radius: 5px; box-sizing: border-box; vertical-align: middle; }
+.pday.opened { background: var(--primary); }
+.pday.not-opened { background: transparent; border: 2px solid var(--muted); }
+.pday.acted { background: linear-gradient(135deg, var(--primary) 50%, transparent 50%); border: 2px solid var(--primary); }
+.pday.unknown { background: repeating-linear-gradient(45deg, var(--line-strong) 0 3px, transparent 3px 6px); border: 1.5px dashed var(--muted); }
+.facts { margin: 0; display: grid; gap: 2px; }
+.facts-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.facts-row:last-child { border-bottom: 0; }
+.facts-row dt { min-width: 0; overflow-wrap: anywhere; }
+.facts-row dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; flex: none; }
+.facts-note { display: block; font-weight: 400; }
+.big-num { font-family: var(--font-head); font-size: 2.4rem; font-weight: 600; line-height: 1; margin: 0; }
+.table-wrap { overflow-x: auto; }
+.facts-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.92rem; }
+.facts-table th, .facts-table td { overflow-wrap: anywhere; }
+.facts-table th:first-child { width: 34%; }
+.facts-table th, .facts-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.facts-table thead th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
+.chips-static { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips-static li { padding: 6px 10px; border-radius: 12px; background: var(--primary-soft); color: var(--ink); font-size: 0.85rem; max-width: 100%; overflow-wrap: anywhere; }
+.payload-json { margin: 8px 0 0; padding: 12px; border-radius: 12px; background: var(--bg-deep); color: var(--ink); font-size: 0.78rem; line-height: 1.45; overflow: auto; max-height: 260px; white-space: pre; }
+.payload-details summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; }

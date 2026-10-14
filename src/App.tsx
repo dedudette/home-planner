@@ -8,6 +8,7 @@ import { Today } from './features/today/Today';
 import { Plan } from './features/plan/Plan';
 import { Schedule } from './features/schedule/Schedule';
 import { Progress } from './features/progress/Progress';
+import { Patterns } from './features/patterns/Patterns';
 import { MyHome, EditHomeSheet } from './features/home/MyHome';
 import { Supplies } from './features/supplies/Supplies';
 import { Settings } from './features/settings/Settings';
@@ -36,7 +37,7 @@ const sideExtra = (homeOn: boolean) => [
   { path: 'settings', label: 'Settings', icon: I.settings },
 ];
 
-const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', home: 'My Home', supplies: 'Supplies', settings: 'Settings', more: 'More' };
+const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', patterns: 'Your patterns', home: 'My Home', supplies: 'Supplies', settings: 'Settings', more: 'More' };
 
 const SheetHost = () => {
   const { sheets } = useApp();
@@ -123,6 +124,7 @@ export const App = () => {
       case 'plan': return <Plan tab={route.query.get('tab')} />;
       case 'schedule': return <Schedule />;
       case 'progress': return <Progress />;
+      case 'patterns': return <Patterns />;
       case 'home': return <MyHome isNew={route.query.get('new') === '1'} />;
       case 'supplies': return homeOn ? <Supplies /> : <Today />;
       case 'settings': return <Settings />;
@@ -131,6 +133,7 @@ export const App = () => {
     }
   })();
   const moreActive = ['more', 'home', 'supplies', 'settings'].includes(path);
+  const navPath = path === 'patterns' ? 'progress' : path;
 
   return (
     <div className="app">
@@ -139,7 +142,7 @@ export const App = () => {
         <a className="brand" href="#/today"><span className="brand-mark"><I.sparkles size={20} aria-hidden /></span>CleanFlow</a>
         <nav className="stack" style={{ gap: 4 }}>
           {[...NAV, ...sideExtra(homeOn)].map((n) => (
-            <a key={n.path} href={`#/${n.path}`} aria-current={path === n.path ? 'page' : undefined}><n.icon size={20} aria-hidden />{n.label}</a>
+            <a key={n.path} href={`#/${n.path}`} aria-current={navPath === n.path ? 'page' : undefined}><n.icon size={20} aria-hidden />{n.label}</a>
           ))}
         </nav>
         <div className="spacer" />
@@ -154,7 +157,7 @@ export const App = () => {
 
       <nav className="bottomnav" aria-label="Main">
         {NAV.map((n) => (
-          <a key={n.path} href={`#/${n.path}`} aria-current={path === n.path ? 'page' : undefined}><n.icon size={22} aria-hidden />{n.label}</a>
+          <a key={n.path} href={`#/${n.path}`} aria-current={navPath === n.path ? 'page' : undefined}><n.icon size={22} aria-hidden />{n.label}</a>
         ))}
         <a href="#/more" aria-current={moreActive ? 'page' : undefined}><I.menu size={22} aria-hidden />More</a>
       </nav>
