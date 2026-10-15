@@ -32,8 +32,10 @@ describe('the README states only what the source says', () => {
   it('goals', () => {
     expect(FOCUS_OPTIONS.filter((f) => f.value !== 'home')).toHaveLength(11);
   });
-  it('names the six browser suites', () => {
-    for (const f of ['flow.mjs', 'responsive', 'integrity', 'sync', 'behaviour', 'coach']) expect(readme).toContain(f.replace('.mjs', ''));
-    expect(readme).toMatch(/six browser suites/);
+  it('names every browser suite, and the count matches the e2e script', async () => {
+    for (const f of ['flow.mjs', 'responsive', 'integrity', 'sync', 'behaviour', 'coach', 'sections']) expect(readme).toContain(f.replace('.mjs', ''));
+    expect(readme).toMatch(/seven browser suites/);
+    const pkg = (await import('../package.json')).default as { scripts: { e2e: string } };
+    expect(pkg.scripts.e2e.split('&&')).toHaveLength(7);
   });
 });

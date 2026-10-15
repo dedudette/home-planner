@@ -3,7 +3,7 @@ import {
   CircleDot, Clock, CookingPot, Droplets, Flame, Hammer, Heart, Home, Info, Layers, Leaf, ListChecks, Menu as MenuIcon, Minus, Moon, MoreHorizontal,
   Package, Pause, PawPrint, Pencil, Play, Plus, Repeat, RotateCcw, Scale, Settings, ShieldAlert, Shirt, SkipForward, Smile, Sofa, Sparkles, Sprout,
   Sun, Timer, Trash2, Undo2, Users, Warehouse, Wind, X, Baby, Building2, DoorOpen, Laptop, TreePine, Mountain, Archive, Store, Hand,
-  Brain, ClipboardList, Dumbbell, GraduationCap, Smartphone, Sunrise, Sunset, Trophy, HeartPulse, TreeDeciduous,
+  Brain, ChevronDown, ChevronUp, ClipboardList, Dumbbell, GraduationCap, Smartphone, Sunrise, Sunset, Trophy, HeartPulse, TreeDeciduous,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Domain, RoomKind, TimeOfDay } from '../domain/types';
@@ -18,7 +18,7 @@ export const I = {
   plus: Plus, repeat: Repeat, undo: RotateCcw, undo2: Undo2, scale: Scale, settings: Settings, shield: ShieldAlert, shirt: Shirt, skip: SkipForward,
   smile: Smile, sofa: Sofa, sparkles: Sparkles, sprout: Sprout, sun: Sun, timer: Timer, trash: Trash2, users: Users, garage: Warehouse, wind: Wind,
   brain: Brain, clipboard: ClipboardList, dumbbell: Dumbbell, cap: GraduationCap, phone: Smartphone, sunrise: Sunrise, sunset: Sunset, trophy: Trophy,
-  pulse: HeartPulse, trees: TreeDeciduous,
+  pulse: HeartPulse, trees: TreeDeciduous, up: ChevronUp, down: ChevronDown,
   x: X, baby: Baby, building: Building2, door: DoorOpen, laptop: Laptop, tree: TreePine, mountain: Mountain, archive: Archive, store: Store, hand: Hand,
 } as const;
 
@@ -29,7 +29,7 @@ export const ROOM_ICON: Record<RoomKind, IconType> = {
 
 export const DOMAIN_ICON: Record<Domain, IconType> = {
   home: Home, fitness: Dumbbell, breathing: Wind, care: HeartPulse, mind: Brain, digital: Smartphone, admin: ClipboardList,
-  learning: GraduationCap, outdoor: TreeDeciduous, sleep: Moon,
+  learning: GraduationCap, outdoor: TreeDeciduous, sleep: Moon, meals: CookingPot,
 };
 
 export const TIME_ICON: Record<TimeOfDay, IconType> = { morning: Sunrise, afternoon: Sun, evening: Sunset, anytime: Clock };

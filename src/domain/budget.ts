@@ -53,7 +53,9 @@ export type DeferReason =
   /** Too demanding for a low-energy day. */
   | 'energy'
   /** Not a cleaning day, and this is not one of the daily basics. */
-  | 'rest-day';
+  | 'rest-day'
+  /** It would take its category past the daily allowance the person set for it (Movement, Learning…). */
+  | 'category';
 
 export interface FitItem {
   minutes: number;
@@ -62,8 +64,10 @@ export interface FitItem {
   order: number;
   /** Cross-domain priority, used only to share out whatever one domain left unused. Higher first. */
   weight: number;
-  /** A task the user marked urgent themselves: it is never dropped, even when it overshoots. */
+  /** A task the user marked urgent, or scheduled themselves: it is never dropped for time, even when it overshoots. */
   essential?: boolean;
+  /** The category an optional allowance applies to (a section such as 'movement'). Items with none are never held back by an allowance. */
+  category?: string;
   /** Set by the caller when the task must not be planned today for a reason other than time. */
   blocked?: Exclude<DeferReason, 'time'>;
 }
@@ -88,10 +92,15 @@ export interface Fit<T extends FitItem> {
  * Nothing but step 1 can push the day past its total, so `overBy > 0` always means "your own urgent tasks alone are longer than
  * the time you set", and the caller says so.
  */
-export const fitDay = <T extends FitItem>(items: T[], b: DayBudget): Fit<T> => {
+export const fitDay = <T extends FitItem>(items: T[], b: DayBudget, caps: Partial<Record<string, number>> = {}): Fit<T> => {
   const taken = new Set<T>();
   const used = { home: 0, life: 0 };
-  const take = (it: T) => { taken.add(it); used[it.domain] += it.minutes; };
+  const catUsed: Record<string, number> = {};
+  const take = (it: T) => { taken.add(it); used[it.domain] += it.minutes; if (it.category) catUsed[it.category] = (catUsed[it.category] ?? 0) + it.minutes; };
+  // Something the person scheduled is never held back by an allowance: it is reported as a conflict instead. Only what the planner
+  // itself chose is kept inside a category's allowance.
+  const overCap = (it: T) => !!it.category && caps[it.category] !== undefined && (catUsed[it.category] ?? 0) + it.minutes > (caps[it.category] as number);
+  const capped = new Set<T>();
 
   const essentials = items.filter((i) => i.essential);
   essentials.forEach(take);
@@ -100,15 +109,17 @@ export const fitDay = <T extends FitItem>(items: T[], b: DayBudget): Fit<T> => {
     const alloc = domain === 'home' ? b.home : b.life;
     for (const it of items.filter((i) => i.domain === domain).sort((a, c) => a.order - c.order)) {
       if (taken.has(it) || it.blocked) continue;
+      if (overCap(it)) { capped.add(it); continue; }
       if (used[domain] + it.minutes <= alloc && used.home + used.life + it.minutes <= b.total) take(it);
     }
   }
   for (const it of items.filter((i) => !taken.has(i) && !i.blocked).sort((a, c) => c.weight - a.weight || a.order - c.order)) {
+    if (overCap(it)) { capped.add(it); continue; }
     if (used.home + used.life + it.minutes <= b.total) take(it);
   }
 
   const planned = items.filter((i) => taken.has(i));
-  const deferred = items.filter((i) => !taken.has(i)).map((item) => ({ item, reason: (item.blocked ?? 'time') as DeferReason }));
+  const deferred = items.filter((i) => !taken.has(i)).map((item) => ({ item, reason: (item.blocked ?? (capped.has(item) ? 'category' : 'time')) as DeferReason }));
   const total = used.home + used.life;
   const essentialMinutes = essentials.reduce((s, e) => s + e.minutes, 0);
   return { planned, deferred, home: used.home, life: used.life, total, overBy: Math.max(0, total - b.total), essentials: essentialMinutes > b.total ? essentials : [] };

@@ -10,6 +10,8 @@ export const EXCLUSION: Record<DeferReason, PlannerExclusion> = {
   time: 'not-enough-time',
   energy: 'low-energy-day',
   'rest-day': 'not-a-cleaning-day',
+  // Left out to stay within the minutes the person allowed for that category: the same fact as "not enough time", for the same reason.
+  category: 'not-enough-time',
 };
 
 const traits = (t: Task) => {

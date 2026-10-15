@@ -3,7 +3,8 @@ import { compactHistory } from '../domain/retention';
 import { MAX_LEFT_PER_DAY, leftKey } from '../domain/exposure';
 import { applyTypeDefaults } from '../domain/context';
 import { appDataForDemo, type DemoProfile } from '../domain/demo';
-import { buildResetTasks, generatePlan } from '../domain/engine';
+import { buildResetTasks } from '../domain/engine';
+import { planOf } from '../domain/planInputs';
 import {
   dueInfo, markComplete, markMove, markSkip, markSnooze, resetStates,
 } from '../domain/schedule';
@@ -14,6 +15,7 @@ import type {
 import { planVersionOf } from '../domain/planVersion';
 import { emptyAppData } from '../domain/appdata';
 import { applyOverride } from '../domain/schedule';
+import { moduleReducer, type ModuleAction } from './moduleReducer';
 
 /**
  * When something happened. `hour` and `tz` are filled in by the store; when absent (tests, older callers) they are derived from `now`,
@@ -65,7 +67,8 @@ export type Action =
   | { type: 'DAY_ENERGY'; level: 'low' | 'ok' | 'high'; stamp: Stamp }
   | { type: 'DISMISS_INSIGHT'; id: string; stamp: Stamp }
   | { type: 'SET_SESSION_CAP'; minutes: number | null; stamp: Stamp }
-  | { type: 'SET_OPENED'; stamp: Stamp };
+  | { type: 'SET_OPENED'; stamp: Stamp }
+  | ModuleAction;
 
 const SESSION_GAP_MIN = 45;
 
@@ -156,7 +159,7 @@ const isEphemeral = (task: Task) => task.id.startsWith('five:') || task.id.start
  */
 const freezeSchedule = (data: AppData, today: ISODate): AppData => {
   if (!data.onboardingComplete) return data;
-  const plan = generatePlan(data.home, data.preferences, data.plan);
+  const plan = planOf(data);
   const states = { ...data.taskStates };
   for (const raw of plan.tasks) {
     const t = applyOverride(raw, states[raw.id], plan.activeDays);
@@ -379,7 +382,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
     case 'DISMISS_INSIGHT': return { ...data, dismissedInsights: { ...data.dismissedInsights, [a.id]: a.stamp.today } };
     case 'SET_SESSION_CAP': return { ...data, preferences: { ...data.preferences, learnedSessionCap: a.minutes } };
     case 'SET_OPENED': return { ...data, lastOpened: a.stamp.today };
-    default: return data;
+    default: return moduleReducer(data, a);
   }
 };
 

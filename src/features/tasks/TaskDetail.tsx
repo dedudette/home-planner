@@ -9,6 +9,7 @@ import { isLife } from '../../domain/scoring';
 import { DOMAIN_LABEL, LIFE_LEVELS, TIME_LABEL } from '../../domain/options';
 import { SAFETY_LINE } from '../../domain/lifeCatalog';
 import { Button, Dots, PriorityTag, ProgressBar, Sheet, Tag } from '../../ui/primitives';
+import { clockLabel } from '../../domain/modules/registry';
 import { lowerFrequency } from '../../domain/learning';
 import { DIFF_LABEL } from './TaskCard';
 
@@ -80,7 +81,10 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
         </>
       )}>
       <div className="row wrap" style={{ gap: 8 }}>
-        {task.challenge ? <Tag kind="lav"><I.trophy size={12} aria-hidden /> Optional challenge</Tag> : <PriorityTag p={task.priority} />}
+        {task.challenge ? <Tag kind="lav"><I.trophy size={12} aria-hidden /> Optional challenge</Tag>
+          : task.kind === 'optional' ? <Tag kind="lav">Optional idea</Tag>
+          : task.kind ? <Tag kind="green">{task.kind === 'fixed' && task.time ? `At ${clockLabel(task.time)}` : 'Planned by you'}</Tag>
+          : <PriorityTag p={task.priority} />}
         {life ? (
           // One human-readable area tag ("Fitness & movement"); the short room-style name would just repeat it.
           <Tag><RoomIcon size={12} aria-hidden /> {DOMAIN_LABEL[task.domain!]}</Tag>
@@ -99,7 +103,7 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
       <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
         <div className="stat"><div className="v">{task.minutes}<span className="small muted"> min</span></div><div className="l">Estimated time</div></div>
         <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}><Dots n={task.difficulty} /> {DIFF_LABEL[task.difficulty]}</div><div className="l">{task.challenge ? 'Difficulty (optional stretch)' : 'Difficulty'}</div></div>
-        <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}>{task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency]}</div><div className="l">Frequency</div></div>
+        <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}>{task.scheduleLabel ?? (task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency])}</div><div className="l">{task.scheduleLabel ? 'Schedule' : 'Frequency'}</div></div>
         <div className="stat"><div className="v" style={{ fontSize: '1.3rem' }}>{alreadyDone ? 'Done' : info.due ? formatDay(info.due, today) : 'Not scheduled'}</div><div className="l">{info.overdue ? 'Was due (no rush)' : 'Next up'}</div></div>
       </div>
 
@@ -152,7 +156,9 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
             <Button variant="secondary" size="sm" icon={I.calDays} onClick={() => openSheet({ kind: 'reschedule', task })}>Pick a day</Button>
           </div>
           <div className="row wrap" style={{ gap: 8 }}>
-            {task.custom ? (
+            {task.activityId ? (
+              <Button variant="ghost" size="sm" icon={I.pencil} onClick={() => openSheet({ kind: 'activityForm', editId: task.activityId })}>Edit or remove this activity</Button>
+            ) : task.custom ? (
               <>
                 <Button variant="ghost" size="sm" icon={I.pencil} onClick={() => openSheet({ kind: 'taskForm', editId: task.id })}>Edit task</Button>
                 <Button variant="ghost" size="sm" icon={I.trash} onClick={() => { dispatch({ type: 'CUSTOM_DELETE', id: task.id }); closeSheet(); toast('Task deleted.'); }}>Delete</Button>

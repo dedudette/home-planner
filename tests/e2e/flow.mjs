@@ -15,7 +15,7 @@ const click = (t, o) => page.getByRole('button', { name: t, ...o }).first().clic
 
 await page.goto('http://127.0.0.1:5173/');
 await page.evaluate(() => localStorage.clear()); await page.reload();
-await step('welcome→onboarding', async () => { await click('Build my plan'); await page.waitForSelector('text=What do you want to improve'); });
+await step('welcome→onboarding', async () => { await click('Build my plan'); await page.waitForSelector('text=What do you want help with'); });
 await step('step0 focus', async () => {
   // home is pre-selected; add two life goals and answer the fitness follow-ups
   await page.getByRole('checkbox', { name: /Build discipline/ }).click();

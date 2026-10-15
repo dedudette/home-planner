@@ -262,12 +262,12 @@ export const LIFE_LEVELS: Record<LifeLevel, { label: string; hint: string }> = {
 
 export const DOMAIN_LABEL: Record<Domain, string> = {
   home: 'Home & cleaning', fitness: 'Fitness & movement', breathing: 'Breathing & reset', care: 'Personal care', mind: 'Mind & focus',
-  digital: 'Digital discipline', admin: 'Life admin', learning: 'Learning', outdoor: 'Outdoors & lifestyle', sleep: 'Sleep routine',
+  digital: 'Digital discipline', admin: 'Life admin', learning: 'Learning', outdoor: 'Outdoors & lifestyle', sleep: 'Sleep routine', meals: 'Meals & cooking',
 };
 
 export const DOMAIN_SHORT: Record<Domain, string> = {
   home: 'Home', fitness: 'Fitness', breathing: 'Breathing', care: 'Personal care', mind: 'Mind & focus', digital: 'Digital', admin: 'Life admin',
-  learning: 'Learning', outdoor: 'Outdoors', sleep: 'Sleep',
+  learning: 'Learning', outdoor: 'Outdoors', sleep: 'Sleep', meals: 'Meals',
 };
 
 export const TIME_LABEL: Record<TimeOfDay, string> = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', anytime: 'Any time' };

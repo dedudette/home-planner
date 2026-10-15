@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { anyModuleOn } from '../../domain/modules/registry';
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
 import { Button } from '../../ui/primitives';
@@ -20,6 +21,15 @@ export const Onboarding = ({ onDone, onExit }: { onDone: () => void; onExit: () 
   const def = STEPS[Math.min(step, STEPS.length - 1)];
   const maxReached = useRef(step);
   maxReached.current = Math.max(maxReached.current, step);
+
+  // A new person starts with nothing chosen, cleaning included. Someone who is part-way through (the step is remembered) keeps what they picked.
+  useEffect(() => {
+    let started = false;
+    try { started = window.localStorage.getItem(KEY) !== null; } catch { /* ignore */ }
+    const pristine = data.preferences.focus.length === 1 && data.preferences.focus[0] === 'home' && !anyModuleOn(data.modules) && !data.user.demo && !data.onboardingComplete;
+    if (!started && pristine) dispatch({ type: 'SET_PREFS', patch: { focus: [] }, stamp: stamp() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     try { window.localStorage.setItem(KEY, String(step)); } catch { /* ignore */ }

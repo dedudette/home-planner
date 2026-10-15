@@ -8,6 +8,7 @@ import { I } from '../../ui/icons';
 import { downloadText } from '../../ui/download';
 import { Button, PageHead } from '../../ui/primitives';
 import { navigate } from '../../ui/router';
+import { SectionsSettings } from './Sections';
 
 const THEME_KEY = 'cleanflow:theme';
 const applyTheme = (t: string) => {
@@ -118,6 +119,8 @@ export const Settings = () => {
         )}
         <div><Button variant="secondary" icon={homeOn ? I.home : I.flame} onClick={() => navigate('home')}>{homeOn ? 'Edit my home & preferences' : 'Edit my goals'}</Button></div>
       </section>
+
+      <SectionsSettings />
 
       <section className="card stack" aria-labelledby="s-demo">
         <h2 id="s-demo" className="h3">Try a demo</h2>

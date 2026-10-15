@@ -1,6 +1,6 @@
 # CleanFlow
 
-A personalized home-cleaning and daily-discipline planner. You describe your home, people, pets, time and energy; a rule-based
+A personalized planner for your home and everyday life: cleaning, movement, meals and shopping, learning and hobbies, wellbeing. You describe your home, time and energy; a rule-based
 engine builds a realistic plan, with tiny-step and "just 5 minutes" modes for overwhelmed days.
 
 ## Run it
@@ -11,7 +11,7 @@ npm run dev        # http://localhost:5173
 npm test           # 653 tests at the time of writing: engine, scheduler, daily budget, low-energy safety, goal coverage, persistence, backups, retention, reducer, analytics
 npm run build      # typecheck + production build into dist/
 npm run check      # type-check + tests
-npm run e2e        # six browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records), coach (Your patterns and the optional AI). The dev server must be running; set CHROME_PATH if needed
+npm run e2e        # seven browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records), coach (Your patterns and the optional AI), sections (sections and the shared plan). The dev server must be running; set CHROME_PATH if needed
 npm run dev:coach   # dev server with ANTHROPIC_API_KEY read from the macOS Keychain (see "Try it on your Mac")
 npm run sample-data # writes made-up history for trying Your patterns and the coach
 npm run build:server && npm start   # optional: one Node process serving the built app and the AI coach endpoint (see "AI coach")
@@ -69,11 +69,21 @@ src/domain/scoring.ts       shared frequency ladder / priority / isLife()
 
 Learning is rule-based and always asks first (shorter sessions, repeated skips, steady routines, a step up or an easier stretch). What each rule reads, and what it refuses to read, is under **Behaviour insights** below.
 
+## Sections and the one shared plan
+
+CleanFlow plans a whole day, not only cleaning. A person switches on only what they want (Settings → *What you use CleanFlow for*): **Home & cleaning**, **Movement**, **Meals & shopping**, **Learning & hobbies**, **Wellbeing** (and, when it ships, **Water**). Nothing is pre-selected for a new person, and a person who had the app before sections existed is never asked to onboard again: `src/storage/schema.ts` migrates v2 → v3, turns a section on only where a goal they already chose points at it (Active/Healthy → Movement, Study → Learning, Self-care/Morning/Evening → Wellbeing), and shows a one-time introduction.
+
+- **One planner.** Anything planned in a section is a `PlannedActivity` (`src/domain/modules/`) and becomes an ordinary `Task` with the id `act:<activityId>`, so Today, the Schedule, the timer and the log treat it like cleaning. An activity has one identity and one completion record, whichever section shows it.
+- **Three kinds.** *Fixed* (a clock time the planner never moves; overlapping fixed times are reported as a conflict), *flexible* (counts against the day), *optional* (an idea: never counted, never due). Tracking-only things (meals eaten, water, mood) are not tasks and never use the day's minutes.
+- **What the daily time covers.** One number covers everything a person plans for a day: cleaning, habits, workouts, hobbies, learning and meal prep. Not eating, sleeping or drinking water. Something the person planned is never dropped for time: if it is longer than the day, Today says by how many minutes, and nothing is moved without asking. The low-energy safety rule still applies to a planned vigorous workout. An optional per-section daily allowance holds back what the planner suggests; what the person planned stays and is flagged.
+- **Scheduled, completed, skipped, not recorded.** A scheduled day with nothing logged is *not recorded*; it is never read as skipped, failed or zero (`activityHistory`).
+- Turning a section off hides it and keeps everything in it.
+
 ## Safety
 The Supplies screen shows a permanent chemical-safety warning (never mix products, especially bleach with ammonia or acids) and warns when the user's own stash contains dangerous pairs. The app never gives mixing instructions.
 
 ## Data safety
-- **Saved data is never silently destroyed.** `src/storage/schema.ts` validates and repairs on load (bad fields are repaired, bad list items dropped and counted) and migrates by version (`SCHEMA_VERSION = 2`). A file from a newer version is read as far as possible and backed up. Data that cannot be understood is kept as raw text and shown on a **recovery screen** (download it, restore an automatic backup, or start fresh, which keeps a copy first).
+- **Saved data is never silently destroyed.** `src/storage/schema.ts` validates and repairs on load (bad fields are repaired, bad list items dropped and counted) and migrates by version (`SCHEMA_VERSION = 3`). A file from a newer version is read as far as possible and backed up. Data that cannot be understood is kept as raw text and shown on a **recovery screen** (download it, restore an automatic backup, or start fresh, which keeps a copy first).
 - **An error boundary** wraps the app (full recovery screen) and every page (the navigation keeps working).
 - **Anything that replaces your data asks first** (demo, restore from file or backup, erase) and takes an **automatic backup** (last three, listed in Settings). Erase offers a download first and deletes the backups too.
 - **Exports are versioned envelopes** (`{ app, exportVersion, schemaVersion, data }`); imports also accept the bare files older versions wrote, and show a summary before replacing anything.

@@ -11,18 +11,18 @@ export const Welcome = ({ onStart, onDemo }: { onStart: () => void; onDemo: () =
     <div className="onb">
       <div className="hero">
         <span className="brand"><span className="brand-mark"><I.sparkles size={20} aria-hidden /></span>CleanFlow</span>
-        <span className="badge"><I.leaf size={16} aria-hidden /> Cleaning, without the overwhelm</span>
-        <h1>A cleaning plan that fits your actual home, time and energy</h1>
-        <p className="lead">Answer a few friendly questions. CleanFlow builds a realistic plan for your rooms, your people, your pets and the minutes you really have, with tiny steps for the days when everything feels like too much.</p>
+        <span className="badge"><I.leaf size={16} aria-hidden /> Your home and everyday life, without the overwhelm</span>
+        <h1>One calm plan for your home, your body and your day</h1>
+        <p className="lead">Choose what you want help with: cleaning, movement, meals and shopping, learning and hobbies, wellbeing. CleanFlow builds one realistic daily plan around the minutes and energy you really have, with tiny steps for the days when everything feels like too much.</p>
         <Button size="lg" onClick={onStart} icon={I.arrow}>Build my plan</Button>
         <p className="small muted">About 3 minutes · No account needed · Your data stays on this device</p>
       </div>
 
       <div className="features">
         {[
-          { ic: I.home, t: 'Built for your home', d: 'A dorm room never gets garage chores. A family house gets zones by floor.' },
+          { ic: I.home, t: 'Built for you', d: 'Only the sections you pick. A dorm room never gets garage chores, and nobody gets a diet they did not ask for.' },
           { ic: I.timer, t: 'Just 5 minutes', d: 'One tiny task, a timer, and a kind word. No shame if you stop.' },
-          { ic: I.sparkles, t: 'Messy? Start here', d: 'A reset sequence that tackles the most visible mess first.' },
+          { ic: I.sparkles, t: 'Your plan, your say', d: 'Nothing you planned is moved or removed without asking, and not logging something is never counted against you.' },
         ].map((f) => (
           <div className="card feature" key={f.t}>
             <div className="ic"><f.ic size={22} aria-hidden /></div>

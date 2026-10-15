@@ -5,7 +5,10 @@ import {
   BLOCKERS, CLEANLINESS, ENERGY, GARAGE_SIZES, GOALS, HOME_TYPES, PET_CHOICES, PET_FEATURES, PET_TYPES, PROBLEM_AREAS, SESSION_LENGTHS,
   SIZE_BANDS, SIZE_LEVELS, STYLES, countLabel, isRoomFieldVisible, sessionLabel, type RoomField,
 } from '../../domain/options';
+import { anyModuleOn, MODULES } from '../../domain/modules/registry';
+import { AVAILABLE_MODULES } from '../../domain/modules/registry';
 import type { Home, LifeFocus, LifeLevel, PetChoice, PetType, RoomCounts } from '../../domain/types';
+import { SECTION_ICON } from '../nav';
 import { useApp } from '../../state/store';
 import { I, type IconType } from '../../ui/icons';
 import { Chip, Hint } from '../../ui/primitives';
@@ -51,16 +54,31 @@ export const StepFocus = () => {
   const p = data.preferences;
   const set = (patch: Partial<typeof p>) => dispatch({ type: 'SET_PREFS', patch, stamp: stamp() });
   const life = p.focus.some((f) => f !== 'home');
+  const sections = anyModuleOn(data.modules);
+  const homeOption = FOCUS_OPTIONS.find((o) => o.value === 'home')!;
+  const habitOptions = FOCUS_OPTIONS.filter((o) => o.value !== 'home');
   return (
     <div className="stack-lg">
-      <div className="choice-grid single" role="group" aria-label="What to improve">
-        {FOCUS_OPTIONS.map((o) => (
-          <Choice key={o.value} multi on={p.focus.includes(o.value)} icon={FOCUS_ICON[o.value]} label={o.label} hint={o.hint}
-            onClick={() => set({ focus: toggle(p.focus, o.value) })} />
-        ))}
-      </div>
-      {p.focus.length === 0 && <Hint>Pick at least one. You can change this any time in My Home.</Hint>}
-      {!p.focus.includes('home') && p.focus.length > 0 && <Hint icon={I.home}>No cleaning plan this time. We'll skip the questions about your home. You can add it later.</Hint>}
+      <Group label="What would you like help with?" hint="Pick any. You get a plan for each, in one daily list, and can change this later in Settings.">
+        <div className="choice-grid single" role="group" aria-label="Sections">
+          <Choice multi on={p.focus.includes('home')} icon={FOCUS_ICON.home} label={homeOption.label} hint={homeOption.hint}
+            onClick={() => set({ focus: toggle(p.focus, 'home') })} />
+          {AVAILABLE_MODULES.map((m) => (
+            <Choice key={m} multi on={data.modules.enabled[m]} icon={SECTION_ICON[m]} label={MODULES[m].label} hint={MODULES[m].blurb}
+              onClick={() => dispatch({ type: 'MODULE_SET', id: m, on: !data.modules.enabled[m] })} />
+          ))}
+        </div>
+      </Group>
+      <Group label="Habits you want to build" hint="Optional. These add small, gentle daily actions.">
+        <div className="choice-grid single" role="group" aria-label="What to improve">
+          {habitOptions.map((o) => (
+            <Choice key={o.value} multi on={p.focus.includes(o.value)} icon={FOCUS_ICON[o.value]} label={o.label} hint={o.hint}
+              onClick={() => set({ focus: toggle(p.focus, o.value) })} />
+          ))}
+        </div>
+      </Group>
+      {p.focus.length === 0 && !sections && <Hint>Pick at least one. You can change this any time in Settings.</Hint>}
+      {!p.focus.includes('home') && (p.focus.length > 0 || sections) && <Hint icon={I.home}>No cleaning plan this time. We'll skip the questions about your home. You can add it later.</Hint>}
       {p.focus.includes('active') && (
         <>
           <Group label="How would you describe your fitness?" hint="This keeps exercises at a sensible level. Nothing here is medical advice.">
@@ -342,7 +360,7 @@ export const StepStyle = () => {
           </div>
         </Group>
       )}
-      <Group label={p.focus.includes('home') ? 'How long can you realistically clean at once?' : 'How much time can you give this each day?'} hint="Be honest. Shorter sessions you actually do beat longer ones you skip.">
+      <Group label={p.focus.includes('home') && p.focus.length === 1 && !anyModuleOn(data.modules) ? 'How long can you realistically clean at once?' : 'How much time can you give your plan each day?'} hint={p.focus.includes('home') && p.focus.length === 1 && !anyModuleOn(data.modules) ? 'Be honest. Shorter sessions you actually do beat longer ones you skip.' : "One number for everything you plan: cleaning, habits, workouts, hobbies and meal prep. It doesn't count eating, sleeping or drinking water. Be honest: a short plan you follow beats a long one you skip."}>
         <div className="chips" role="radiogroup" aria-label="Session length">
           {SESSION_LENGTHS.map((m) => <Chip key={m} role="radio" on={p.sessionMinutes === m} onClick={() => set({ sessionMinutes: m })}>{sessionLabel(m)}</Chip>)}
         </div>
@@ -372,7 +390,7 @@ export const StepEnergy = () => {
         </div>
         {p.energy === 'varies' && <Hint>On Today you'll be able to say "low / okay / high" for the day, and the list adjusts.</Hint>}
       </Group>
-      <Group label="What usually makes cleaning difficult?" hint="Choose all that apply. This changes how tasks are presented.">
+      <Group label={p.focus.includes('home') ? 'What usually makes cleaning difficult?' : 'What usually makes it hard to keep going?'} hint="Choose all that apply. This changes how tasks are presented.">
         <div className="chips">
           {BLOCKERS.map((o) => <Chip key={o.value} role="checkbox" on={p.blockers.includes(o.value)} onClick={() => set({ blockers: toggle(p.blockers, o.value) })}>{o.label}</Chip>)}
         </div>
@@ -410,7 +428,7 @@ export interface StepDef {
   skippable?: boolean;
 }
 
-const FOCUS_STEP: StepDef = { key: 'focus', title: 'What do you want to improve?', sub: 'Choose as many as you like. You only get tasks for what you pick.', Component: StepFocus, required: (d) => d.preferences.focus.length > 0 };
+const FOCUS_STEP: StepDef = { key: 'focus', title: 'What do you want help with?', sub: 'Your home and everyday life: cleaning, movement, meals, learning and wellbeing. You only get what you pick.', Component: StepFocus, required: (d) => d.preferences.focus.length > 0 || anyModuleOn(d.modules) };
 const HOME_STEPS: StepDef[] = [
   { key: 'type', title: 'What type of home do you live in?', sub: "This decides which questions come next, so we never ask about a garage in a dorm room.", Component: StepHomeType, required: (d) => d.home.type !== null },
   { key: 'size', title: 'How large is your home?', sub: 'Pick whatever feels closest.', Component: StepSize, required: (d) => d.home.sizeBand !== null || d.home.exactSizeM2 !== null, skippable: true },

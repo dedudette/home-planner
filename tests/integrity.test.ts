@@ -3,6 +3,7 @@ import { appDataForDemo } from '../src/domain/demo';
 import { resolveTimerTask, startTimer } from '../src/domain/timer';
 import type { AppData, Task } from '../src/domain/types';
 import { dueInfo } from '../src/domain/schedule';
+import { SCHEMA_VERSION } from '../src/storage/schema';
 import { todayPlan } from '../src/domain/view';
 import { isDuplicateCompletion, reducer, type Action, type Stamp } from '../src/state/reducer';
 import { demo, TODAY, view } from './helpers';
@@ -203,7 +204,7 @@ describe('timer attribution after a reload', () => {
 describe('demo data carries the v2 fields', () => {
   it('a fresh demo has an empty exposure log and a level clock that starts with the plan', () => {
     const d = appDataForDemo('E', { today: TODAY });
-    expect(d.version).toBe(2);
+    expect(d.version).toBe(SCHEMA_VERSION);
     expect(d.exposures).toEqual([]);
     expect(d.preferences.levelSince).toBe(TODAY);
   });

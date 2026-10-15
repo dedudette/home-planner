@@ -6,6 +6,8 @@ import { isLife } from './scoring';
 import { dayEnergyOf, energyOk } from './safety';
 import { TIME_ORDER } from './options';
 import { applyOverride, customToTask, dueInfo, projectDates, type DueInfo } from './schedule';
+import { activityTasks, categoryConflicts, timeConflicts, type Conflict } from './modules/activities';
+import { moduleOfDomain } from './modules/registry';
 import type { AppData, Domain, EnergyLevel, ISODate, LifeDomain, RoomKind, SessionEntry, Task, TaskState, TimeOfDay } from './types';
 
 /**
@@ -27,9 +29,14 @@ export const buildView = (data: AppData, plan: Plan, today: ISODate): PlanView =
   const active = plan.activeDays;
   const generated = plan.tasks.map((t) => applyOverride(t, states[t.id], active));
   const custom = data.customTasks.map((ct) => applyOverride(customToTask(ct, plan.rooms, active), states[ct.id], active));
-  const all = [...generated, ...custom];
-  const tasks = all.filter((t) => !states[t.id]?.hidden);
-  const hidden = all.filter((t) => states[t.id]?.hidden);
+  // Planned activities (workouts, meal prep, learning, routines) are tasks like any other, with ids that come only from the activity.
+  const activities = activityTasks(data).map((t) => applyOverride(t, states[t.id], active));
+  const all = [...generated, ...custom, ...activities];
+  // An activity past its last date (a fixed one-off on a day gone by, a series that ended) is no longer offered. It is not carried
+  // forward to today, and it stays in `byId` so its history can still be read.
+  const live = (t: Task) => !(t.expires && t.expires < today);
+  const tasks = all.filter((t) => !states[t.id]?.hidden && live(t));
+  const hidden = all.filter((t) => states[t.id]?.hidden && live(t));
   return { today, plan, tasks, hidden, byId: new Map(all.map((t) => [t.id, t])), states, data };
 };
 
@@ -78,8 +85,12 @@ export interface TodayPlan {
   totalPlanned: number;
   /** Minutes by which the user's own urgent tasks exceed the promise (0 when the day fits). Shown honestly rather than hidden. */
   overBy: number;
-  /** The urgent tasks the user added that cause the overage. */
+  /** The tasks the person marked urgent or scheduled themselves that cause the overage. */
   overBecause: Task[];
+  /** Overlapping fixed times and categories past their allowance. Reported, never silently "fixed". */
+  conflicts: Conflict[];
+  /** Optional activities for today: not counted, not due, never an obligation. */
+  optional: DueItem[];
   focus: DueItem[];
   /** Life-layer habits planned for today (they share the one budget with cleaning). */
   life: DueItem[];
@@ -114,9 +125,12 @@ const assembleDay = (v: PlanView, date: ISODate, items: DueItem[], energy: Energ
   const wd = new Date(`${date}T12:00:00`).getDay();
   const budget = dayBudget(plan, wd, energy);
   const home = items.filter((i) => !isLife(i.task));
-  const lifeItems = items.filter((i) => isLife(i.task) && !i.task.challenge);
+  const optional = items.filter((i) => i.task.kind === 'optional');
+  const lifeItems = items.filter((i) => isLife(i.task) && !i.task.challenge && i.task.kind !== 'optional');
   const covering = new Set(plan.goalCoverage.flatMap((g) => g.taskIds));
-  const essential = (t: Task) => !!t.custom && t.priority === 'URGENT';
+  // Urgent tasks the person added are never dropped. Neither is anything they scheduled themselves, for time: they are asked, not
+  // overruled. The low-energy rule still applies to the second kind (see `blocked` below): it protects, so it is never waived.
+  const essential = (t: Task) => (!!t.custom && t.priority === 'URGENT') || (!!t.userPlanned && energyOk(t, energy));
   const age = (i: DueItem) => Math.max(0, diffDays(date, i.due));
 
   // Cleaning's order: the basics (up to their share), then anything that has waited too long, then today's regular list in the
@@ -150,9 +164,13 @@ const assembleDay = (v: PlanView, date: ISODate, items: DueItem[], energy: Energ
     .sort((a, b) => Number(covering.has(b.task.id)) - Number(covering.has(a.task.id)) || b.task.score - a.task.score)
     .forEach((item, order) => {
       const t = item.task;
-      cands.push({ item, minutes: t.minutes, domain: 'life', order, weight: t.score + (covering.has(t.id) ? 50 : 0), essential: essential(t), blocked: essential(t) ? undefined : !energyOk(t, energy) ? 'energy' : undefined });
+      const category = t.module ?? moduleOfDomain(t.domain);
+      cands.push({ item, minutes: t.minutes, domain: 'life', order, weight: t.score + (covering.has(t.id) ? 50 : 0), essential: essential(t), category, blocked: essential(t) ? undefined : !energyOk(t, energy) ? 'energy' : undefined });
     });
-  return { budget, fit: fitDay(cands, budget) };
+  const fit = fitDay(cands, budget, v.data.modules.caps);
+  const planned = fit.planned.map((c) => c.item.task);
+  const conflicts: Conflict[] = [...timeConflicts(planned), ...categoryConflicts(planned, v.data.modules.caps)];
+  return { budget, fit, optional, conflicts };
 };
 
 export const todayPlan = (v: PlanView): TodayPlan => {
@@ -160,7 +178,7 @@ export const todayPlan = (v: PlanView): TodayPlan => {
   const energy = dayEnergyOf(data, today);
   const done = entriesOn(data, today).filter((e) => e.outcome === 'completed');
   const all = dueItems(v);
-  const { budget, fit } = assembleDay(v, today, all, energy);
+  const { budget, fit, optional, conflicts } = assembleDay(v, today, all, energy);
 
   const byKind = (domain: 'home' | 'life', isCatch: boolean) => fit.planned.filter((c) => c.domain === domain && !!c.catchUp === isCatch).sort((a, b) => a.order - b.order).map((c) => c.item);
   const todRank = (t: Task) => TIME_ORDER.indexOf(t.timeOfDay ?? 'anytime');
@@ -173,6 +191,7 @@ export const todayPlan = (v: PlanView): TodayPlan => {
   return {
     isActiveDay: budget.active, budget: budget.home, lifeBudget: budget.life, totalBudget: budget.total, totalPlanned: fit.total, overBy: fit.overBy,
     overBecause: fit.essentials.map((c) => c.item.task),
+    conflicts, optional: optional.sort((a, b) => b.task.score - a.task.score),
     focus, life, extra: deferred.map((d) => d.item), deferred, catchUp: catchPlanned, done,
     plannedMinutes: homeMinutes,
     lifeMinutes,
@@ -220,6 +239,8 @@ export interface DayPlan {
   date: ISODate;
   /** What is planned for the day. These, and only these, count against the day's minutes. */
   tasks: Task[];
+  /** Overlapping fixed times and categories past their allowance on this day. */
+  conflicts: Conflict[];
   /** Minutes of `tasks`. */
   minutes: number;
   /** The day's promise (the one number the user chose; smaller on a rest day or a low-energy day). */
@@ -260,11 +281,11 @@ export const dayPlan = (v: PlanView, date: ISODate): DayPlan => {
   if (date === v.today) {
     const t = todayPlan(v);
     const tasks = [...t.focus, ...t.catchUp, ...t.life].map((f) => f.task);
-    return { date, tasks, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: t.totalBudget, overBy: t.overBy, deferred: t.deferred.map((d) => ({ task: d.item.task, reason: d.reason })), done };
+    return { date, tasks, conflicts: t.conflicts, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: t.totalBudget, overBy: t.overBy, deferred: t.deferred.map((d) => ({ task: d.item.task, reason: d.reason })), done };
   }
-  const { budget, fit } = assembleDay(v, date, dueOn(v, date).map((t) => asDue(t, date)), 'ok');
+  const { budget, fit, conflicts } = assembleDay(v, date, dueOn(v, date).map((t) => asDue(t, date)), 'ok');
   const tasks = fit.planned.sort((a, b) => a.domain.localeCompare(b.domain) || a.order - b.order).map((c) => c.item.task);
-  return { date, tasks, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: budget.total, overBy: fit.overBy, deferred: fit.deferred.map((d) => ({ task: d.item.item.task, reason: d.reason })), done };
+  return { date, tasks, conflicts, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: budget.total, overBy: fit.overBy, deferred: fit.deferred.map((d) => ({ task: d.item.item.task, reason: d.reason })), done };
 };
 
 export const weekPlan = (v: PlanView, from: ISODate): DayPlan[] =>

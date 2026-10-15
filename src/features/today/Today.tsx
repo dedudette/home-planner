@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { addDays, formatMinutes, formatLong } from '../../domain/dates';
 import { needsFreshStart } from '../../domain/learning';
 import { bucketLife, dayPlan, todayPlan, type DeferReason, type DueItem } from '../../domain/view';
 import { GoalCoverageCard } from '../plan/GoalCoverage';
+import { describeConflict } from '../../domain/modules/activities';
+import { visibleCards } from '../../domain/modules/registry';
+import type { TodayCard } from '../../domain/modules/types';
 import { TIME_LABEL } from '../../domain/options';
 import { TIME_ICON } from '../../ui/icons';
 import { useApp } from '../../state/store';
@@ -21,6 +24,7 @@ const DEFER_NOTE: Record<DeferReason, (budget: number) => string> = {
   time: (b) => `Left out so today stays within your ${b} minutes. It stays due.`,
   energy: () => 'Left out because you said your energy is low today. It will come back.',
   'rest-day': () => 'Saved for one of your cleaning days.',
+  category: () => 'Left out to stay within the daily allowance you set for this kind of activity. It stays due.',
 };
 
 export const FreshStartCard = ({ days, neverLogged }: { days: number; neverLogged: boolean }) => {
@@ -39,6 +43,9 @@ export const FreshStartCard = ({ days, neverLogged }: { days: number; neverLogge
   );
 };
 
+/** The tracking cards. Each is added by its own section; a card whose section is not built or not on renders nothing. */
+const TodayCardHost = ({ card }: { card: TodayCard }) => { void card; return null; };
+
 export const Today = () => {
   const { view, data, today, hour, openSheet, dispatch, stamp, plan, visible } = useApp();
   const t = todayPlan(view);
@@ -50,8 +57,10 @@ export const Today = () => {
   const tomorrow = dayPlan(view, addDays(today, 1));
   const name = data.user.name.trim();
 
-  const homeOn = data.preferences.focus.includes('home') || data.preferences.focus.length === 0;
+  const homeOn = plan.homeOn;
   const lifeOn = plan.lifeActive;
+  // Once anything beyond cleaning is in the plan, minutes are "logged", not "cleaned", and the day's goal covers all of it.
+  const mixed = lifeOn || data.activities.some((a) => !a.archived) || data.modules.enabled.movement || data.modules.enabled.learning || data.modules.enabled.wellbeing || data.modules.enabled.meals;
   const focusLeft = t.focus.length + t.life.length;
   const doneN = t.done.length;
   const totalN = focusLeft + doneN;
@@ -109,6 +118,157 @@ export const Today = () => {
     if (ids.length || rev.length) dispatch({ type: 'RECORD_SEEN', date: today, ids, revealed: rev, at: new Date().toISOString() });
   }, [visible, dayRecord, onScreen.join('|'), revealed.join('|'), today]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** The plan card: today at a glance, quick actions, and everything planned. Other cards (meals, water, check-in) sit around it in the person's order. */
+  const planBody = (
+    <>
+        <section className="hero-card" aria-label="Today at a glance">
+          <p className="small" style={{ opacity: 0.9 }}>{restDay ? (lifeOn ? 'Rest day from cleaning' : 'Rest day') : 'Today'}</p>
+          <h2 style={{ marginTop: 4 }}>
+            {totalN === 0 ? (restDay ? 'Nothing planned. Enjoy it.' : 'Nothing due today.')
+              : focusLeft === 0 ? 'All done for today. Nice work.'
+              : restDay && t.life.length === 0 ? `Just ${focusLeft} tiny daily habit${focusLeft === 1 ? '' : 's'}`
+              : `${focusLeft} thing${focusLeft === 1 ? '' : 's'} left · about ${formatMinutes(plannedMinutes)}`}
+          </h2>
+          {totalN > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <ProgressBar value={totalN ? doneN / totalN : 0} label="Today's progress" />
+              <p className="small" style={{ marginTop: 8, opacity: 0.92 }}>
+                {doneN} done{t.doneMinutes ? ` · ${formatMinutes(t.doneMinutes)} ${mixed ? 'logged' : 'cleaned'}` : ''}
+                {mixed ? (t.totalBudget ? ` · daily goal ${t.totalBudget} min` : '') : (homeOn && !restDay && t.budget ? ` · session goal ${plan.sessionMinutes} min` : '')}
+              </p>
+              {focusLeft > 0 && laterCount > 0 && (
+                <p className="small" style={{ marginTop: 4, opacity: 0.92 }}>{nowCount} for right now · {laterCount} for later today</p>
+              )}
+              {t.overBy > 0 && (
+                <p className="small" style={{ marginTop: 4, opacity: 0.92 }} role="status" data-testid="over-budget">
+                  That is {t.overBy} min over your {t.totalBudget}-minute day, because {t.overBecause.map((x) => `"${x.name}"`).join(' and ')} {t.overBecause.length === 1 ? 'is' : 'are'} {t.overBecause.every((x) => x.userPlanned) ? 'something you planned' : t.overBecause.some((x) => x.userPlanned) ? 'things you planned or marked urgent' : 'urgent'}. Nothing you planned was removed. Everything else was left out to keep to your time. <a href="#/settings" style={{ color: 'inherit' }}>Change your daily time</a>, or move one of them.
+                </p>
+              )}
+            </div>
+          )}
+          {restDay && <p className="small" style={{ marginTop: 10, opacity: 0.92 }}>It's not one of your cleaning days. If you're feeling it anyway, try one of the quick options below.</p>}
+        </section>
+
+        {t.conflicts.length > 0 && (
+          <section className="card stack" aria-label="Things to look at" data-testid="conflicts">
+            <div className="row"><I.info size={20} aria-hidden style={{ color: 'var(--primary)' }} /><h2 className="h3">Worth a look</h2></div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>{t.conflicts.map((c, i) => <li className="small" key={i}>{describeConflict(c)}</li>)}</ul>
+          </section>
+        )}
+
+        <section aria-label="Quick actions" className={`quick-actions${homeOn ? '' : ' two'}`}>
+          <button className="qa five" onClick={() => openSheet({ kind: 'five' })}>
+            <span className="ic"><I.timer size={24} aria-hidden /></span>
+            <span><b>Just 5 minutes</b><span className="s">One tiny task. Then stop or keep going.</span></span>
+          </button>
+          <button className="qa time" onClick={() => openSheet({ kind: 'timebox' })}>
+            <span className="ic"><I.clock size={24} aria-hidden /></span>
+            <span><b>I only have…</b><span className="s">Pick your minutes. We pick the tasks.</span></span>
+          </button>
+          {homeOn && (
+            <button className="qa mess" onClick={() => openSheet({ kind: 'emergency' })}>
+              <span className="ic"><I.sparkles size={24} aria-hidden /></span>
+              <span><b>My home is a mess</b><span className="s">A calm reset, most visible things first.</span></span>
+            </button>
+          )}
+        </section>
+
+        {lifeOn && (
+          <button className="card soft row between" style={{ textAlign: 'left', width: '100%' }} onClick={() => openSheet({ kind: 'roughDay' })}>
+            <span className="row" style={{ gap: 12 }}><I.heart size={22} aria-hidden style={{ color: 'var(--primary)' }} /><span><b>Rough day?</b><br /><span className="small muted">A few tiny, gentle things to get back on track. No catching up.</span></span></span>
+            <I.right size={20} aria-hidden />
+          </button>
+        )}
+
+        {showEnergy && (
+          <div className="card soft row between wrap" role="group" aria-label="Energy today">
+            <div><p className="strong">How's your energy today?</p><p className="small muted">We'll adjust today's list.</p></div>
+            <div className="chips">
+              {([['low', 'Low'], ['ok', 'Okay'], ['high', 'High']] as const).map(([v, l]) => (
+                <Chip key={v} role="radio" on={t.energy === v} onClick={() => dispatch({ type: 'DAY_ENERGY', level: v, stamp: stamp() })}>{l}</Chip>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {insights.map((i) => <InsightCard key={i.id} insight={i} />)}
+
+        <GoalCoverageCard compact />
+
+        {lifeSection}
+
+        {(homeOn || t.focus.length > 0) && (
+        <section aria-labelledby="today-h" className="stack">
+          <div className="section-title"><h2 id="today-h">{restDay ? 'Daily basics' : 'Your list for today'}</h2>{nonHabitFocus.length > 0 && <span className="small muted">{nonHabitFocus.length} task{nonHabitFocus.length === 1 ? '' : 's'}</span>}</div>
+          {t.focus.length === 0 ? (
+            <Empty title={doneN > 0 ? 'Everything on today\'s list is done' : restDay ? 'No cleaning planned today' : 'Nothing due today'}>
+              {doneN > 0 ? "That's a good day's work." : 'Enjoy the breathing room. You can still grab a quick win below.'}
+            </Empty>
+          ) : (
+            <>
+              {homeBuckets.now.length > 0
+                ? <div className="tasklist" data-bucket="now" data-scope="home">{homeBuckets.now.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
+                : <p className="small muted">Nothing for right now. What is planned for later is below.</p>}
+              {quietBucket('later', 'Later today', TIME_ICON.afternoon, homeBuckets.later, 'Coming up this afternoon', 'home')}
+              {quietBucket('evening', 'This evening', TIME_ICON.evening, homeBuckets.evening, 'Winds the day down. It will be here tonight.', 'home')}
+              {quietBucket('earlier', 'Earlier today', TIME_ICON.morning, homeBuckets.earlier, 'Still open, and that is fine. No rush.', 'home')}
+            </>
+          )}
+        </section>
+        )}
+
+        {t.catchUp.length > 0 && (
+          <section aria-labelledby="catch-h" className="stack">
+            <div className="section-title"><h2 id="catch-h">Gentle catch-up</h2><span className="small muted">only if you want</span></div>
+            <p className="small muted">A couple of things slipped by. No pressure. The rest will simply roll to their next slot.</p>
+            <div className="tasklist">{t.catchUp.map((f) => <TaskCard key={f.task.id} task={f.task} overdue />)}</div>
+          </section>
+        )}
+
+        {t.extra.length > 0 && (
+          <section className="stack" aria-label="Extra tasks">
+            <button className="btn secondary block" onClick={() => setShowExtra((s) => !s)} aria-expanded={showExtra}>
+              {showExtra ? 'Hide' : 'Show'} {t.extra.length} more, left out of today
+            </button>
+            {showExtra && (
+              <div className="tasklist">
+                {t.deferred.slice(0, 12).map((d) => <TaskCard key={d.item.task.id} task={d.item.task} compact note={DEFER_NOTE[d.reason](t.totalBudget)} />)}
+              </div>
+            )}
+          </section>
+        )}
+
+        {t.done.length > 0 && (
+          <section className="stack" aria-label="Done today">
+            <button className="btn ghost block" onClick={() => setShowDone((s) => !s)} aria-expanded={showDone}><I.checkCircle size={18} aria-hidden /> {t.done.length} done today {showDone ? '▲' : '▼'}</button>
+            {showDone && (
+              <div className="tasklist">
+                {t.done.map((e) => (
+                  <div className="task" key={e.id} style={{ gridTemplateColumns: '44px 1fr', opacity: 0.8 }}>
+                    <span className="check on"><I.check size={22} strokeWidth={3} aria-hidden /></span>
+                    <div><div className="task-name">{e.name}</div><div className="task-meta"><span>{e.roomName}</span><span>{e.actualMinutes} min</span></div></div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {t.optional.length > 0 && (
+          <section className="stack" aria-labelledby="opt-h" data-testid="optional-ideas">
+            <div className="section-title"><h2 id="opt-h">Ideas, only if you want</h2><span className="small muted">not counted in your day</span></div>
+            <div className="tasklist">{t.optional.map((f) => <TaskCard key={f.task.id} task={f.task} compact />)}</div>
+          </section>
+        )}
+
+        <div className="card soft row between">
+          <div><p className="strong">Tomorrow</p><p className="small muted">{tomorrow.tasks.length ? `${tomorrow.tasks.length} task${tomorrow.tasks.length === 1 ? '' : 's'} · about ${formatMinutes(tomorrow.minutes)}` : 'A free day.'}</p></div>
+          <a className="btn ghost sm" href="#/schedule">See schedule</a>
+        </div>
+    </>
+  );
+  const cards = visibleCards(data.modules);
+
   return (
     <div className="page">
       <PageHead
@@ -119,136 +279,18 @@ export const Today = () => {
 
       {fresh.show && <FreshStartCard days={fresh.daysAway} neverLogged={fresh.neverLogged} />}
 
-      <section className="hero-card" aria-label="Today at a glance">
-        <p className="small" style={{ opacity: 0.9 }}>{restDay ? (lifeOn ? 'Rest day from cleaning' : 'Rest day') : 'Today'}</p>
-        <h2 style={{ marginTop: 4 }}>
-          {totalN === 0 ? (restDay ? 'Nothing planned. Enjoy it.' : 'Nothing due today.')
-            : focusLeft === 0 ? 'All done for today. Nice work.'
-            : restDay && t.life.length === 0 ? `Just ${focusLeft} tiny daily habit${focusLeft === 1 ? '' : 's'}`
-            : `${focusLeft} thing${focusLeft === 1 ? '' : 's'} left · about ${formatMinutes(plannedMinutes)}`}
-        </h2>
-        {totalN > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <ProgressBar value={totalN ? doneN / totalN : 0} label="Today's progress" />
-            <p className="small" style={{ marginTop: 8, opacity: 0.92 }}>
-              {doneN} done{t.doneMinutes ? ` · ${formatMinutes(t.doneMinutes)} ${lifeOn ? 'logged' : 'cleaned'}` : ''}
-              {lifeOn ? (t.totalBudget ? ` · daily goal ${t.totalBudget} min` : '') : (homeOn && !restDay && t.budget ? ` · session goal ${plan.sessionMinutes} min` : '')}
-            </p>
-            {focusLeft > 0 && laterCount > 0 && (
-              <p className="small" style={{ marginTop: 4, opacity: 0.92 }}>{nowCount} for right now · {laterCount} for later today</p>
-            )}
-            {t.overBy > 0 && (
-              <p className="small" style={{ marginTop: 4, opacity: 0.92 }} role="status">
-                That is {t.overBy} min over your {t.totalBudget}-minute goal, because {t.overBecause.map((x) => `"${x.name}"`).join(' and ')} {t.overBecause.length === 1 ? 'is an urgent task' : 'are urgent tasks'} you added. Everything else was left out to keep to your time.
-              </p>
-            )}
-          </div>
-        )}
-        {restDay && <p className="small" style={{ marginTop: 10, opacity: 0.92 }}>It's not one of your cleaning days. If you're feeling it anyway, try one of the quick options below.</p>}
-      </section>
-
-      <section aria-label="Quick actions" className={`quick-actions${homeOn ? '' : ' two'}`}>
-        <button className="qa five" onClick={() => openSheet({ kind: 'five' })}>
-          <span className="ic"><I.timer size={24} aria-hidden /></span>
-          <span><b>Just 5 minutes</b><span className="s">One tiny task. Then stop or keep going.</span></span>
-        </button>
-        <button className="qa time" onClick={() => openSheet({ kind: 'timebox' })}>
-          <span className="ic"><I.clock size={24} aria-hidden /></span>
-          <span><b>I only have…</b><span className="s">Pick your minutes. We pick the tasks.</span></span>
-        </button>
-        {homeOn && (
-          <button className="qa mess" onClick={() => openSheet({ kind: 'emergency' })}>
-            <span className="ic"><I.sparkles size={24} aria-hidden /></span>
-            <span><b>My home is a mess</b><span className="s">A calm reset, most visible things first.</span></span>
-          </button>
-        )}
-      </section>
-
-      {lifeOn && (
-        <button className="card soft row between" style={{ textAlign: 'left', width: '100%' }} onClick={() => openSheet({ kind: 'roughDay' })}>
-          <span className="row" style={{ gap: 12 }}><I.heart size={22} aria-hidden style={{ color: 'var(--primary)' }} /><span><b>Rough day?</b><br /><span className="small muted">A few tiny, gentle things to get back on track. No catching up.</span></span></span>
-          <I.right size={20} aria-hidden />
-        </button>
-      )}
-
-      {showEnergy && (
-        <div className="card soft row between wrap" role="group" aria-label="Energy today">
-          <div><p className="strong">How's your energy today?</p><p className="small muted">We'll adjust today's list.</p></div>
-          <div className="chips">
-            {([['low', 'Low'], ['ok', 'Okay'], ['high', 'High']] as const).map(([v, l]) => (
-              <Chip key={v} role="radio" on={t.energy === v} onClick={() => dispatch({ type: 'DAY_ENERGY', level: v, stamp: stamp() })}>{l}</Chip>
-            ))}
+      {!data.modules.introSeen && (
+        <div className="card tint stack" role="region" aria-label="New sections" data-testid="sections-intro">
+          <div className="row"><I.sparkles size={22} aria-hidden /><h2 className="h3">CleanFlow now covers more than cleaning</h2></div>
+          <p className="small">You can plan movement, meals, learning and hobbies, and wellbeing next to your cleaning, in one daily plan. Everything you have stays exactly as it is. Turn on only what you want.</p>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <a className="btn" href="#/settings" onClick={() => dispatch({ type: 'MODULE_INTRO_SEEN' })}>Choose what to use</a>
+            <Button variant="secondary" onClick={() => dispatch({ type: 'MODULE_INTRO_SEEN' })}>Not now</Button>
           </div>
         </div>
       )}
 
-      {insights.map((i) => <InsightCard key={i.id} insight={i} />)}
-
-      <GoalCoverageCard compact />
-
-      {lifeSection}
-
-      {(homeOn || t.focus.length > 0) && (
-      <section aria-labelledby="today-h" className="stack">
-        <div className="section-title"><h2 id="today-h">{restDay ? 'Daily basics' : 'Your list for today'}</h2>{nonHabitFocus.length > 0 && <span className="small muted">{nonHabitFocus.length} task{nonHabitFocus.length === 1 ? '' : 's'}</span>}</div>
-        {t.focus.length === 0 ? (
-          <Empty title={doneN > 0 ? 'Everything on today\'s list is done' : restDay ? 'No cleaning planned today' : 'Nothing due today'}>
-            {doneN > 0 ? "That's a good day's work." : 'Enjoy the breathing room. You can still grab a quick win below.'}
-          </Empty>
-        ) : (
-          <>
-            {homeBuckets.now.length > 0
-              ? <div className="tasklist" data-bucket="now" data-scope="home">{homeBuckets.now.map((f) => <TaskCard key={f.task.id} task={f.task} />)}</div>
-              : <p className="small muted">Nothing for right now. What is planned for later is below.</p>}
-            {quietBucket('later', 'Later today', TIME_ICON.afternoon, homeBuckets.later, 'Coming up this afternoon', 'home')}
-            {quietBucket('evening', 'This evening', TIME_ICON.evening, homeBuckets.evening, 'Winds the day down. It will be here tonight.', 'home')}
-            {quietBucket('earlier', 'Earlier today', TIME_ICON.morning, homeBuckets.earlier, 'Still open, and that is fine. No rush.', 'home')}
-          </>
-        )}
-      </section>
-      )}
-
-      {t.catchUp.length > 0 && (
-        <section aria-labelledby="catch-h" className="stack">
-          <div className="section-title"><h2 id="catch-h">Gentle catch-up</h2><span className="small muted">only if you want</span></div>
-          <p className="small muted">A couple of things slipped by. No pressure. The rest will simply roll to their next slot.</p>
-          <div className="tasklist">{t.catchUp.map((f) => <TaskCard key={f.task.id} task={f.task} overdue />)}</div>
-        </section>
-      )}
-
-      {t.extra.length > 0 && (
-        <section className="stack" aria-label="Extra tasks">
-          <button className="btn secondary block" onClick={() => setShowExtra((s) => !s)} aria-expanded={showExtra}>
-            {showExtra ? 'Hide' : 'Show'} {t.extra.length} more, left out of today
-          </button>
-          {showExtra && (
-            <div className="tasklist">
-              {t.deferred.slice(0, 12).map((d) => <TaskCard key={d.item.task.id} task={d.item.task} compact note={DEFER_NOTE[d.reason](t.totalBudget)} />)}
-            </div>
-          )}
-        </section>
-      )}
-
-      {t.done.length > 0 && (
-        <section className="stack" aria-label="Done today">
-          <button className="btn ghost block" onClick={() => setShowDone((s) => !s)} aria-expanded={showDone}><I.checkCircle size={18} aria-hidden /> {t.done.length} done today {showDone ? '▲' : '▼'}</button>
-          {showDone && (
-            <div className="tasklist">
-              {t.done.map((e) => (
-                <div className="task" key={e.id} style={{ gridTemplateColumns: '44px 1fr', opacity: 0.8 }}>
-                  <span className="check on"><I.check size={22} strokeWidth={3} aria-hidden /></span>
-                  <div><div className="task-name">{e.name}</div><div className="task-meta"><span>{e.roomName}</span><span>{e.actualMinutes} min</span></div></div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      <div className="card soft row between">
-        <div><p className="strong">Tomorrow</p><p className="small muted">{tomorrow.tasks.length ? `${tomorrow.tasks.length} task${tomorrow.tasks.length === 1 ? '' : 's'} · about ${formatMinutes(tomorrow.minutes)}` : 'A free day.'}</p></div>
-        <a className="btn ghost sm" href="#/schedule">See schedule</a>
-      </div>
+      {cards.map((c) => (c === 'plan' ? <Fragment key="plan">{planBody}</Fragment> : <TodayCardHost key={c} card={c} />))}
     </div>
   );
 };

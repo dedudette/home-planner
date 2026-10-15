@@ -7,6 +7,8 @@
  * reschedules) is stored separately and keyed by stable task ids.
  */
 
+import type { ActivityKind, ActivityModule, ActivityRef, ModulesState, PlannedActivity } from './modules/types';
+
 export type ISODate = string; // 'YYYY-MM-DD' in the user's local time
 
 // ───────────────────────── Home ─────────────────────────
@@ -109,6 +111,11 @@ export interface Preferences {
   lifeLevel: LifeLevel;
   /** Date the current level started. Progression is judged over the time spent at a level, never before. */
   levelSince: ISODate | null;
+  /**
+   * DERIVED, never stored: set only by `planPrefs` when at least one section (movement, meals…) is on. It lets a person who wants
+   * no cleaning plan and no generated habits still have a day to plan, instead of being given a home they did not ask for.
+   */
+  sections?: boolean;
 }
 
 export interface User { id: string; name: string; createdAt: string; demo: boolean }
@@ -135,7 +142,7 @@ export interface Room {
 
 /** Where a task lives. 'home' is the original cleaning plan; the rest are the personal-discipline layer. */
 export type Domain =
-  | 'home' | 'fitness' | 'breathing' | 'care' | 'mind' | 'digital' | 'admin' | 'learning' | 'outdoor' | 'sleep';
+  | 'home' | 'fitness' | 'breathing' | 'care' | 'mind' | 'digital' | 'admin' | 'learning' | 'outdoor' | 'sleep' | 'meals';
 export type LifeDomain = Exclude<Domain, 'home'>;
 
 /** What the user wants to improve. Chosen in onboarding, multi-select. */
@@ -213,6 +220,22 @@ export interface Task {
   challenge?: boolean; // above the user's current level: optional, never scheduled automatically
   /** Goals this task was chosen for (life tasks). Recorded on log entries for later analysis. */
   matches?: LifeFocus[];
+
+  // ── Planned activities (workouts, meal prep, learning, routines). Set only on tasks built from a PlannedActivity. ──
+  /** The PlannedActivity this task is. Its id is `act:<activityId>`; there is exactly one identity and one completion record. */
+  activityId?: string;
+  module?: ActivityModule;
+  kind?: ActivityKind;
+  /** The person scheduled this themselves, so the planner never drops it for time. Energy and safety rules still apply. */
+  userPlanned?: boolean;
+  /** 'HH:MM' for a fixed activity. */
+  time?: string | null;
+  /** Shown instead of the frequency label, for example "Mon, Wed, Fri". */
+  scheduleLabel?: string;
+  /** Last date this can be due. After it the task is no longer offered (a fixed activity on a past date is not carried forward). */
+  expires?: ISODate;
+  /** What the activity points at in its own section (a workout, a recipe…). */
+  ref?: ActivityRef | null;
 }
 
 export interface CustomTask {
@@ -250,7 +273,7 @@ export type EntryVia = 'checkoff' | 'timer' | 'five' | 'timebox' | 'reset' | 'pl
  * Where the action was taken. `via` says how (a tick, a timer, "Just 5 minutes"…) and is ambiguous across screens ('plan' covers
  * skips from Today, Plan and Schedule alike), so this says which screen or sheet it came from. Absent on older entries: unknown.
  */
-export type EntrySurface = 'today' | 'plan' | 'schedule' | 'progress' | 'home' | 'supplies' | 'settings' | 'more' | 'detail' | 'timebox' | 'five' | 'reset' | 'rough' | 'timer' | 'other';
+export type EntrySurface = 'today' | 'plan' | 'schedule' | 'progress' | 'home' | 'supplies' | 'settings' | 'more' | 'detail' | 'timebox' | 'five' | 'reset' | 'rough' | 'timer' | 'movement' | 'meals' | 'learning' | 'wellbeing' | 'other';
 /**
  * How the task related to the day's planner decision at the moment of the action:
  *  selected    the planner had put it on the day's list
@@ -525,7 +548,7 @@ export interface RetentionNote {
 }
 
 export interface AppData {
-  version: 2;
+  version: 3;
   user: User;
   home: Home;
   preferences: Preferences;
@@ -547,4 +570,8 @@ export interface AppData {
   recEvents: RecommendationEvent[];
   /** Every time history was compacted to fit in storage. Lets any later analysis know where the data really starts. */
   retention: RetentionNote[];
+  // ── Sections beyond cleaning (v3) ──
+  modules: ModulesState;
+  /** Everything the person planned in a section: the same planner, the same Today, one identity each. */
+  activities: PlannedActivity[];
 }

@@ -19,25 +19,27 @@ import { EmergencySheet } from './features/modes/Emergency';
 import { RoughDaySheet } from './features/modes/RoughDay';
 import { TaskDetailSheet, RescheduleSheet } from './features/tasks/TaskDetail';
 import { TaskFormSheet } from './features/tasks/TaskForm';
+import { ActivityFormSheet } from './features/activities/ActivityForm';
 import { TimerBar, TimerPickSheet, TimerSheet } from './features/tasks/TimerSheet';
+import { SectionPage } from './features/sections/SectionPage';
+import { PRIMARY, SETTINGS_ITEM, sectionsFor } from './features/nav';
 import { useApp } from './state/store';
 import { I } from './ui/icons';
 import { navigate, useRoute } from './ui/router';
 
-const NAV = [
-  { path: 'today', label: 'Today', icon: I.sun },
-  { path: 'plan', label: 'Plan', icon: I.list },
-  { path: 'schedule', label: 'Schedule', icon: I.calDays },
-  { path: 'progress', label: 'Progress', icon: I.chart },
-] as const;
-/** Home and Supplies only exist for people who asked for a cleaning plan. Everyone else gets "My goals" instead of a pretend home. */
-const sideExtra = (homeOn: boolean) => [
-  { path: 'home', label: homeOn ? 'My Home' : 'My goals', icon: homeOn ? I.home : I.flame },
-  ...(homeOn ? [{ path: 'supplies', label: 'Supplies', icon: I.package }] : []),
-  { path: 'settings', label: 'Settings', icon: I.settings },
-];
+const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', patterns: 'Your patterns', home: 'Home', supplies: 'Supplies', settings: 'Settings', more: 'More', movement: 'Movement', meals: 'Meals & shopping', learning: 'Learning & hobbies', wellbeing: 'Wellbeing' };
 
-const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', patterns: 'Your patterns', home: 'My Home', supplies: 'Supplies', settings: 'Settings', more: 'More' };
+/** A section the person switched off. The page says so and how to bring it back; their data in it is untouched. */
+const SectionOff = ({ path }: { path: string }) => (
+  <div className="page">
+    <div className="empty">
+      <I.info size={34} aria-hidden />
+      <h2 className="h3" style={{ marginTop: 8 }}>{TITLES[path]} is switched off</h2>
+      <div className="small" style={{ marginTop: 6 }}>Turn it on in Settings. Anything you planned in it is still saved.</div>
+      <a className="btn sm" style={{ marginTop: 12 }} href="#/settings">Open Settings</a>
+    </div>
+  </div>
+);
 
 const SheetHost = () => {
   const { sheets } = useApp();
@@ -53,6 +55,7 @@ const SheetHost = () => {
     case 'roughDay': return <RoughDaySheet />;
     case 'confirm': { const { kind: _k, ...o } = top; void _k; return <ConfirmSheet {...o} />; }
     case 'taskForm': return <TaskFormSheet editId={top.editId} />;
+    case 'activityForm': return <ActivityFormSheet editId={top.editId} defaults={top.defaults} />;
     case 'reschedule': return <RescheduleSheet task={top.task} />;
     case 'editHome': return <EditHomeSheet section={top.section} />;
   }
@@ -101,6 +104,7 @@ export const App = () => {
   const { ready, data, openSheet, recovery, startFresh, repo } = useApp();
   const route = useRoute();
   const homeOn = data.preferences.focus.includes('home');
+  const sections = sectionsFor(data);
 
   useEffect(() => {
     const p = route.path.split('/')[0];
@@ -127,13 +131,15 @@ export const App = () => {
       case 'patterns': return <Patterns />;
       case 'home': return <MyHome isNew={route.query.get('new') === '1'} />;
       case 'supplies': return homeOn ? <Supplies /> : <Today />;
+      case 'movement': case 'meals': case 'learning': case 'wellbeing':
+        return sections.some((x) => x.path === path) ? <SectionPage module={path} /> : <SectionOff path={path} />;
       case 'settings': return <Settings />;
       case 'more': return <More />;
       default: return <Today />;
     }
   })();
-  const moreActive = ['more', 'home', 'supplies', 'settings'].includes(path);
   const navPath = path === 'patterns' ? 'progress' : path;
+  const moreActive = !PRIMARY.some((n) => n.path === navPath);
 
   return (
     <div className="app">
@@ -141,7 +147,7 @@ export const App = () => {
       <aside className="sidebar" aria-label="Main">
         <a className="brand" href="#/today"><span className="brand-mark"><I.sparkles size={20} aria-hidden /></span>CleanFlow</a>
         <nav className="stack" style={{ gap: 4 }}>
-          {[...NAV, ...sideExtra(homeOn)].map((n) => (
+          {[...PRIMARY, ...sections, SETTINGS_ITEM].map((n) => (
             <a key={n.path} href={`#/${n.path}`} aria-current={navPath === n.path ? 'page' : undefined}><n.icon size={20} aria-hidden />{n.label}</a>
           ))}
         </nav>
@@ -156,7 +162,7 @@ export const App = () => {
       </main>
 
       <nav className="bottomnav" aria-label="Main">
-        {NAV.map((n) => (
+        {PRIMARY.map((n) => (
           <a key={n.path} href={`#/${n.path}`} aria-current={navPath === n.path ? 'page' : undefined}><n.icon size={22} aria-hidden />{n.label}</a>
         ))}
         <a href="#/more" aria-current={moreActive ? 'page' : undefined}><I.menu size={22} aria-hidden />More</a>

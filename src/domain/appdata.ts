@@ -1,9 +1,10 @@
 import { emptyHome, emptyPreferences } from './context';
 import { todayISO } from './dates';
+import { emptyModules } from './modules/registry';
 import type { AppData } from './types';
 
 export const emptyAppData = (today = todayISO()): AppData => ({
-  version: 2,
+  version: 3,
   user: { id: `u_${Math.random().toString(36).slice(2, 10)}`, name: '', createdAt: new Date().toISOString(), demo: false },
   home: emptyHome(),
   preferences: emptyPreferences(),
@@ -23,6 +24,8 @@ export const emptyAppData = (today = todayISO()): AppData => ({
   planVersions: [],
   recEvents: [],
   retention: [],
+  modules: emptyModules(),
+  activities: [],
 });
 
 export const uid = (prefix = 'id'): string => `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;

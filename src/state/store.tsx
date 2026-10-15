@@ -3,12 +3,14 @@ import {
 } from 'react';
 import { emptyAppData, uid } from '../domain/appdata';
 import { todayISO } from '../domain/dates';
-import { generatePlan, type Plan } from '../domain/engine';
+import type { Plan } from '../domain/engine';
+import { planOf } from '../domain/planInputs';
 import { buildExposure, hasNewExposure } from '../domain/exposure';
 import { planVersionOf, snapshotPlanVersion } from '../domain/planVersion';
 import {
   extendTimer, pauseTimer, resolveTimerTask, resumeTimer, startTimer, tick, elapsedMinutes, type TimerState,
 } from '../domain/timer';
+import type { ActivityDefaults } from '../domain/modules/types';
 import type { AppData, EntrySurface, ISODate, RecommendationEvent, Task } from '../domain/types';
 import { buildView, type PlanView } from '../domain/view';
 import { LocalStorageRepository, exportJSON, type LoadResult, type Repository } from '../storage/repository';
@@ -42,6 +44,7 @@ export type Sheet =
   | { kind: 'emergency' }
   | { kind: 'roughDay' }
   | { kind: 'taskForm'; editId?: string }
+  | { kind: 'activityForm'; editId?: string; defaults?: ActivityDefaults }
   | { kind: 'reschedule'; task: Task }
   | { kind: 'editHome'; section: EditSection }
   | ({ kind: 'confirm' } & ConfirmOptions);
@@ -143,7 +146,7 @@ export const currentSurface = (sheets: Sheet[]): EntrySurface => {
     default: break;
   }
   const route = (typeof window === 'undefined' ? '' : window.location.hash).replace(/^#\/?/, '').split(/[/?]/)[0] || 'today';
-  return (['today', 'plan', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more'] as const).find((r) => r === route) ?? 'other';
+  return (['today', 'plan', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more', 'movement', 'meals', 'learning', 'wellbeing'] as const).find((r) => r === route) ?? 'other';
 };
 
 const nowStamp = (): Stamp => { const d = new Date(); return { now: d.toISOString(), today: todayISO(), hour: d.getHours(), tz: d.getTimezoneOffset() }; };
@@ -292,13 +295,13 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   const stamp = useCallback((): Stamp => nowStamp(), []);
 
   const plan = useMemo(
-    () => generatePlan(data.home, data.preferences, data.plan),
-    [data.home, data.preferences, data.plan],
+    () => planOf(data),
+    [data.home, data.preferences, data.plan, data.modules],
   );
   const view = useMemo(() => buildView(data, plan, today), [data, plan, today]);
 
   // ── analytics foundation: plan versions and what was scheduled each day ──
-  const pvId = useMemo(() => planVersionOf(data), [data.home, data.preferences, data.plan.resetCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pvId = useMemo(() => planVersionOf(data), [data.home, data.preferences, data.modules, data.plan.resetCount]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!ready || recovery || !data.onboardingComplete) return;
     if (data.planVersions[data.planVersions.length - 1]?.id === pvId) return;

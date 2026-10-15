@@ -277,7 +277,7 @@ export const deriveContext = (home: Home, prefs: Preferences): Ctx => {
   const blockers = new Set(prefs.blockers);
   const goals = new Set(prefs.goals);
   // Data saved before the life layer existed has no focus: treat it as the original home-cleaning app.
-  const focus = new Set<LifeFocus>(prefs.focus?.length ? prefs.focus : ['home']);
+  const focus = new Set<LifeFocus>(prefs.focus?.length ? prefs.focus : prefs.sections ? [] : ['home']);
   const microSteps =
     blockers.has('overwhelming') || blockers.has('where-to-start') || blockers.has('too-many-things') ||
     goals.has('less-overwhelm') || energy === 'very-low' || mess >= 5;
@@ -295,7 +295,8 @@ export const deriveContext = (home: Home, prefs: Preferences): Ctx => {
   const activeDays = pickActiveDays(daysPerWeek, resolvedStyle === 'weekend');
 
   const homeOn = focus.has('home');
-  const lifeActive = [...focus].some((f) => f !== 'home');
+  // Sections (movement, meals…) share the day like habits do, but only when cleaning is off: cleaning alone keeps its whole day.
+  const lifeActive = [...focus].some((f) => f !== 'home') || (!!prefs.sections && !focus.has('home'));
   const lifeShare = lifeActive ? (homeOn ? 0.4 : 1) : 0;
   const homeShare = homeOn ? (lifeActive ? 0.6 : 1) : 0.25;
 

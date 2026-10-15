@@ -275,7 +275,7 @@ for (const [hour, expectNow, expectCollapsed, label] of [[8, 'Morning', 'evening
   const { ctx, page } = await mk();
   await fresh(page);
   await step('onboarding with only "physically active" lands on Today, not My Home', async () => {
-    await page.getByRole('button', { name: 'Build my plan' }).first().click(); await page.waitForSelector('text=What do you want to improve');
+    await page.getByRole('button', { name: 'Build my plan' }).first().click(); await page.waitForSelector('text=What do you want help with');
     await page.getByRole('checkbox', { name: /Keep my home clean/ }).click();
     await page.getByRole('checkbox', { name: /physically active/ }).click();
     await page.getByRole('button', { name: 'Continue' }).click();                                   // time
@@ -437,7 +437,7 @@ for (const h of [0, 6, 8, 12, 15, 18, 21, 23]) {
   await step('life-only: no screen talks about cleaning, mess, chores or "your home"', async () => {
     const WORDS = /\b(clean(ed|ing|er)?|mess(y)?|chores?|housework|dish(es)?|mop(ping)?|vacuum(ing)?|laundry|your home)\b/i;
     // places that legitimately mention it: the brand name, the demo list in Settings, and the opt-in offer to add a cleaning plan
-    const ALLOWED = /CleanFlow|Want a cleaning plan too\?|Add a cleaning plan|No cleaning plan/;
+    const ALLOWED = /CleanFlow|Want a cleaning plan too\?|Add a cleaning plan|No cleaning plan|^Home & cleaning$|^A room-by-room cleaning plan for your home$/;
     const bad = [];
     for (const r of ['today', 'plan', 'schedule', 'progress', 'home', 'settings', 'more']) {
       await page.evaluate((x) => (location.hash = '#/' + x), r); await page.waitForTimeout(250);

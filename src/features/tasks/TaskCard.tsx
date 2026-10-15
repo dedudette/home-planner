@@ -6,6 +6,7 @@ import { DOMAIN_ICON, I, ROOM_ICON, TIME_ICON } from '../../ui/icons';
 import { isLife } from '../../domain/scoring';
 import { TIME_LABEL } from '../../domain/options';
 import { Button, Dots, PriorityTag, cx } from '../../ui/primitives';
+import { clockLabel } from '../../domain/modules/registry';
 
 export const DIFF_LABEL = ['', 'Easy', 'Medium', 'Hard'];
 
@@ -71,12 +72,16 @@ export const TaskCard = ({ task, done, overdue, dueLabel, hideTimer, hideMenu, c
           <span className="m"><RoomIcon size={14} aria-hidden /> {task.roomName}</span>
           <span className="m"><I.clock size={14} aria-hidden /> {task.minutes} min</span>
           {!compact && <span className="m" title={task.challenge ? 'Optional stretch' : `Difficulty: ${DIFF_LABEL[task.difficulty]}`}><Dots n={task.difficulty} /> {!task.challenge && <span className="sr-only">Difficulty </span>}{task.challenge ? 'Stretch' : DIFF_LABEL[task.difficulty]}</span>}
-          <span className="m"><I.repeat size={14} aria-hidden /> {task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency]}</span>
+          <span className="m"><I.repeat size={14} aria-hidden /> {task.scheduleLabel ?? (task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency])}</span>
+          {task.kind === 'fixed' && task.time && <span className="m" data-testid="fixed-time"><I.alarm size={14} aria-hidden /> {clockLabel(task.time)}</span>}
           {dueLabel && <span className="m"><I.cal size={14} aria-hidden /> {dueLabel}</span>}
           {life && task.timeOfDay && task.timeOfDay !== 'anytime' && <span className="m"><TodIcon size={14} aria-hidden /> {TIME_LABEL[task.timeOfDay]}</span>}
         </div>
         <div className="row wrap" style={{ marginTop: 8, gap: 6 }}>
-          {task.challenge ? <span className="tag lav"><I.trophy size={12} aria-hidden /> Optional challenge</span> : <PriorityTag p={task.priority} />}
+          {task.challenge ? <span className="tag lav"><I.trophy size={12} aria-hidden /> Optional challenge</span>
+            : task.kind === 'optional' ? <span className="tag lav">Optional idea</span>
+            : task.kind ? <span className="tag green">{task.kind === 'fixed' ? 'Set time' : 'Planned by you'}</span>
+            : <PriorityTag p={task.priority} />}
           {overdue && <span className="tag lav">Whenever you're ready</span>}
           {life && task.intensity && task.domain === 'fitness' && <span className="tag">{task.intensity === 'gentle' ? 'Gentle' : task.intensity === 'moderate' ? 'Moderate' : 'Vigorous'}{task.lowImpact ? ' · low impact' : ''}</span>}
           {task.part && <span className="tag green">Part {task.part.index} of {task.part.of}</span>}

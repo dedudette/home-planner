@@ -1,4 +1,6 @@
 import { emptyAppData } from '../domain/appdata';
+import { anyModuleOn, defaultModulesFor } from '../domain/modules/registry';
+import { validateActivities, validateModules } from './moduleSchema';
 import { emptyHome, emptyPreferences } from '../domain/context';
 import {
   BLOCKERS, CLEANLINESS, ENERGY, EQUIPMENT_OPTIONS, FITNESS_LEVELS, FOCUS_OPTIONS, GARAGE_SIZES, GOALS, HOME_TYPES, PET_CHOICES,
@@ -20,7 +22,12 @@ import type {
  *    before anything overwrites it.
  */
 
-export const SCHEMA_VERSION = 2;
+import {
+  bool, Ctx, date, intn, isISODate, isObj, isoStamp, keepFirst, keepNewest, list, num, oneOf, oneOfOrNull, str, strList, values,
+} from './primitives';
+export { isISODate };
+
+export const SCHEMA_VERSION = 3;
 
 export interface ValidationResult {
   data: AppData;
@@ -33,10 +40,7 @@ export interface ValidationResult {
   fromFuture: boolean;
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const values = <T extends string>(opts: readonly { value: T }[]): readonly T[] => opts.map((o) => o.value);
-
-const DOMAINS: readonly Domain[] = ['home', 'fitness', 'breathing', 'care', 'mind', 'digital', 'admin', 'learning', 'outdoor', 'sleep'];
+const DOMAINS: readonly Domain[] = ['home', 'fitness', 'breathing', 'care', 'mind', 'digital', 'admin', 'learning', 'outdoor', 'sleep', 'meals'];
 const FREQS: readonly Frequency[] = ['daily', 'twice-weekly', 'weekly', 'biweekly', 'monthly', 'seasonal', 'deep', 'once'];
 const PRIOS: readonly Priority[] = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'];
 const OUTCOMES = ['completed', 'skipped', 'snoozed', 'moved', 'stopped'] as const;
@@ -44,7 +48,7 @@ const VIAS = ['checkoff', 'timer', 'five', 'timebox', 'reset', 'plan'] as const;
 const ROOM_KINDS = ['kitchen', 'bathroom', 'bedroom', 'living', 'dining', 'office', 'hallway', 'laundry', 'storage', 'balcony', 'garage', 'basement', 'attic', 'other', 'home'] as const;
 const TODS: readonly TimeOfDay[] = ['morning', 'afternoon', 'evening', 'anytime'];
 const INTENSITIES = ['gentle', 'moderate', 'vigorous'] as const;
-const SURFACES = ['today', 'plan', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more', 'detail', 'timebox', 'five', 'reset', 'rough', 'timer', 'other'] as const;
+const SURFACES = ['today', 'plan', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more', 'detail', 'timebox', 'five', 'reset', 'rough', 'timer', 'movement', 'meals', 'learning', 'wellbeing', 'other'] as const;
 const PLANNED = ['selected', 'left-out', 'not-planned'] as const;
 const EXCLUSIONS = ['not-enough-time', 'low-energy-day', 'not-a-cleaning-day'] as const;
 const ENERGY_LEVELS = ['low', 'ok', 'high'] as const;
@@ -55,52 +59,6 @@ const ENERGY_LEVELS = ['low', 'ok', 'high'] as const;
  * Lists that are chronological keep their NEWEST items, because recent behaviour is what matters most.
  */
 const MAX = { sessions: 50_000, entriesPerSession: 400, customTasks: 500, supplies: 300, exposures: 120, planVersions: 60, recEvents: 400, taskStates: 5000, energyDays: 3650, retention: 20 };
-
-class Ctx {
-  repairs: string[] = [];
-  dropped = 0;
-  note(msg: string) { if (!this.repairs.includes(msg)) this.repairs.push(msg); }
-}
-
-/** The newest `max` of a chronological list, and a note saying how many older ones went. */
-const keepNewest = <T,>(arr: T[], max: number, c: Ctx, what: string): T[] => {
-  if (arr.length <= max) return arr;
-  const n = arr.length - max;
-  c.dropped += n;
-  c.note(`${n} older ${what} ${n === 1 ? 'was' : 'were'} left out because this version keeps at most ${max}. The newest were kept.`);
-  return arr.slice(-max);
-};
-/** The first `max` of a list that has no time order (the person's own tasks, supplies), and a note about the rest. */
-const keepFirst = <T,>(arr: T[], max: number, c: Ctx, what: string): T[] => {
-  if (arr.length <= max) return arr;
-  const n = arr.length - max;
-  c.dropped += n;
-  c.note(`${n} ${what} ${n === 1 ? 'was' : 'were'} left out because this version keeps at most ${max}.`);
-  return arr.slice(0, max);
-};
-
-const str = (v: unknown, d = '', max = 500): string => (typeof v === 'string' ? v.slice(0, max) : d);
-const bool = (v: unknown, d = false): boolean => (typeof v === 'boolean' ? v : d);
-const num = (v: unknown, d: number, lo = -Infinity, hi = Infinity): number => {
-  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
-  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
-};
-const intn = (v: unknown, d: number, lo: number, hi: number) => Math.round(num(v, d, lo, hi));
-const oneOf = <T extends string>(v: unknown, allowed: readonly T[], d: T): T => (typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : d);
-const oneOfOrNull = <T extends string>(v: unknown, allowed: readonly T[]): T | null => (typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : null);
-const list = <T extends string>(v: unknown, allowed: readonly T[]): T[] =>
-  Array.isArray(v) ? [...new Set(v.filter((x): x is T => typeof x === 'string' && (allowed as readonly string[]).includes(x)))] : [];
-const strList = (v: unknown, max = 200): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, max) : []);
-
-/** True for a real calendar date in YYYY-MM-DD form. */
-export const isISODate = (v: unknown): v is ISODate => {
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
-  const [y, m, d] = v.split('-').map(Number);
-  const dt = new Date(y, m - 1, d, 12);
-  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
-};
-const date = (v: unknown): ISODate | null => (isISODate(v) ? v : null);
-const isoStamp = (v: unknown, fallback: string): string => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : fallback);
 
 // ───────────────────────── sections ─────────────────────────
 
@@ -134,11 +92,12 @@ const validateHome = (raw: unknown, c: Ctx): AppData['home'] => {
   };
 };
 
-const validatePrefs = (raw: unknown, c: Ctx): AppData['preferences'] => {
+const validatePrefs = (raw: unknown, c: Ctx, sectionsOn: boolean): AppData['preferences'] => {
   const d = emptyPreferences();
   if (!isObj(raw)) { if (raw !== undefined) c.note('Preferences were unreadable and were reset.'); return d; }
   let focus = list(raw.focus, values(FOCUS_OPTIONS));
-  if (!focus.length) {
+  // An empty focus is real once sections exist: someone who wants meals and water, and no cleaning plan, has no goals to list.
+  if (!focus.length && !(sectionsOn && Array.isArray(raw.focus))) {
     // Saves from before the life layer have no focus: they are the original home-cleaning app.
     focus = ['home'];
     if (raw.focus !== undefined && !(Array.isArray(raw.focus) && raw.focus.length === 0)) c.note('Your focus areas were unreadable, so cleaning was selected.');
@@ -384,6 +343,16 @@ const MIGRATIONS: Record<number, (d: Raw) => Raw> = {
   },
 };
 
+/** v2 → v3: sections and planned activities. Nothing existing changes; sections are switched on only where a goal already points at them. */
+MIGRATIONS[2] = (d) => {
+  const prefs = isObj(d.preferences) ? d.preferences : {};
+  return {
+    ...d, version: 3,
+    modules: isObj(d.modules) ? d.modules : defaultModulesFor(list(prefs.focus, values(FOCUS_OPTIONS)).length ? (list(prefs.focus, values(FOCUS_OPTIONS)) as LifeFocus[]) : ['home'], false),
+    activities: Array.isArray(d.activities) ? d.activities : [],
+  };
+};
+
 export const migrate = (raw: Raw): { raw: Raw; from: number } => {
   const found = typeof raw.version === 'number' && Number.isFinite(raw.version) ? Math.floor(raw.version) : 1;
   let cur = raw;
@@ -423,11 +392,15 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
   const energyDay = isObj(raw.dayEnergy) && date(raw.dayEnergy.date) && (ENERGY_LEVELS as readonly unknown[]).includes(raw.dayEnergy.level)
     ? { date: raw.dayEnergy.date as ISODate, level: raw.dayEnergy.level as 'low' | 'ok' | 'high' } : null;
 
-  const prefs = validatePrefs(raw.preferences, c);
+  const rawPrefs = isObj(raw.preferences) ? raw.preferences : {};
+  const legacyFocus = list(rawPrefs.focus, values(FOCUS_OPTIONS)) as LifeFocus[];
+  const modules = validateModules(raw.modules, legacyFocus, c);
+  // An empty focus is real while onboarding is still open (nothing is pre-selected) and once sections exist.
+  const prefs = validatePrefs(raw.preferences, c, anyModuleOn(modules) || raw.onboardingComplete !== true && Array.isArray(rawPrefs.focus));
   if (!prefs.levelSince) prefs.levelSince = planStart;
 
   const data: AppData = {
-    version: 2,
+    version: 3,
     user: { id: str(user.id, base.user.id, 60), name: str(user.name, '', 30), createdAt: isoStamp(user.createdAt, base.user.createdAt), demo: bool(user.demo) },
     home: validateHome(raw.home, c),
     preferences: prefs,
@@ -448,6 +421,8 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
     planVersions: keepNewest((Array.isArray(raw.planVersions) ? raw.planVersions : []).map(validatePlanVersion).filter((x): x is PlanVersion => !!x), MAX.planVersions, c, 'plan versions'),
     recEvents: keepNewest((Array.isArray(raw.recEvents) ? raw.recEvents : []).map(validateRecEvent).filter((x): x is RecommendationEvent => !!x), MAX.recEvents, c, 'suggestion events'),
     retention: validateRetention(raw.retention),
+    modules,
+    activities: validateActivities(raw.activities, t, c),
   };
   const found = from;
   const fromFuture = found > SCHEMA_VERSION;

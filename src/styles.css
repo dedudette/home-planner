@@ -533,3 +533,13 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .chips-static li { padding: 6px 10px; border-radius: 12px; background: var(--primary-soft); color: var(--ink); font-size: 0.85rem; max-width: 100%; overflow-wrap: anywhere; }
 .payload-json { margin: 8px 0 0; padding: 12px; border-radius: 12px; background: var(--bg-deep); color: var(--ink); font-size: 0.78rem; line-height: 1.45; overflow: auto; max-height: 260px; white-space: pre; }
 .payload-details summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; }
+
+/* ───────────── sections, activities and history ───────────── */
+.occ { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.occ-dot { width: 14px; height: 14px; border-radius: 4px; border: 2px solid var(--line-strong); background: transparent; }
+.occ-dot.completed { background: var(--primary); border-color: var(--primary); }
+.occ-dot.skipped { background: var(--clay-soft); border-color: var(--clay-ink); }
+.occ-dot.moved { background: var(--lav-soft); border-color: var(--lav-ink); }
+.occ-dot.unrecorded { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--line-strong) 3px 5px); border-style: dashed; }
+.occ-dot.scheduled { background: var(--primary-soft); }
+.switch-row { cursor: pointer; padding: 6px 0; min-height: 48px; }
