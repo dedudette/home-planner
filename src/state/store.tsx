@@ -20,6 +20,7 @@ import { compactHistory, storageLevel, type StorageLevel } from '../domain/reten
 import { hasUserData } from '../storage/schema';
 import { reducer, type Action, type Stamp } from './reducer';
 import { playChime } from './chime';
+import { takeLegacyTheme, useAppearanceEffect } from './appearanceEnv';
 
 export type EditSection = 'type' | 'size' | 'rooms' | 'people' | 'pets' | 'state' | 'style' | 'energy' | 'goals' | 'focus';
 
@@ -53,6 +54,11 @@ export type Sheet =
   | { kind: 'workout'; id: string }
   | { kind: 'workoutSession'; workoutId: string; taskId?: string }
   | { kind: 'workoutForm'; editId?: string }
+  | { kind: 'interest'; id: string }
+  | { kind: 'interestForm' }
+  | { kind: 'starter'; catalogId: string; starterId: string }
+  | { kind: 'logSession'; interestId?: string; starterId?: string; bookId?: string; minutes?: number; taskId?: string }
+  | { kind: 'bookForm'; editId?: string }
   | { kind: 'journal'; editId?: string }
   | { kind: 'waterEdit'; id: string }
   | { kind: 'shopGen' }
@@ -193,6 +199,15 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
     pending.current.push({ seq, a });
     rawDispatch({ kind: 'act', a, seq });
   }, []);
+
+  // How the app looks follows the saved appearance (and the device's light/dark and reduced-motion settings while those are on "system").
+  useAppearanceEffect(data.appearance, ready);
+  // An older version kept only a light/dark choice on this device. Carry it over once, then let go of the old key.
+  useEffect(() => {
+    if (!ready) return;
+    const t = takeLegacyTheme();
+    if (t && mirror.current.appearance.theme === 'system') dispatch({ type: 'APPEARANCE_SET', patch: { theme: t } });
+  }, [ready, dispatch]);
 
   /**
    * Take `base` (something that is already in storage at revision `baseRev`) as the truth and put our unsaved local actions back on

@@ -8,6 +8,7 @@ import { I } from '../../ui/icons';
 import { BarChart, Button, Chip, Empty, Hint, PageHead, Segmented, Tag } from '../../ui/primitives';
 import { navigate, useRoute } from '../../ui/router';
 import { PlannedActivities } from '../sections/SectionPage';
+import { OwlTipCard } from '../../ui/OwlTip';
 import { AVOID_LABEL, EQUIP_LABEL, LEVEL_LABEL, TYPE_LABEL, WorkoutTags } from './shared';
 
 type Tab = 'workouts' | 'plan' | 'progress' | 'setup';
@@ -167,6 +168,7 @@ export const Movement = () => {
     <div className="page">
       <PageHead title="Movement" sub="Walks, stretching and workouts at your own level. Nothing here is a target." />
       <Segmented<Tab> label="Movement sections" value={tab} onChange={(t) => navigate(`movement?tab=${t}`)} options={TABS} />
+      <OwlTipCard place="movement" />
       {tab === 'workouts' && <WorkoutsTab />}
       {tab === 'plan' && <PlannedActivities module="movement" />}
       {tab === 'progress' && <ProgressTab />}

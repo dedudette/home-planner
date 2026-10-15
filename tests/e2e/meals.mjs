@@ -201,7 +201,7 @@ const addMeal = async (page, { slot, recipe, servings, day = 'Today' }) => {
     for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'More servings' }).click();
     await page.locator('.card', { hasText: 'Three-bean veg chili' }).getByRole('button', { name: 'Choose' }).click();
     await page.waitForSelector('role=dialog', { state: 'detached' });
-    await page.getByRole('button', { name: 'Shopping list' }).click();
+    await page.getByRole('button', { name: 'Shopping list', exact: true }).click();
     await page.waitForSelector('role=dialog[name="Make a shopping list"]');
     await page.getByRole('radio', { name: 'Next 7 days' }).click();
     const t = await page.locator('role=dialog').innerText();
@@ -334,7 +334,7 @@ for (const size of WIDTHS) {
     await page.evaluate(() => (location.hash = '#/meals')); await page.waitForTimeout(250);
     for (const open of [
       async () => page.getByRole('button', { name: 'Add dinner on Today' }).click(),
-      async () => page.getByRole('button', { name: 'Shopping list' }).click(),
+      async () => page.getByRole('button', { name: 'Shopping list', exact: true }).click(),
     ]) {
       await open();
       await page.waitForSelector('role=dialog');

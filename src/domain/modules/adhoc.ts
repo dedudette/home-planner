@@ -9,7 +9,7 @@ import type { Domain, Intensity, Task } from '../types';
 export const ADHOC_PREFIX = 'adhoc:';
 export const isAdhocId = (id: string): boolean => id.startsWith(ADHOC_PREFIX);
 
-export interface AdhocInput { kind: 'workout' | 'breathing'; id: string; name: string; minutes: number; domain: Domain; intensity: Intensity; difficulty: 1 | 2 | 3 }
+export interface AdhocInput { kind: 'workout' | 'breathing' | 'learning'; id: string; name: string; minutes: number; domain: Domain; intensity: Intensity; difficulty: 1 | 2 | 3 }
 
 export const adhocTask = (a: AdhocInput): Task => ({
   id: `${ADHOC_PREFIX}${a.kind}:${a.id}`, templateId: null, name: a.name, roomId: `life-${a.domain}`, roomKind: 'home', roomName: DOMAIN_SHORT[a.domain], category: DOMAIN_SHORT[a.domain],

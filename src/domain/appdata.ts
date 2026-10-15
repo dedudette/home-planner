@@ -1,6 +1,8 @@
 import { emptyHome, emptyPreferences } from './context';
 import { todayISO } from './dates';
 import { emptyMeals, emptyShopping } from './meals/defaults';
+import { DEFAULT_APPEARANCE } from './appearance/types';
+import { emptyInterests } from './interests/defaults';
 import { emptyMovement } from './movement/defaults';
 import { emptyWater, emptyWellbeing } from './wellbeing/defaults';
 import { emptyModules } from './modules/registry';
@@ -34,6 +36,8 @@ export const emptyAppData = (today = todayISO()): AppData => ({
   movement: emptyMovement(),
   water: emptyWater(),
   wellbeing: emptyWellbeing(),
+  interests: emptyInterests(),
+  appearance: { ...DEFAULT_APPEARANCE },
 });
 
 export const uid = (prefix = 'id'): string => `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;

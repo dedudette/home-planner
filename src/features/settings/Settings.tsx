@@ -8,13 +8,9 @@ import { I } from '../../ui/icons';
 import { downloadText } from '../../ui/download';
 import { Button, PageHead } from '../../ui/primitives';
 import { navigate } from '../../ui/router';
+import { AppearancePanel } from './AppearancePanel';
 import { SectionsSettings } from './Sections';
-
-const THEME_KEY = 'cleanflow:theme';
-const applyTheme = (t: string) => {
-  if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
-};
-export const initTheme = () => { try { applyTheme(window.localStorage.getItem(THEME_KEY) ?? 'auto'); } catch { /* ignore */ } };
+import { OwlTipCard } from '../../ui/OwlTip';
 
 const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); };
 const REASON: Record<string, string> = { demo: 'before loading a demo', import: 'before restoring a file', restore: 'before restoring a backup', unreadable: 'unreadable data', repaired: 'before repairing', migrated: 'before upgrading', newer: 'newer version', 'before-restore': 'before a restore' };
@@ -24,7 +20,6 @@ export const Settings = () => {
   const file = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState(true);
   const [version, setVersion] = useState(0); // bumps after anything that changes the backup list
-  const [theme, setTheme] = useState(() => { try { return window.localStorage.getItem(THEME_KEY) ?? 'auto'; } catch { return 'auto'; } });
   const homeOn = data.preferences.focus.includes('home');
   const backups = useMemo(() => repo.listBackups().filter((b) => repo.readBackup(b.id) !== null), [repo, version, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -103,22 +98,21 @@ export const Settings = () => {
     },
   });
 
-  const setT = (t: string) => { setTheme(t); applyTheme(t); try { window.localStorage.setItem(THEME_KEY, t); } catch { /* ignore */ } };
-
   return (
     <div className="page">
       <PageHead title="Settings" />
       <section className="card stack" aria-labelledby="s-you">
         <h2 id="s-you" className="h3">About you</h2>
         <div className="field"><label htmlFor="nm">Your name</label><input id="nm" className="input" value={data.user.name} maxLength={30} onChange={(e) => dispatch({ type: 'SET_NAME', name: e.target.value })} /></div>
-        <div className="field"><span className="label" id="s-theme">Appearance</span>
-          <div className="chips" role="radiogroup" aria-labelledby="s-theme">{['auto', 'light', 'dark'].map((t) => <button key={t} role="radio" aria-checked={theme === t} className="chip" onClick={() => setT(t)} style={{ textTransform: 'capitalize' }}>{t}</button>)}</div>
-        </div>
         {data.preferences.learnedSessionCap && (
           <div className="row between wrap"><p className="small">Learned: tasks are split into pieces of up to <b>{data.preferences.learnedSessionCap} min</b>.</p><Button size="sm" variant="secondary" onClick={() => dispatch({ type: 'SET_SESSION_CAP', minutes: null, stamp: stamp() })}>Clear</Button></div>
         )}
         <div><Button variant="secondary" icon={homeOn ? I.home : I.flame} onClick={() => navigate('home')}>{homeOn ? 'Edit my home & preferences' : 'Edit my goals'}</Button></div>
       </section>
+
+      <OwlTipCard place="settings" />
+
+      <AppearancePanel />
 
       <SectionsSettings />
 

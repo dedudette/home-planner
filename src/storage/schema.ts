@@ -2,6 +2,8 @@ import { emptyAppData } from '../domain/appdata';
 import { anyModuleOn, defaultModulesFor } from '../domain/modules/registry';
 import { validateActivities, validateModules } from './moduleSchema';
 import { validateMeals, validateShopping } from './mealsSchema';
+import { readAppearance } from '../domain/appearance/apply';
+import { validateInterests } from './interestsSchema';
 import { validateMovement } from './movementSchema';
 import { validateWater, validateWellbeing } from './wellSchema';
 import { emptyHome, emptyPreferences } from '../domain/context';
@@ -431,6 +433,8 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
     movement: validateMovement(raw.movement, c),
     water: validateWater(raw.water, c),
     wellbeing: validateWellbeing(raw.wellbeing, c),
+    interests: validateInterests(raw.interests, c),
+    appearance: readAppearance(raw.appearance),
   };
   const found = from;
   const fromFuture = found > SCHEMA_VERSION;

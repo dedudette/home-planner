@@ -2,6 +2,7 @@ import { ROUTINES } from '../../domain/wellbeing/content';
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
 import { Button, PageHead, Segmented } from '../../ui/primitives';
+import { OwlTipCard } from '../../ui/OwlTip';
 import { navigate, useRoute } from '../../ui/router';
 import { PlannedActivities } from '../sections/SectionPage';
 import { BreathingTab } from './Breathing';
@@ -47,6 +48,7 @@ export const Wellbeing = () => {
     <div className="page">
       <PageHead title={on.wellbeing ? 'Wellbeing' : 'Water'} sub={on.wellbeing ? 'Check-ins, water, breathing, journaling and routines. Optional, all of it, and private.' : 'Log what you drink, if you want to.'} />
       {tabs.length > 1 && <Segmented<Tab> label="Wellbeing sections" value={tab} onChange={(t) => navigate(`wellbeing?tab=${t}`)} options={tabs} />}
+      <OwlTipCard place="wellbeing" />
       {tab === 'checkin' && <CheckinTab />}
       {tab === 'water' && <WaterTab />}
       {tab === 'breathe' && <BreathingTab />}

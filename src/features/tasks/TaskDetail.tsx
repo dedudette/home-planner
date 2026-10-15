@@ -78,6 +78,7 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
       footer={ephemeral ? undefined : (
         <>
           {task.ref?.kind === 'workout' && <Button variant="soft" icon={I.play} onClick={() => { closeSheet(); openSheet({ kind: 'workoutSession', workoutId: task.ref!.id, taskId: task.id }); }}>Start guided workout</Button>}
+          {task.ref?.kind === 'interest' && !alreadyDone && <Button variant="soft" icon={I.pencil} onClick={() => { closeSheet(); openSheet({ kind: 'logSession', interestId: task.ref!.id, taskId: task.id, minutes: task.minutes }); }}>Log it with notes</Button>}
           <Button variant="soft" icon={I.timer} onClick={() => openSheet({ kind: 'timerPick', task })}>Start timer</Button>
           <Button icon={I.check} disabled={alreadyDone} onClick={() => { complete(task); closeSheet(); }}>{alreadyDone ? 'Done' : 'Mark complete'}</Button>
         </>

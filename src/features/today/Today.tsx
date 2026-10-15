@@ -16,6 +16,7 @@ import { TodayMeals } from '../meals/TodayMeals';
 import { TodayCheckin } from '../wellbeing/Checkin';
 import { TodayWater } from '../wellbeing/WaterPanel';
 import { InsightCard, useInsights } from './Insights';
+import { OwlTipCard } from '../../ui/OwlTip';
 
 const greeting = () => {
   const h = new Date().getHours();
@@ -195,6 +196,8 @@ export const Today = () => {
             </div>
           </div>
         )}
+
+        <OwlTipCard place="today" />
 
         {insights.map((i) => <InsightCard key={i.id} insight={i} />)}
 

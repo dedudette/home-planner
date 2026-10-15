@@ -1,6 +1,7 @@
 import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
 import { Button, PageHead, Segmented } from '../../ui/primitives';
+import { OwlTipCard } from '../../ui/OwlTip';
 import { navigate, useRoute } from '../../ui/router';
 import { PlanTab } from './PlanTab';
 import { PrefsTab } from './PrefsTab';
@@ -21,6 +22,7 @@ export const Meals = () => {
       <PageHead title="Meals & shopping" sub="Plan what you eat, keep recipes, and shop from your plan."
         action={<Button variant="soft" icon={I.list} onClick={() => openSheet({ kind: 'shopGen' })}>Shopping list</Button>} />
       <Segmented<Tab> label="Meals sections" value={tab} onChange={(t) => navigate(`meals?tab=${t}`)} options={TABS} />
+      <OwlTipCard place="meals" />
       {tab === 'plan' && <PlanTab />}
       {tab === 'recipes' && <RecipesTab />}
       {tab === 'shopping' && <ShoppingTab listId={route.query.get('list')} />}

@@ -7,6 +7,8 @@
  * reschedules) is stored separately and keyed by stable task ids.
  */
 
+import type { Appearance } from './appearance/types';
+import type { InterestsData } from './interests/types';
 import type { MealsData, ShoppingData } from './meals/types';
 import type { MovementData } from './movement/types';
 import type { WaterData } from './water/types';
@@ -583,4 +585,8 @@ export interface AppData {
   movement: MovementData;
   water: WaterData;
   wellbeing: WellbeingData;
+  /** Learning, reading and hobbies: what the person added, logged and wrote down. Nothing here is supplied by the app. */
+  interests: InterestsData;
+  /** How the app looks. Never changes what is planned or recorded. */
+  appearance: Appearance;
 }
