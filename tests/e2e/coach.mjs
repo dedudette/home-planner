@@ -3,7 +3,8 @@
 // This suite starts its own dev servers (the shared one on :5173 has no provider settings) and a stand-in for the provider's HTTP API
 // (tests/e2e/fakeProvider.mjs), so the real server code, prompt and answer checks all run. It never talks to a real provider, and it
 // proves nothing about one: a live provider call has to be tested separately with real credentials.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -397,6 +398,34 @@ if (want(5)) {
     }, page);
     await ctx.close();
   }
+}
+
+// ───────────── 7. the sample data used in the "try it on your Mac" steps ─────────────
+if (want(7)) {
+  const { ctx, page } = await mk({ w: 390, h: 844, mobile: true });
+  await step('the sample file from npm run sample-data restores through Settings and unlocks the AI review', async () => {
+    const sentBefore = provider.requests.length;
+    const file = join(tmpdir(), `cleanflow-sample-${process.pid}.json`);
+    const r = spawnSync('npx', ['vite-node', 'scripts/make-sample-data.ts', file, TODAY], { encoding: 'utf8' });
+    check('the generator wrote a file', r.status === 0 && existsSync(file), (r.stderr || '').slice(0, 200));
+    await page.evaluate(() => (location.hash = '#/settings')); await page.waitForSelector('text=Restore from a file');
+    await page.locator('input[type=file][aria-label="Backup file"]').setInputFiles(file);
+    await page.waitForSelector('text=Replace your data with this backup?');
+    check('the confirmation says how much is in the file', /completed or logged actions/.test(await page.locator('[role=dialog]').innerText()));
+    await page.getByRole('button', { name: 'Replace my data' }).click();
+    await page.waitForTimeout(900);
+    await goPatterns(page);
+    check('there is enough recorded: the "not enough" notice is gone', (await page.getByTestId('patterns-insufficient').count()) === 0);
+    check('counts are shown', (await read(page, 'pt-seen-total')) > 5 && (await read(page, 'pt-days-opened')) >= 5);
+    check('days that were not opened are shown as such', (await read(page, 'pt-days-not-opened')) >= 1);
+    check('the sample says it is made up', /Sample data/.test((await stored(page)).user.name));
+    await page.getByRole('button', { name: 'Ask AI for suggestions' }).click();
+    await page.waitForSelector('[data-testid=coach-review]');
+    check('the review lists what would be sent', /Not sent:/.test(await page.getByTestId('coach-review').innerText()));
+    check('nothing has been sent to the provider', provider.requests.length === sentBefore);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+  }, page);
+  await ctx.close();
 }
 
 // ───────────── 6. a built bundle ─────────────

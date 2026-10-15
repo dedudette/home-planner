@@ -8,10 +8,12 @@ engine builds a realistic plan, with tiny-step and "just 5 minutes" modes for ov
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 643 tests at the time of writing: engine, scheduler, daily budget, low-energy safety, goal coverage, persistence, backups, retention, reducer, analytics
+npm test           # 653 tests at the time of writing: engine, scheduler, daily budget, low-energy safety, goal coverage, persistence, backups, retention, reducer, analytics
 npm run build      # typecheck + production build into dist/
 npm run check      # type-check + tests
 npm run e2e        # six browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records), coach (Your patterns and the optional AI). The dev server must be running; set CHROME_PATH if needed
+npm run dev:coach   # dev server with ANTHROPIC_API_KEY read from the macOS Keychain (see "Try it on your Mac")
+npm run sample-data # writes made-up history for trying Your patterns and the coach
 npm run build:server && npm start   # optional: one Node process serving the built app and the AI coach endpoint (see "AI coach")
 ```
 
@@ -118,14 +120,25 @@ Off until you choose it. "Ask AI for suggestions" first shows exactly what would
 
 ### Provider and deployment
 The AI needs a server: the key must never be in the browser, so a static host alone (GitHub Pages and similar) shows the coach as unavailable and sends nothing. Three ways to run the endpoint, all the same code (`server/coach/handler.ts`, a plain `(Request) => Response`):
-1. **Local development**: `ANTHROPIC_API_KEY=… npm run dev` (also `npm run preview`). Set the variable in your shell; do not put it in a client-visible `VITE_` variable or commit it.
+1. **Local development**: `npm run dev:coach` on a Mac (key from the Keychain, see "Try it on your Mac"), or `npm run dev` / `npm run preview` with `ANTHROPIC_API_KEY` set in your shell by a means that does not record it (not typed on a command line, not a `VITE_` variable, not committed).
 2. **One Node process** serving the built app and the endpoint: `npm run build && npm run build:server && ANTHROPIC_API_KEY=… npm start` (`PORT`, `HOST`, default `127.0.0.1`; use `0.0.0.0` in a container).
 3. **A serverless or edge platform**: mount `createCoachHandler()` from `server/coach/handler.ts` behind `/api/coach` and `/api/coach/status`. That glue is not written or tested here.
 
-The only adapter so far is Anthropic's, through the official SDK (`server/coach/anthropic.ts`); `server/coach/provider.ts` is the small interface to implement for another. Settings are server environment variables only: `ANTHROPIC_API_KEY` (required), `COACH_MODEL` (default `claude-opus-5-5`), `COACH_PROVIDER`, `COACH_API_BASE_URL`, `COACH_DISABLED=1`, `COACH_TIMEOUT_MS`, `COACH_MAX_OUTPUT_TOKENS`, `COACH_COOLDOWN_SECONDS`, `COACH_DAILY_PER_CLIENT`, `COACH_DAILY_TOTAL`, `COACH_ALLOWED_ORIGINS`, `COACH_TRUST_PROXY` (documented in `server/coach/config.ts`). A start-up line says whether the coach is on, naming settings but never values.
+The only adapter so far is Anthropic's, through the official SDK (`server/coach/anthropic.ts`); `server/coach/provider.ts` is the small interface to implement for another. Settings are server environment variables only: `ANTHROPIC_API_KEY` (required), `COACH_MODEL` (default `claude-haiku-5-5`; set it to, for example, `claude-sonnet-5-5` or `claude-opus-5-5` for more capable and more expensive answers), `COACH_PROVIDER`, `COACH_API_BASE_URL`, `COACH_DISABLED=1`, `COACH_TIMEOUT_MS`, `COACH_MAX_OUTPUT_TOKENS`, `COACH_COOLDOWN_SECONDS`, `COACH_DAILY_PER_CLIENT`, `COACH_DAILY_TOTAL`, `COACH_ALLOWED_ORIGINS`, `COACH_TRUST_PROXY` (documented in `server/coach/config.ts`). A start-up line says whether the coach is on, naming settings but never values.
+
+### Try it on your Mac
+1. **See it off first (free).** `npm install && npm run dev`, open http://localhost:5173, go to Progress → Your patterns and press "Ask AI for suggestions" on a window with enough data: it says the coach is not set up and sends nothing.
+2. **Get made-up history to try it on.** `npm run sample-data` writes `cleanflow-sample-data.json` (git-ignored, 21 days of fake history). In the app: Settings → Restore from a file → Replace my data. This replaces what the app holds (it backs up first), so use a separate browser profile if you have real data.
+3. **Create an Anthropic account, add a small amount of credit, set a spend limit and create a key** at https://platform.claude.com (Settings → Billing, Settings → API keys). API billing is prepaid credits, separate from any Claude subscription; credits expire after a year and purchases are non-refundable. Leave auto-reload off while testing.
+4. **Store the key in the macOS Keychain, not in a file, Git, the browser or shell history.** Run `security add-generic-password -a "$USER" -s cleanflow-anthropic-api-key -w`; it prompts for the key with no echo. (Or add it by hand in Keychain Access → File → New Password Item, using that name.)
+5. **Start the app with the key.** `npm run dev:coach` reads the key from the Keychain for that one process (`scripts/with-keychain-key.sh`) and prints `[coach] AI suggestions: on (anthropic, model claude-haiku-5-5)` without the key. macOS may ask once to allow access to the Keychain item.
+6. **Ask, review, send.** Progress → Your patterns → Ask AI for suggestions → read what would be sent → Send these counts. Each answer shows its evidence, and nothing in your plan changes. Terminal lines such as `{"event":"coach.provider-error","code":"auth"}` name a problem (`auth`: key rejected; `bad-request`: model name, credits or spend limit; `rate-limit`; `timeout`) and never contain your data or the key.
+
+Do not put the key in a `.env` file expecting it to work (the server reads only the process environment), do not prefix it with `VITE_` (that ships it to the browser), and do not type it into a command line (that records it in shell history).
+
 
 ### Cost and privacy
-- **Cost**: each request calls a paid provider API, billed to whoever owns the key. This is separate from any Claude or coding-assistant subscription or credits. The default model is the most capable and the most expensive; set `COACH_MODEL` to a cheaper one if you prefer. Controls: one small request per click, a token cap, a cooldown between requests (default 30 s), per-client (20) and whole-process (300) daily limits, retries off. The limits live in memory per process, so on several instances each enforces its own; set a spend limit with the provider as the real backstop.
+- **Cost**: each request calls a paid provider API, billed to whoever owns the key. This is separate from any Claude or coding-assistant subscription or credits, and the Console bills it from prepaid credits. The default model, `claude-haiku-5-5`, is the cheapest tier: Anthropic's pricing page lists $0.10 per million input tokens and $0.50 per million output tokens (for prompts up to 100,000 tokens). A request here is about 4,500 characters in (my estimate is roughly 1,500 tokens; I have not been able to measure it) and at most `COACH_MAX_OUTPUT_TOKENS` (default 4,000, including the model's own thinking) out, so a typical request should cost a fraction of a cent and the worst case about two tenths of a cent at list prices. Check the Console's Usage page for the real figures, and re-check the pricing page: prices change. Controls: one small request per click, a token cap, a cooldown between requests (default 30 s), per-client (20) and whole-process (300) daily limits, retries off. The limits live in memory per process, so on several instances each enforces its own; set a spend limit in the Console as the real backstop.
 - **Privacy**: the request and the answer are never logged or stored by the server (log lines carry an event name and a short code only), and provider error text is never passed on. The answer is not saved in your data. The provider receives the counts you reviewed, under its own data policy.
 - **Not live until configured**: the server code is tested against a stand-in for the provider's HTTP API; a real call needs your key and has to be tried separately.
 

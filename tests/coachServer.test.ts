@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildCoachPayload, METRIC_IDS, validatePayload, type CoachPayload } from '../src/domain/coach/metrics';
 import { computePatterns } from '../src/domain/patterns';
-import { readCoachConfig } from '../server/coach/config';
+import { DEFAULT_COACH_MODEL, readCoachConfig } from '../server/coach/config';
 import { createCoachHandler } from '../server/coach/handler';
 import { createLimiter } from '../server/coach/limiter';
 import { buildPrompt, SYSTEM_PROMPT } from '../server/coach/prompt';
@@ -67,7 +67,7 @@ describe('not set up: nothing is attempted and nothing is revealed', () => {
   it('REGRESSION: settings left empty (VAR=) count as not set, not as an unknown provider', () => {
     const c = readCoachConfig({ ANTHROPIC_API_KEY: KEY, COACH_PROVIDER: '', COACH_MODEL: '  ', COACH_API_BASE_URL: '', COACH_TIMEOUT_MS: '', COACH_ALLOWED_ORIGINS: ' , ' });
     expect(c.available).toBe(true);
-    expect(c.available && c.config).toMatchObject({ provider: 'anthropic', model: 'claude-opus-5-5', timeoutMs: 45000, allowedOrigins: [] });
+    expect(c.available && c.config).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-5-5', timeoutMs: 45000, allowedOrigins: [] });
     expect(c.available && c.config.baseUrl).toBeUndefined();
   });
 
@@ -106,10 +106,17 @@ describe('a request goes to the provider exactly as designed', () => {
     expect(user).not.toMatch(/Zebediah|@|https?:|2026-/);
   });
 
-  it('defaults to claude-opus-5-5, and the model is a server setting only', async () => {
+  it('defaults to claude-haiku-5-5, COACH_MODEL overrides it, and the model is a server setting only', async () => {
     const a = rig(() => reply(good()));
     await a.handler(ask());
-    expect(a.calls[0].body.model).toBe('claude-opus-5-5');
+    expect(a.calls[0].body.model).toBe('claude-haiku-5-5');
+    expect(DEFAULT_COACH_MODEL).toBe('claude-haiku-5-5');
+    const o = rig(() => reply(good()), { COACH_MODEL: 'claude-sonnet-5-5' });
+    await o.handler(ask());
+    expect(o.calls[0].body.model).toBe('claude-sonnet-5-5');
+    const blank = rig(() => reply(good()), { COACH_MODEL: '   ' });
+    await blank.handler(ask());
+    expect(blank.calls[0].body.model).toBe('claude-haiku-5-5');
     const b = rig(() => reply(good()));
     await b.handler(ask({ ...payload, model: 'cheap-model' } as unknown as CoachPayload));       // a client cannot pick the model: the extra field is refused
     expect(b.calls).toHaveLength(0);
@@ -128,7 +135,7 @@ describe('a request goes to the provider exactly as designed', () => {
     expect(r.json.ok).toBe(true);
     expect(r.json.suggestions).toHaveLength(1);
     expect(r.json.suggestions[0].metricIds).toEqual(['days.opened', 'tasks.seen', 'tasks.seenCompleted']);
-    expect(r.json.meta).toEqual({ provider: 'Anthropic', model: 'claude-opus-5-5' });
+    expect(r.json.meta).toEqual({ provider: 'Anthropic', model: 'claude-haiku-5-5' });
     expect(r.headers.get('cache-control')).toBe('no-store');
   });
 });

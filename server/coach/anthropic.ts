@@ -6,8 +6,9 @@ import { ProviderError, type CoachProvider, type ProviderReply, type ProviderReq
  * The Anthropic adapter, using the official SDK. Retries are off (a retry is a second charge the person did not ask for), the
  * request carries only the prompt we built, and every failure is reduced to a coarse code before it leaves this file.
  *
- * `output_config.effort: "low"` keeps this small explanation task cheap and quick. The model's own thinking is on by default for
- * the newest models and counts toward `max_tokens`, which is why COACH_MAX_OUTPUT_TOKENS defaults to a generous 4000.
+ * `output_config.effort: "low"` keeps this small explanation task cheap and quick. The newest models (Haiku 5.5 included) think by
+ * default, and that thinking counts toward `max_tokens`, which is why COACH_MAX_OUTPUT_TOKENS defaults to a generous 4000. No
+ * sampling settings are sent on purpose: the newest models reject non-default values.
  */
 export const createAnthropicProvider = (config: CoachConfig, fetchImpl?: typeof fetch): CoachProvider => {
   const client = new Anthropic({

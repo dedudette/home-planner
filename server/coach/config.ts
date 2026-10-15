@@ -5,7 +5,8 @@
  *
  *   ANTHROPIC_API_KEY        required. The provider's own variable name; set it in the server's environment, never in the client.
  *   COACH_PROVIDER           optional, default "anthropic" (the only adapter so far; see provider.ts to add another).
- *   COACH_MODEL              optional, default "claude-opus-5-5". Any model id the provider accepts.
+ *   COACH_MODEL              optional, default "claude-haiku-5-5" (the smallest and cheapest current model). Any model id the provider
+ *                            accepts, for example "claude-sonnet-5-5" or "claude-opus-5-5" for more capable (and dearer) answers.
  *   COACH_API_BASE_URL       optional. Point at a gateway or a local test double instead of the provider's own address.
  *   COACH_DISABLED           optional. "1" switches the coach off without removing the key.
  *   COACH_TIMEOUT_MS         optional, default 45000 (1000–120000).
@@ -18,6 +19,9 @@
  */
 
 export type Env = Record<string, string | undefined>;
+
+/** Used when COACH_MODEL is unset or empty. Chosen for cost: the task is a short explanation of a few dozen counts. */
+export const DEFAULT_COACH_MODEL = 'claude-haiku-5-5';
 
 export interface CoachConfig {
   provider: 'anthropic';
@@ -55,7 +59,7 @@ export const readCoachConfig = (env: Env): CoachAvailability => {
   const baseUrl = (env.COACH_API_BASE_URL ?? '').trim();
   const config = {
     provider: 'anthropic' as const,
-    model: (env.COACH_MODEL ?? '').trim() || 'claude-opus-5-5',
+    model: (env.COACH_MODEL ?? '').trim() || DEFAULT_COACH_MODEL,
     ...(baseUrl ? { baseUrl } : {}),
     timeoutMs: num(env.COACH_TIMEOUT_MS, 45_000, 1_000, 120_000),
     maxOutputTokens: num(env.COACH_MAX_OUTPUT_TOKENS, 4_000, 500, 8_000),

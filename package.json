@@ -12,7 +12,9 @@
     "e2e": "node tests/e2e/flow.mjs && node tests/e2e/responsive.mjs && node tests/e2e/integrity.mjs && node tests/e2e/sync.mjs && node tests/e2e/behaviour.mjs && node tests/e2e/coach.mjs",
     "check": "tsc --noEmit && vitest run",
     "build:server": "vite build --ssr server/node.ts --outDir dist-server",
-    "start": "node dist-server/node.js"
+    "start": "node dist-server/node.js",
+    "dev:coach": "sh scripts/with-keychain-key.sh npm run dev",
+    "sample-data": "vite-node scripts/make-sample-data.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
@@ -28,6 +30,7 @@
     "playwright-core": "^1.63.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
+    "vite-node": "^2.1.9",
     "vitest": "^2.1.8"
   }
 }
