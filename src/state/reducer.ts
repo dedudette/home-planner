@@ -16,6 +16,7 @@ import { planVersionOf } from '../domain/planVersion';
 import { emptyAppData } from '../domain/appdata';
 import { applyOverride } from '../domain/schedule';
 import { moduleReducer, type ModuleAction } from './moduleReducer';
+import { mealsReducer, type MealsAction } from './mealsReducer';
 
 /**
  * When something happened. `hour` and `tz` are filled in by the store; when absent (tests, older callers) they are derived from `now`,
@@ -68,7 +69,8 @@ export type Action =
   | { type: 'DISMISS_INSIGHT'; id: string; stamp: Stamp }
   | { type: 'SET_SESSION_CAP'; minutes: number | null; stamp: Stamp }
   | { type: 'SET_OPENED'; stamp: Stamp }
-  | ModuleAction;
+  | ModuleAction
+  | MealsAction;
 
 const SESSION_GAP_MIN = 45;
 
@@ -382,7 +384,8 @@ export const reducer = (data: AppData, a: Action): AppData => {
     case 'DISMISS_INSIGHT': return { ...data, dismissedInsights: { ...data.dismissedInsights, [a.id]: a.stamp.today } };
     case 'SET_SESSION_CAP': return { ...data, preferences: { ...data.preferences, learnedSessionCap: a.minutes } };
     case 'SET_OPENED': return { ...data, lastOpened: a.stamp.today };
-    default: return moduleReducer(data, a);
+    // Section reducers each ignore actions that are not theirs, so the data passes through them in turn.
+    default: return mealsReducer(moduleReducer(data, a as ModuleAction), a as MealsAction);
   }
 };
 

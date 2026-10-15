@@ -276,7 +276,7 @@ for (const [hour, expectNow, expectCollapsed, label] of [[8, 'Morning', 'evening
   await fresh(page);
   await step('onboarding with only "physically active" lands on Today, not My Home', async () => {
     await page.getByRole('button', { name: 'Build my plan' }).first().click(); await page.waitForSelector('text=What do you want help with');
-    await page.getByRole('checkbox', { name: /Keep my home clean/ }).click();
+    // nothing is pre-selected: choosing only the habit goal means no cleaning plan
     await page.getByRole('checkbox', { name: /physically active/ }).click();
     await page.getByRole('button', { name: 'Continue' }).click();                                   // time
     await page.getByRole('radio', { name: '15 minutes' }).click(); await page.getByRole('radio', { name: '7', exact: true }).click();

@@ -10,6 +10,7 @@ import { planVersionOf, snapshotPlanVersion } from '../domain/planVersion';
 import {
   extendTimer, pauseTimer, resolveTimerTask, resumeTimer, startTimer, tick, elapsedMinutes, type TimerState,
 } from '../domain/timer';
+import type { MealSlot } from '../domain/meals/types';
 import type { ActivityDefaults } from '../domain/modules/types';
 import type { AppData, EntrySurface, ISODate, RecommendationEvent, Task } from '../domain/types';
 import { buildView, type PlanView } from '../domain/view';
@@ -45,6 +46,13 @@ export type Sheet =
   | { kind: 'roughDay' }
   | { kind: 'taskForm'; editId?: string }
   | { kind: 'activityForm'; editId?: string; defaults?: ActivityDefaults }
+  | { kind: 'recipe'; id: string }
+  | { kind: 'dishForm'; editId?: string }
+  | { kind: 'mealPicker'; date: ISODate; slot: MealSlot; tab?: 'recipes' | 'log' }
+  | { kind: 'mealEdit'; id: string }
+  | { kind: 'shopGen' }
+  | { kind: 'shopReview'; listId: string }
+  | { kind: 'shopItem'; listId: string; itemId?: string }
   | { kind: 'reschedule'; task: Task }
   | { kind: 'editHome'; section: EditSection }
   | ({ kind: 'confirm' } & ConfirmOptions);

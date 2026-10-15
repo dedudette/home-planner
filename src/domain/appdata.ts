@@ -1,5 +1,6 @@
 import { emptyHome, emptyPreferences } from './context';
 import { todayISO } from './dates';
+import { emptyMeals, emptyShopping } from './meals/defaults';
 import { emptyModules } from './modules/registry';
 import type { AppData } from './types';
 
@@ -26,6 +27,8 @@ export const emptyAppData = (today = todayISO()): AppData => ({
   retention: [],
   modules: emptyModules(),
   activities: [],
+  meals: emptyMeals(),
+  shopping: emptyShopping(),
 });
 
 export const uid = (prefix = 'id'): string => `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;

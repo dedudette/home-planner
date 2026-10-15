@@ -57,6 +57,8 @@ export const ActivityFormSheet = ({ editId, defaults }: { editId?: string; defau
       note: note.trim(), createdAt: existing?.createdAt ?? new Date().toISOString(), archived: existing?.archived ?? false,
     };
     dispatch({ type: 'ACTIVITY_SAVE', activity: a, today });
+    const meal = !existing && defaults?.linkMealId ? data.meals.plan.find((m) => m.id === defaults.linkMealId) : undefined;
+    if (meal) dispatch({ type: 'MEAL_SAVE', entry: { ...meal, prepActivityId: a.id } });
     toast(existing ? 'Activity updated.' : `Planned: ${describeSchedule(a).toLowerCase()}.`, existing ? undefined : { label: 'Undo', run: () => dispatch({ type: 'ACTIVITY_DELETE', id: a.id }) });
     closeSheet();
   };

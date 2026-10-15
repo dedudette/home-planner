@@ -7,6 +7,7 @@
  * reschedules) is stored separately and keyed by stable task ids.
  */
 
+import type { MealsData, ShoppingData } from './meals/types';
 import type { ActivityKind, ActivityModule, ActivityRef, ModulesState, PlannedActivity } from './modules/types';
 
 export type ISODate = string; // 'YYYY-MM-DD' in the user's local time
@@ -574,4 +575,6 @@ export interface AppData {
   modules: ModulesState;
   /** Everything the person planned in a section: the same planner, the same Today, one identity each. */
   activities: PlannedActivity[];
+  meals: MealsData;
+  shopping: ShoppingData;
 }

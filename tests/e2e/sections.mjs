@@ -270,6 +270,7 @@ for (const size of WIDTHS) {
     await page.evaluate(() => (location.hash = '#/movement')); await page.waitForTimeout(250);
     await page.getByRole('button', { name: 'Plan an activity' }).first().click();
     await page.waitForSelector('role=dialog');
+    await page.waitForTimeout(400); // the sheet slides in for a moment; measure it once it has settled
     const box = await page.locator('[role=dialog]').boundingBox();
     check('inside the viewport', box.x >= -1 && box.x + box.width <= size.w + 1, JSON.stringify(box));
     const foot = await page.getByRole('button', { name: 'Add to my plan' }).boundingBox();

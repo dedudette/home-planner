@@ -7,6 +7,7 @@ import { dayEnergyOf, energyOk } from './safety';
 import { TIME_ORDER } from './options';
 import { applyOverride, customToTask, dueInfo, projectDates, type DueInfo } from './schedule';
 import { activityTasks, categoryConflicts, timeConflicts, type Conflict } from './modules/activities';
+import { contentFor } from './modules/content';
 import { moduleOfDomain } from './modules/registry';
 import type { AppData, Domain, EnergyLevel, ISODate, LifeDomain, RoomKind, SessionEntry, Task, TaskState, TimeOfDay } from './types';
 
@@ -30,7 +31,7 @@ export const buildView = (data: AppData, plan: Plan, today: ISODate): PlanView =
   const generated = plan.tasks.map((t) => applyOverride(t, states[t.id], active));
   const custom = data.customTasks.map((ct) => applyOverride(customToTask(ct, plan.rooms, active), states[ct.id], active));
   // Planned activities (workouts, meal prep, learning, routines) are tasks like any other, with ids that come only from the activity.
-  const activities = activityTasks(data).map((t) => applyOverride(t, states[t.id], active));
+  const activities = activityTasks(data, contentFor(data)).map((t) => applyOverride(t, states[t.id], active));
   const all = [...generated, ...custom, ...activities];
   // An activity past its last date (a fixed one-off on a day gone by, a series that ended) is no longer offered. It is not carried
   // forward to today, and it stays in `byId` so its history can still be read.

@@ -36,7 +36,7 @@ export const Tag = ({ kind, children }: { kind?: string; children: ReactNode }) 
 export const PriorityTag = ({ p }: { p: 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW' }) => <Tag kind={p}>{p === 'URGENT' ? 'Urgent' : p === 'HIGH' ? 'High' : p === 'MEDIUM' ? 'Medium' : 'Low'} priority</Tag>;
 
 export const Segmented = <T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string }) => (
-  <div className="seg" role="tablist" aria-label={label}>
+  <div className={cx('seg', options.length >= 4 && 'fit')} role="tablist" aria-label={label}>
     {options.map((o) => (
       <button key={o.value} role="tab" aria-selected={value === o.value} onClick={() => onChange(o.value)}>{o.label}</button>
     ))}

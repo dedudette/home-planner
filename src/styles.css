@@ -543,3 +543,9 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .occ-dot.unrecorded { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--line-strong) 3px 5px); border-style: dashed; }
 .occ-dot.scheduled { background: var(--primary-soft); }
 .switch-row { cursor: pointer; padding: 6px 0; min-height: 48px; }
+
+/* a button that looks like its content (a row you can open), without the browser's grey box */
+.plain-btn { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+/* a segmented control with four or more choices has to fit a phone: tighter padding, equal shares */
+.seg.fit { display: flex; width: 100%; }
+.seg.fit button { flex: 1 1 0; padding: 0 6px; font-size: .92rem; }

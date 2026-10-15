@@ -11,7 +11,7 @@ npm run dev        # http://localhost:5173
 npm test           # 653 tests at the time of writing: engine, scheduler, daily budget, low-energy safety, goal coverage, persistence, backups, retention, reducer, analytics
 npm run build      # typecheck + production build into dist/
 npm run check      # type-check + tests
-npm run e2e        # seven browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records), coach (Your patterns and the optional AI), sections (sections and the shared plan). The dev server must be running; set CHROME_PATH if needed
+npm run e2e        # eight browser suites: flow, responsive (7 widths), integrity, sync (two tabs), behaviour (what a day records), coach (Your patterns and the optional AI), sections (sections and the shared plan), meals (meals, recipes and shopping). The dev server must be running; set CHROME_PATH if needed
 npm run dev:coach   # dev server with ANTHROPIC_API_KEY read from the macOS Keychain (see "Try it on your Mac")
 npm run sample-data # writes made-up history for trying Your patterns and the coach
 npm run build:server && npm start   # optional: one Node process serving the built app and the AI coach endpoint (see "AI coach")
@@ -78,6 +78,18 @@ CleanFlow plans a whole day, not only cleaning. A person switches on only what t
 - **What the daily time covers.** One number covers everything a person plans for a day: cleaning, habits, workouts, hobbies, learning and meal prep. Not eating, sleeping or drinking water. Something the person planned is never dropped for time: if it is longer than the day, Today says by how many minutes, and nothing is moved without asking. The low-energy safety rule still applies to a planned vigorous workout. An optional per-section daily allowance holds back what the planner suggests; what the person planned stays and is flagged.
 - **Scheduled, completed, skipped, not recorded.** A scheduled day with nothing logged is *not recorded*; it is never read as skipped, failed or zero (`activityHistory`).
 - Turning a section off hides it and keeps everything in it.
+
+## Meals, recipes and shopping
+
+Switch on **Meals & shopping** and the person gets a weekly planner, a recipe catalogue, shopping lists made from the plan, and a Meals card on Today. Code: `src/domain/meals/`, UI: `src/features/meals/`.
+
+- **What a meal can be.** A starter recipe, a dish the person wrote down (real ingredients and amounts), a free-text log with no recipe, or leftovers from an earlier batch (which add nothing to shopping). Breakfast, lunch, dinner and snack are each optional, with an optional time the person chose.
+- **Planned, prepared, eaten, skipped, not recorded.** Only an explicit answer makes a meal eaten or skipped. A past meal nobody recorded is *not recorded* (`mealState`), never skipped. A meal is *prepared* when it is marked so, or when its linked cooking session (a planned activity) is completed: one record, so undo works.
+- **Starter recipes** (`recipes.ts`) are written for this app, use everyday ingredients, and are mostly meat-free. They have structured ingredients, quantities, units, servings, prep and cook times and original method text. **They carry no nutrition figures and no prices**: the app has no verified source for either, and a test enforces it. A person may type their own calorie number on a dish or meal; it is never computed, and nothing sets a calorie target, weight goal, fasting window or medical diet.
+- **Diet and allergens** are filters on the ingredients a recipe lists, using one ingredient catalogue (`ingredients.ts`). Flags are deliberately cautious and are not a guarantee; the app says so wherever it shows them. A recipe with ingredients the catalogue does not know is left out of suggestions whenever a diet or allergen filter is on, because it cannot be checked.
+- **Shopping arithmetic is plain code** (`shopping.ts`, `units.ts`). A recipe is scaled to the servings planned; every ingredient has one identity ("tomatoes" and "tomato" are one line); amounts are added only inside a family (mass: g/kg; volume: ml/l/tsp/tbsp/cup, with fixed cooking definitions); amounts that need a density to convert (grams against pieces) stay as separate lines; optional ingredients are their own lines; counted things are rounded up to whole ones once, on the total, while each meal's exact share stays under "needed for". Every line names the meals that need it.
+- **When the plan changes,** a list does not change by itself. `proposeUpdate` computes what would change; the person reviews it and applies or ignores it. Items they added, what they ticked off, what they marked as at home and any amount they edited are kept; a line they already bought is never silently removed. An ignored proposal stays quiet until the plan changes again.
+- **Sharing.** A list exports as plain text grouped by aisle (share sheet where the browser has one, otherwise copy, otherwise a download).
 
 ## Safety
 The Supplies screen shows a permanent chemical-safety warning (never mix products, especially bleach with ammonia or acids) and warns when the user's own stash contains dangerous pairs. The app never gives mixing instructions.

@@ -1,6 +1,7 @@
 import { emptyAppData } from '../domain/appdata';
 import { anyModuleOn, defaultModulesFor } from '../domain/modules/registry';
 import { validateActivities, validateModules } from './moduleSchema';
+import { validateMeals, validateShopping } from './mealsSchema';
 import { emptyHome, emptyPreferences } from '../domain/context';
 import {
   BLOCKERS, CLEANLINESS, ENERGY, EQUIPMENT_OPTIONS, FITNESS_LEVELS, FOCUS_OPTIONS, GARAGE_SIZES, GOALS, HOME_TYPES, PET_CHOICES,
@@ -423,6 +424,8 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
     retention: validateRetention(raw.retention),
     modules,
     activities: validateActivities(raw.activities, t, c),
+    meals: validateMeals(raw.meals, c),
+    shopping: validateShopping(raw.shopping, c),
   };
   const found = from;
   const fromFuture = found > SCHEMA_VERSION;

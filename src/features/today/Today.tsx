@@ -12,6 +12,7 @@ import { useApp } from '../../state/store';
 import { I } from '../../ui/icons';
 import { Button, Chip, Empty, IconButton, PageHead, ProgressBar } from '../../ui/primitives';
 import { TaskCard } from '../tasks/TaskCard';
+import { TodayMeals } from '../meals/TodayMeals';
 import { InsightCard, useInsights } from './Insights';
 
 const greeting = () => {
@@ -44,7 +45,7 @@ export const FreshStartCard = ({ days, neverLogged }: { days: number; neverLogge
 };
 
 /** The tracking cards. Each is added by its own section; a card whose section is not built or not on renders nothing. */
-const TodayCardHost = ({ card }: { card: TodayCard }) => { void card; return null; };
+const TodayCardHost = ({ card }: { card: TodayCard }) => (card === 'meals' ? <TodayMeals /> : null);
 
 export const Today = () => {
   const { view, data, today, hour, openSheet, dispatch, stamp, plan, visible } = useApp();
@@ -59,6 +60,8 @@ export const Today = () => {
 
   const homeOn = plan.homeOn;
   const lifeOn = plan.lifeActive;
+  // Anything that could be planned today: cleaning, goals' habits, or something the person planned. Otherwise the quick tools have nothing to pick from.
+  const hasTasks = plan.homeOn || plan.goalCoverage.length > 0 || data.activities.some((a) => !a.archived);
   // Once anything beyond cleaning is in the plan, minutes are "logged", not "cleaned", and the day's goal covers all of it.
   const mixed = lifeOn || data.activities.some((a) => !a.archived) || data.modules.enabled.movement || data.modules.enabled.learning || data.modules.enabled.wellbeing || data.modules.enabled.meals;
   const focusLeft = t.focus.length + t.life.length;
@@ -156,7 +159,7 @@ export const Today = () => {
           </section>
         )}
 
-        <section aria-label="Quick actions" className={`quick-actions${homeOn ? '' : ' two'}`}>
+        {hasTasks && <section aria-label="Quick actions" className={`quick-actions${homeOn ? '' : ' two'}`}>
           <button className="qa five" onClick={() => openSheet({ kind: 'five' })}>
             <span className="ic"><I.timer size={24} aria-hidden /></span>
             <span><b>Just 5 minutes</b><span className="s">One tiny task. Then stop or keep going.</span></span>
@@ -171,9 +174,9 @@ export const Today = () => {
               <span><b>My home is a mess</b><span className="s">A calm reset, most visible things first.</span></span>
             </button>
           )}
-        </section>
+        </section>}
 
-        {lifeOn && (
+        {lifeOn && hasTasks && (
           <button className="card soft row between" style={{ textAlign: 'left', width: '100%' }} onClick={() => openSheet({ kind: 'roughDay' })}>
             <span className="row" style={{ gap: 12 }}><I.heart size={22} aria-hidden style={{ color: 'var(--primary)' }} /><span><b>Rough day?</b><br /><span className="small muted">A few tiny, gentle things to get back on track. No catching up.</span></span></span>
             <I.right size={20} aria-hidden />
@@ -267,7 +270,10 @@ export const Today = () => {
         </div>
     </>
   );
-  const cards = visibleCards(data.modules);
+  // Someone who only tracks things (meals, water) has no list of tasks, so the plan card steps back and their cards come first, unless they chose an order.
+  const defaultOrder = data.modules.order.join() === 'plan,meals,water,checkin';
+  const shown = visibleCards(data.modules);
+  const cards = !hasTasks && defaultOrder ? [...shown.filter((c) => c !== 'plan'), ...shown.filter((c) => c === 'plan')] : shown;
 
   return (
     <div className="page">

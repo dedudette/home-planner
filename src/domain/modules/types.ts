@@ -66,4 +66,7 @@ export interface PlannedActivity {
 }
 
 /** What a section can pre-fill when it opens the planning form (for example a workout, with its own name, minutes and intensity). */
-export type ActivityDefaults = Partial<Pick<PlannedActivity, 'module' | 'name' | 'minutes' | 'ref' | 'intensity' | 'difficulty' | 'kind' | 'time' | 'note' | 'schedule'>>;
+export type ActivityDefaults = Partial<Pick<PlannedActivity, 'module' | 'name' | 'minutes' | 'ref' | 'intensity' | 'difficulty' | 'kind' | 'time' | 'note' | 'schedule'>> & {
+  /** A planned meal this cooking session is for. Completing the session is what marks that meal as prepared. */
+  linkMealId?: string;
+};
