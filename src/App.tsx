@@ -27,6 +27,8 @@ import { Wellbeing } from './features/wellbeing/Wellbeing';
 import { Learning } from './features/learning/Learning';
 import { BookFormSheet, InterestFormSheet, InterestSheet, StarterSheet } from './features/learning/InterestSheets';
 import { LogSessionSheet } from './features/learning/LogSession';
+import { AssistSheet } from './features/assist/AssistSheet';
+import { ReminderRuntime } from './state/ReminderRuntime';
 import { JournalSheet } from './features/wellbeing/Journal';
 import { WaterEditSheet } from './features/wellbeing/WaterPanel';
 import { WorkoutDetailSheet } from './features/movement/WorkoutDetail';
@@ -82,6 +84,7 @@ const SheetHost = () => {
     case 'starter': return <StarterSheet catalogId={top.catalogId} starterId={top.starterId} />;
     case 'logSession': return <LogSessionSheet interestId={top.interestId} starterId={top.starterId} bookId={top.bookId} minutes={top.minutes} taskId={top.taskId} />;
     case 'bookForm': return <BookFormSheet editId={top.editId} />;
+    case 'assist': return <AssistSheet feature={top.feature} />;
     case 'dishForm': return <DishFormSheet editId={top.editId} />;
     case 'mealPicker': return <MealPickerSheet date={top.date} slot={top.slot} tab={top.tab} />;
     case 'mealEdit': return <MealEditSheet id={top.id} />;
@@ -205,6 +208,7 @@ export const App = () => {
       <TimerBar />
       <SheetHost />
       <Toasts />
+      <ReminderRuntime />
     </div>
   );
 };

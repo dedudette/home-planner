@@ -8,9 +8,11 @@
  */
 
 import type { Appearance } from './appearance/types';
+import type { HealthData } from './health/types';
 import type { InterestsData } from './interests/types';
 import type { MealsData, ShoppingData } from './meals/types';
 import type { MovementData } from './movement/types';
+import type { RemindersData } from './reminders/types';
 import type { WaterData } from './water/types';
 import type { WellbeingData } from './wellbeing/types';
 import type { ActivityKind, ActivityModule, ActivityRef, ModulesState, PlannedActivity } from './modules/types';
@@ -551,6 +553,10 @@ export interface RetentionNote {
   /** Everything on or before this date was removed. */
   removedThrough: ISODate;
   oldestKept: ISODate;
+  /** Detail that was thinned (the totals were kept) rather than removed. */
+  thinned?: { waterDays: number; exerciseDetails: number };
+  /** Other history that went with the oldest days, by kind: meals, workouts, water entries, hobby sessions, check-ins and shopping lists. */
+  removedOther?: { meals: number; workouts: number; water: number; hobbySessions: number; checkins: number; shoppingLists: number };
 }
 
 export interface AppData {
@@ -589,4 +595,8 @@ export interface AppData {
   interests: InterestsData;
   /** How the app looks. Never changes what is planned or recorded. */
   appearance: Appearance;
+  /** Reminders for what was planned: settings and the few moments the person has already acted on. Never a list of reminders: those are derived from the plan. */
+  reminders: RemindersData;
+  /** Health data read from Apple Health or Health Connect, read-only, kept apart from the person's own records. */
+  health: HealthData;
 }

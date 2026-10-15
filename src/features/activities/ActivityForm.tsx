@@ -34,6 +34,8 @@ export const ActivityFormSheet = ({ editId, defaults }: { editId?: string; defau
   const [minutes, setMinutes] = useState(String(seed?.minutes ?? 20));
   const [intensity, setIntensity] = useState<Intensity>(seed?.intensity ?? 'gentle');
   const [note, setNote] = useState(seed?.note ?? '');
+  // 'default' follows the person's reminder settings; 'off' turns this one off; a number is its own lead time in minutes.
+  const [remind, setRemind] = useState<'default' | 'off' | number>(existing?.remind ?? 'default');
   const [touched, setTouched] = useState(false);
 
   const mins = Number(minutes);
@@ -55,6 +57,7 @@ export const ActivityFormSheet = ({ editId, defaults }: { editId?: string; defau
       ref: existing?.ref ?? defaults?.ref ?? null, intensity: module === 'movement' ? intensity : 'gentle',
       difficulty: existing?.difficulty ?? defaults?.difficulty ?? (intensity === 'vigorous' ? 3 : intensity === 'moderate' ? 2 : 1),
       note: note.trim(), createdAt: existing?.createdAt ?? new Date().toISOString(), archived: existing?.archived ?? false,
+      ...(isClock(time) && remind !== 'default' ? { remind } : {}),
     };
     dispatch({ type: 'ACTIVITY_SAVE', activity: a, today });
     const meal = !existing && defaults?.linkMealId ? data.meals.plan.find((m) => m.id === defaults.linkMealId) : undefined;
@@ -111,6 +114,17 @@ export const ActivityFormSheet = ({ editId, defaults }: { editId?: string; defau
         <input id="a-time" className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ maxWidth: 160 }} aria-invalid={touched && !!errors.time} />
         {touched && errors.time && <span className="small" style={{ color: 'var(--clay-ink)' }} role="alert">{errors.time}</span>}
       </div>
+      {isClock(time) && (
+        <div className="field">
+          <span className="label" id="a-rem">Reminder</span>
+          <div className="chips" role="radiogroup" aria-labelledby="a-rem">
+            <Chip role="radio" on={remind === 'default'} onClick={() => setRemind('default')}>Use my settings</Chip>
+            <Chip role="radio" on={remind === 'off'} onClick={() => setRemind('off')}>Off for this one</Chip>
+            {[0, 10, 30, 60].map((n) => <Chip role="radio" key={n} on={remind === n} onClick={() => setRemind(n)}>{n === 0 ? 'At the time' : `${n} min before`}</Chip>)}
+          </div>
+          <span className="small muted">This only does anything if reminders are switched on in Settings.</span>
+        </div>
+      )}
       <div className="field">
         <label htmlFor="a-min">How long (minutes)?</label>
         <div className="chips" style={{ marginBottom: 6 }}>{[5, 10, 15, 20, 30, 45, 60].map((m) => <Chip small key={m} on={mins === m} onClick={() => setMinutes(String(m))}>{m}</Chip>)}</div>

@@ -2,8 +2,10 @@ import { emptyHome, emptyPreferences } from './context';
 import { todayISO } from './dates';
 import { emptyMeals, emptyShopping } from './meals/defaults';
 import { DEFAULT_APPEARANCE } from './appearance/types';
+import { emptyHealth } from './health/defaults';
 import { emptyInterests } from './interests/defaults';
 import { emptyMovement } from './movement/defaults';
+import { emptyReminders } from './reminders/defaults';
 import { emptyWater, emptyWellbeing } from './wellbeing/defaults';
 import { emptyModules } from './modules/registry';
 import type { AppData } from './types';
@@ -38,6 +40,8 @@ export const emptyAppData = (today = todayISO()): AppData => ({
   wellbeing: emptyWellbeing(),
   interests: emptyInterests(),
   appearance: { ...DEFAULT_APPEARANCE },
+  reminders: emptyReminders(),
+  health: emptyHealth(),
 });
 
 export const uid = (prefix = 'id'): string => `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;

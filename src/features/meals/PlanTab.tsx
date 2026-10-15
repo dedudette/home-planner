@@ -41,10 +41,11 @@ export const PlanTab = () => {
   return (
     <div className="stack">
       <div className="row between wrap" style={{ gap: 8 }}>
-        <div className="row" style={{ gap: 6 }}>
+        <div className="row wrap" style={{ gap: 6 }}>
           <Button size="sm" variant="secondary" icon={I.left} aria-label="Previous week" onClick={() => setStart(addDays(start, -7))} />
           <Button size="sm" variant="secondary" icon={I.right} aria-label="Next week" onClick={() => setStart(addDays(start, 7))} />
           {start !== startOfWeek(today) && <Button size="sm" variant="ghost" onClick={() => setStart(startOfWeek(today))}>This week</Button>}
+          <Button size="sm" variant="soft" icon={I.sparkles} onClick={() => openSheet({ kind: 'assist', feature: 'meals' })}>Suggest meals</Button>
         </div>
         <h2 className="h3" aria-live="polite">{formatShort(start)} to {formatShort(addDays(start, 6))}</h2>
       </div>

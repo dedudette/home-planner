@@ -40,6 +40,9 @@ export type ActivitySchedule =
   | { kind: 'once'; date: ISODate };
 
 /** What an activity points at in its own section. The activity keeps its own identity; the reference only says where its content lives. */
+/** What to do about an activity's reminder: follow the defaults (absent), turn it off, or a lead time of its own in minutes (0-180). */
+export type ActivityReminder = 'off' | number;
+
 export interface ActivityRef { kind: 'workout' | 'recipe' | 'interest' | 'routine' | 'none'; id: string }
 
 /**
@@ -63,6 +66,8 @@ export interface PlannedActivity {
   note: string;
   createdAt: string;
   archived: boolean;
+  /** Absent: use the person's reminder settings. */
+  remind?: ActivityReminder;
 }
 
 /** What a section can pre-fill when it opens the planning form (for example a workout, with its own name, minutes and intensity). */

@@ -4,6 +4,7 @@ import { formatDay } from '../../domain/dates';
 import { checkAmount, CHECK_DAY_ML, dayTotal, formatVolume, fromMl, GOAL_MAX_ML, GOAL_MIN_ML, QUICK_ML, toMl, UNIT_LABEL, waterHistory } from '../../domain/water/water';
 import type { WaterEntry, WaterUnit } from '../../domain/water/types';
 import { useApp } from '../../state/store';
+import { HealthWaterNote } from '../health/HealthCard';
 import { I } from '../../ui/icons';
 import { Button, Chip, Hint, ProgressBar, Sheet } from '../../ui/primitives';
 
@@ -108,7 +109,7 @@ export const WaterTab = () => {
   };
   return (
     <div className="stack">
-      <section className="card stack" aria-labelledby="w-today"><h2 id="w-today" className="h3">Today</h2><Summary /><Quick />
+      <section className="card stack" aria-labelledby="w-today"><h2 id="w-today" className="h3">Today</h2><Summary /><HealthWaterNote /><Quick />
         <div className="row wrap" style={{ gap: 8 }}>
           <input className="input" inputMode="decimal" aria-label={`Another amount in ${UNIT_LABEL[unit]}`} placeholder={`Another amount (${UNIT_LABEL[unit]})`} value={amount} onChange={(e) => { setAmount(e.target.value); setErr(''); }} style={{ flex: '1 1 160px' }} />
           <Button icon={I.plus} onClick={() => { const r = addTyped(Number(amount.replace(',', '.')), unit); if (r) setErr(r); else setAmount(''); }} disabled={!amount.trim()}>Add</Button>

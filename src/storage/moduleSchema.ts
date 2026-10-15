@@ -3,6 +3,7 @@ import {
   ACTIVITY_MODULES, MODULE_IDS, TODAY_CARDS, type ActivityKind, type ActivityRef, type ActivitySchedule, type ActivityModule, type ModulesState, type PlannedActivity, type TodayCard,
 } from '../domain/modules/types';
 import type { ISODate, LifeFocus } from '../domain/types';
+import { validateRemind } from './remindersSchema';
 import { bool, Ctx, date, intn, isObj, isoStamp, keepFirst, list, oneOf, oneOfOrNull, str } from './primitives';
 
 /**
@@ -65,6 +66,7 @@ export const validateActivities = (raw: unknown, today: ISODate, c: Ctx): Planne
       ref: refKind && isObj(a.ref) && typeof a.ref.id === 'string' ? { kind: refKind, id: a.ref.id.slice(0, 80) } : null,
       intensity: oneOf(a.intensity, INTENSITIES, 'gentle'), difficulty: intn(a.difficulty, 1, 1, 3) as 1 | 2 | 3,
       note: str(a.note, '', 300), createdAt: isoStamp(a.createdAt, `${startDate}T00:00:00.000Z`), archived: bool(a.archived),
+      ...(validateRemind(a.remind) !== undefined ? { remind: validateRemind(a.remind) } : {}),
     });
   }
   return out;

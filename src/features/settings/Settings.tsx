@@ -9,6 +9,8 @@ import { downloadText } from '../../ui/download';
 import { Button, PageHead } from '../../ui/primitives';
 import { navigate } from '../../ui/router';
 import { AppearancePanel } from './AppearancePanel';
+import { HealthPanel } from './HealthPanel';
+import { RemindersPanel } from './RemindersPanel';
 import { SectionsSettings } from './Sections';
 import { OwlTipCard } from '../../ui/OwlTip';
 
@@ -41,7 +43,7 @@ export const Settings = () => {
         <>
           <p>This file contains <b>{sum.entries}</b> completed or logged actions across <b>{sum.days}</b> days{sum.name ? ` for ${sum.name}` : ''}.</p>
           <p>Restoring <b>replaces everything you have now</b>. CleanFlow keeps an automatic backup of your current data first, so you can undo this.</p>
-          {fit && fit.removedEntries > 0 && <p><b>This file is larger than this browser can store.</b> CleanFlow will import the newest {sum.entries} entries (from {fit.oldestKept}) and leave out the oldest {fit.removedEntries}. Your file is not changed, so nothing is lost.</p>}
+          {fit && fit.data !== res.data && <p><b>This file is larger than this browser can store.</b> CleanFlow will import it with some old history left out or reduced: {describeRetention(fit.data.retention[fit.data.retention.length - 1])} Your file is not changed, so nothing is lost.</p>}
           {res.repairs.length > 0 && <p className="small muted">The file needed small repairs: {res.repairs.join(' ')}</p>}
         </>
       ),
@@ -115,6 +117,10 @@ export const Settings = () => {
       <AppearancePanel />
 
       <SectionsSettings />
+
+      <RemindersPanel />
+
+      <HealthPanel />
 
       <section className="card stack" aria-labelledby="s-demo">
         <h2 id="s-demo" className="h3">Try a demo</h2>

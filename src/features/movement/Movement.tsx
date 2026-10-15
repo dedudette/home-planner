@@ -9,6 +9,7 @@ import { BarChart, Button, Chip, Empty, Hint, PageHead, Segmented, Tag } from '.
 import { navigate, useRoute } from '../../ui/router';
 import { PlannedActivities } from '../sections/SectionPage';
 import { OwlTipCard } from '../../ui/OwlTip';
+import { HealthMovementCard } from '../health/HealthCard';
 import { AVOID_LABEL, EQUIP_LABEL, LEVEL_LABEL, TYPE_LABEL, WorkoutTags } from './shared';
 
 type Tab = 'workouts' | 'plan' | 'progress' | 'setup';
@@ -102,6 +103,7 @@ const ProgressTab = () => {
         )}
         {g.note && <p className="small">{g.note}</p>}
       </section>
+      <HealthMovementCard />
       <section className="card stack" aria-labelledby="mp-4w"><h2 id="mp-4w" className="h3">Minutes per week</h2><BarChart label="Movement minutes per week" unit="minutes" data={weeks} /></section>
       <section className="stack" aria-labelledby="mp-log">
         <h2 id="mp-log" className="h3">Recent workouts</h2>
@@ -161,6 +163,7 @@ const SetupTab = () => {
 
 /** Movement: browse and start workouts, plan them, see what you actually did, and say what suits you. */
 export const Movement = () => {
+  const { openSheet } = useApp();
   const route = useRoute();
   const raw = route.query.get('tab');
   const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : 'workouts';
@@ -170,7 +173,7 @@ export const Movement = () => {
       <Segmented<Tab> label="Movement sections" value={tab} onChange={(t) => navigate(`movement?tab=${t}`)} options={TABS} />
       <OwlTipCard place="movement" />
       {tab === 'workouts' && <WorkoutsTab />}
-      {tab === 'plan' && <PlannedActivities module="movement" />}
+      {tab === 'plan' && <div className="stack"><div><Button variant="soft" icon={I.sparkles} onClick={() => openSheet({ kind: 'assist', feature: 'movement' })}>Plan my movement</Button></div><PlannedActivities module="movement" /></div>}
       {tab === 'progress' && <ProgressTab />}
       {tab === 'setup' && <SetupTab />}
     </div>

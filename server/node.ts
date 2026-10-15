@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
-import { createCoachHandler } from './coach/handler';
+import { createApiHandler } from './api';
 import { handleNodeRequest } from './nodeAdapter';
 import { resolveStatic } from './static';
 
@@ -15,7 +15,7 @@ import { resolveStatic } from './static';
  * Static hosting alone (GitHub Pages and the like) cannot run this: without a server the app simply shows the coach as unavailable.
  */
 const root = resolve(process.env.COACH_STATIC_DIR ?? 'dist');
-const handler = createCoachHandler();
+const handler = createApiHandler();
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8', '.woff2': 'font/woff2',
@@ -42,5 +42,5 @@ const port = Number(process.env.PORT ?? 8080);
 const host = process.env.HOST ?? '127.0.0.1';
 server.listen(port, host, () => {
   console.log(`CleanFlow on http://${host}:${port}`);
-  console.log(`[coach] ${handler.describe()}`);
+  console.log(`[ai] ${handler.describe()}`);
 });

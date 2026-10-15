@@ -9,20 +9,28 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node tests/e2e/flow.mjs && node tests/e2e/responsive.mjs && node tests/e2e/integrity.mjs && node tests/e2e/sync.mjs && node tests/e2e/behaviour.mjs && node tests/e2e/coach.mjs && node tests/e2e/sections.mjs && node tests/e2e/meals.mjs && node tests/e2e/movement.mjs && node tests/e2e/learning.mjs",
+    "e2e": "node tests/e2e/flow.mjs && node tests/e2e/responsive.mjs && node tests/e2e/integrity.mjs && node tests/e2e/sync.mjs && node tests/e2e/behaviour.mjs && node tests/e2e/coach.mjs && node tests/e2e/sections.mjs && node tests/e2e/meals.mjs && node tests/e2e/movement.mjs && node tests/e2e/learning.mjs && node tests/e2e/assist.mjs",
     "check": "tsc --noEmit && vitest run",
     "build:server": "vite build --ssr server/node.ts --outDir dist-server",
     "start": "node dist-server/node.js",
     "dev:coach": "sh scripts/with-keychain-key.sh npm run dev",
-    "sample-data": "vite-node scripts/make-sample-data.ts"
+    "sample-data": "vite-node scripts/make-sample-data.ts",
+    "storage-growth": "vite-node scripts/storage-growth.ts",
+    "cap:sync": "npm run build && cap sync"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capgo/capacitor-health": "^8.11.12",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
     "@types/node": "^22.20.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

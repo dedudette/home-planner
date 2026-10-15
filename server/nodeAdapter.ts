@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { CoachHandler } from './coach/handler';
+import { isApiPath, type ApiHandler } from './api';
 
 /**
  * Glue between Node's http server (also Vite's dev and preview servers, which are Connect apps) and the Request/Response handler.
@@ -23,9 +23,9 @@ const readNodeBody = (req: IncomingMessage): Promise<Buffer | null> =>
     req.on('error', () => resolve(null));
   });
 
-export const handleNodeRequest = async (handler: CoachHandler, req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
+export const handleNodeRequest = async (handler: ApiHandler, req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
   const rawUrl = req.url ?? '/';
-  if (!rawUrl.startsWith('/api/coach')) return false;
+  if (!isApiPath(rawUrl)) return false;
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) if (v !== undefined && k !== 'x-coach-client') headers.set(k, Array.isArray(v) ? v.join(', ') : v);
   headers.set('x-coach-client', req.socket.remoteAddress ?? 'unknown');

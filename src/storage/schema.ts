@@ -3,7 +3,9 @@ import { anyModuleOn, defaultModulesFor } from '../domain/modules/registry';
 import { validateActivities, validateModules } from './moduleSchema';
 import { validateMeals, validateShopping } from './mealsSchema';
 import { readAppearance } from '../domain/appearance/apply';
+import { validateHealth } from './healthSchema';
 import { validateInterests } from './interestsSchema';
+import { validateReminders } from './remindersSchema';
 import { validateMovement } from './movementSchema';
 import { validateWater, validateWellbeing } from './wellSchema';
 import { emptyHome, emptyPreferences } from '../domain/context';
@@ -229,7 +231,10 @@ const validateRetention = (raw: unknown): RetentionNote[] => {
   const out: RetentionNote[] = [];
   for (const n of raw.slice(-MAX.retention)) {
     if (!isObj(n) || !date(n.removedThrough) || !date(n.oldestKept)) continue;
-    out.push({ at: isoStamp(n.at, ''), removedSessions: intn(n.removedSessions, 0, 0, 1e7), removedEntries: intn(n.removedEntries, 0, 0, 1e7), removedThrough: n.removedThrough as ISODate, oldestKept: n.oldestKept as ISODate });
+    const note: RetentionNote = { at: isoStamp(n.at, ''), removedSessions: intn(n.removedSessions, 0, 0, 1e7), removedEntries: intn(n.removedEntries, 0, 0, 1e7), removedThrough: n.removedThrough as ISODate, oldestKept: n.oldestKept as ISODate };
+    if (isObj(n.thinned)) note.thinned = { waterDays: intn(n.thinned.waterDays, 0, 0, 1e7), exerciseDetails: intn(n.thinned.exerciseDetails, 0, 0, 1e7) };
+    if (isObj(n.removedOther)) { const o = n.removedOther; note.removedOther = { meals: intn(o.meals, 0, 0, 1e7), workouts: intn(o.workouts, 0, 0, 1e7), water: intn(o.water, 0, 0, 1e7), hobbySessions: intn(o.hobbySessions, 0, 0, 1e7), checkins: intn(o.checkins, 0, 0, 1e7), shoppingLists: intn(o.shoppingLists, 0, 0, 1e7) }; }
+    out.push(note);
   }
   return out;
 };
@@ -435,6 +440,8 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
     wellbeing: validateWellbeing(raw.wellbeing, c),
     interests: validateInterests(raw.interests, c),
     appearance: readAppearance(raw.appearance),
+    reminders: validateReminders(raw.reminders, c),
+    health: validateHealth(raw.health, c),
   };
   const found = from;
   const fromFuture = found > SCHEMA_VERSION;

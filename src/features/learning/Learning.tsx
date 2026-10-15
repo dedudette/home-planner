@@ -72,6 +72,7 @@ const DiscoverTab = () => {
   return (
     <div className="stack">
       <Hint icon={I.info}>Tell us what you have, and we show a few things worth a first try. These come from a short list written for this app. We do not recommend books, courses or websites: if you use one, you add it yourself.</Hint>
+      <div><Button variant="soft" icon={I.sparkles} onClick={() => openSheet({ kind: 'assist', feature: 'learning' })}>Ideas to try</Button></div>
       <section className="card stack" aria-label="What suits you">
         <div className="field"><span className="label" id="d-min">A first try should fit in</span><div className="chips" role="radiogroup" aria-labelledby="d-min">{MINUTES.map((m) => <Chip small key={m} role="radio" on={a.minutes === m} onClick={() => set({ minutes: m })}>{m} min</Chip>)}</div></div>
         <div className="field"><span className="label" id="d-bud">What can you spend?</span><div className="chips" role="radiogroup" aria-labelledby="d-bud">{BUDGETS.map((b) => <Chip small key={b.value} role="radio" on={a.budget === b.value} onClick={() => set({ budget: b.value })}>{b.label}</Chip>)}</div></div>

@@ -22,6 +22,8 @@ import { movementReducer, type MovementAction } from './movementReducer';
 import { wellReducer, type WellAction } from './wellReducer';
 import { interestsReducer, type InterestsAction } from './interestsReducer';
 import { appearanceReducer, type AppearanceAction } from './appearanceReducer';
+import { remindersReducer, type RemindersAction } from './remindersReducer';
+import { healthReducer, type HealthAction } from './healthReducer';
 
 /**
  * When something happened. `hour` and `tz` are filled in by the store; when absent (tests, older callers) they are derived from `now`,
@@ -79,7 +81,9 @@ export type Action =
   | MovementAction
   | WellAction
   | InterestsAction
-  | AppearanceAction;
+  | AppearanceAction
+  | RemindersAction
+  | HealthAction;
 
 const SESSION_GAP_MIN = 45;
 
@@ -396,7 +400,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
     // Section reducers each ignore actions that are not theirs, so the data passes through them in turn.
     default: {
       const sections = wellReducer(movementReducer(mealsReducer(moduleReducer(data, a as ModuleAction), a as MealsAction), a as MovementAction), a as WellAction);
-      return appearanceReducer(interestsReducer(sections, a as InterestsAction), a as AppearanceAction);
+      return healthReducer(remindersReducer(appearanceReducer(interestsReducer(sections, a as InterestsAction), a as AppearanceAction), a as RemindersAction), a as HealthAction);
     }
   }
 };

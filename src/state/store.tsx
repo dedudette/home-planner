@@ -10,13 +10,15 @@ import { planVersionOf, snapshotPlanVersion } from '../domain/planVersion';
 import {
   extendTimer, pauseTimer, resolveTimerTask, resumeTimer, startTimer, tick, elapsedMinutes, type TimerState,
 } from '../domain/timer';
+import type { AssistFeature } from '../domain/assist/types';
 import type { MealSlot } from '../domain/meals/types';
 import type { ActivityDefaults } from '../domain/modules/types';
 import type { AppData, EntrySurface, ISODate, RecommendationEvent, Task } from '../domain/types';
 import { buildView, type PlanView } from '../domain/view';
 import { LocalStorageRepository, exportJSON, type LoadResult, type Repository } from '../storage/repository';
 import { downloadText } from '../ui/download';
-import { compactHistory, storageLevel, type StorageLevel } from '../domain/retention';
+import { compactHistory, describeRetention, storageLevel, type StorageLevel } from '../domain/retention';
+import { totalRemoved } from '../domain/thinning';
 import { hasUserData } from '../storage/schema';
 import { reducer, type Action, type Stamp } from './reducer';
 import { playChime } from './chime';
@@ -59,6 +61,7 @@ export type Sheet =
   | { kind: 'starter'; catalogId: string; starterId: string }
   | { kind: 'logSession'; interestId?: string; starterId?: string; bookId?: string; minutes?: number; taskId?: string }
   | { kind: 'bookForm'; editId?: string }
+  | { kind: 'assist'; feature: AssistFeature }
   | { kind: 'journal'; editId?: string }
   | { kind: 'waterEdit'; id: string }
   | { kind: 'shopGen' }
@@ -475,7 +478,8 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   const offerCompaction = useCallback((): boolean => {
     const cur = reconcile();
     const preview = compactHistory(cur);
-    if (preview.removedEntries === 0) return false;
+    if (preview.data === cur) return false;
+    const note = preview.data.retention[preview.data.retention.length - 1];
     const mb = (n: number) => (n / 1_000_000).toFixed(1);
     const now = nowStamp();
     confirm({
@@ -483,17 +487,17 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
       body: (
         <>
           <p>Your history has grown to about <b>{mb(storageChars || preview.chars)} MB</b>, close to what this browser can store. If it fills up, new entries could not be saved.</p>
-          <p>CleanFlow can keep your newest <b>{preview.data.sessions.reduce((n, x) => n + x.entries.length, 0)}</b> entries and remove the oldest <b>{preview.removedEntries}</b> (up to {preview.removedThrough}). Your home, plan and settings are not touched.</p>
+          <p>{preview.removedEntries > 0 ? <>CleanFlow can keep your newest <b>{preview.data.sessions.reduce((n, x) => n + x.entries.length, 0)}</b> entries and remove the oldest <b>{preview.removedEntries}</b> (up to {preview.removedThrough}). </> : <>CleanFlow can reduce some old detail. </>}{note ? describeRetention(note) : ''} Your home and plan are not touched.</p>
           <p className="small muted">Download everything first if you want to keep the old entries. This can't be undone.</p>
         </>
       ),
-      confirmLabel: `Remove ${preview.removedEntries} oldest entries`,
+      confirmLabel: preview.removedEntries > 0 ? `Remove ${preview.removedEntries} oldest entries` : 'Reduce old detail',
       cancelLabel: 'Not now',
       danger: true,
       extra: { label: 'Download everything first', run: () => downloadText(`cleanflow-backup-${now.today}.json`, exportJSON(cur)) },
       onConfirm: () => {
         dispatch({ type: 'COMPACT_HISTORY', at: now.now });
-        toast(`Removed ${preview.removedEntries} oldest entries. Your history now starts ${preview.oldestKept}.`);
+        toast(preview.removedEntries > 0 || totalRemoved(preview.removedOther) > 0 ? `Made room. Your history now starts ${preview.oldestKept}.` : 'Made room by reducing old detail. Nothing you wrote was touched.');
       },
     });
     return true;
