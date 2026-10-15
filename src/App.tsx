@@ -23,6 +23,13 @@ import { ActivityFormSheet } from './features/activities/ActivityForm';
 import { TimerBar, TimerPickSheet, TimerSheet } from './features/tasks/TimerSheet';
 import { SectionPage } from './features/sections/SectionPage';
 import { Meals } from './features/meals/Meals';
+import { Movement } from './features/movement/Movement';
+import { Wellbeing } from './features/wellbeing/Wellbeing';
+import { JournalSheet } from './features/wellbeing/Journal';
+import { WaterEditSheet } from './features/wellbeing/WaterPanel';
+import { WorkoutDetailSheet } from './features/movement/WorkoutDetail';
+import { WorkoutSessionSheet } from './features/movement/WorkoutSession';
+import { WorkoutFormSheet } from './features/movement/WorkoutForm';
 import { MealPickerSheet } from './features/meals/MealPicker';
 import { MealEditSheet } from './features/meals/MealEdit';
 import { DishFormSheet } from './features/meals/DishForm';
@@ -63,6 +70,11 @@ const SheetHost = () => {
     case 'taskForm': return <TaskFormSheet editId={top.editId} />;
     case 'activityForm': return <ActivityFormSheet editId={top.editId} defaults={top.defaults} />;
     case 'recipe': return <RecipeDetailSheet id={top.id} />;
+    case 'journal': return <JournalSheet editId={top.editId} />;
+    case 'waterEdit': return <WaterEditSheet id={top.id} />;
+    case 'workout': return <WorkoutDetailSheet id={top.id} />;
+    case 'workoutSession': return <WorkoutSessionSheet workoutId={top.workoutId} taskId={top.taskId} />;
+    case 'workoutForm': return <WorkoutFormSheet editId={top.editId} />;
     case 'dishForm': return <DishFormSheet editId={top.editId} />;
     case 'mealPicker': return <MealPickerSheet date={top.date} slot={top.slot} tab={top.tab} />;
     case 'mealEdit': return <MealEditSheet id={top.id} />;
@@ -145,7 +157,9 @@ export const App = () => {
       case 'home': return <MyHome isNew={route.query.get('new') === '1'} />;
       case 'supplies': return homeOn ? <Supplies /> : <Today />;
       case 'meals': return sections.some((x) => x.path === path) ? <Meals /> : <SectionOff path={path} />;
-      case 'movement': case 'learning': case 'wellbeing':
+      case 'movement': return sections.some((x) => x.path === path) ? <Movement /> : <SectionOff path={path} />;
+      case 'wellbeing': return sections.some((x) => x.path === path) ? <Wellbeing /> : <SectionOff path={path} />;
+      case 'learning':
         return sections.some((x) => x.path === path) ? <SectionPage module={path} /> : <SectionOff path={path} />;
       case 'settings': return <Settings />;
       case 'more': return <More />;

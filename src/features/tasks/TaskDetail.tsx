@@ -10,6 +10,7 @@ import { DOMAIN_LABEL, LIFE_LEVELS, TIME_LABEL } from '../../domain/options';
 import { SAFETY_LINE } from '../../domain/lifeCatalog';
 import { Button, Dots, PriorityTag, ProgressBar, Sheet, Tag } from '../../ui/primitives';
 import { clockLabel } from '../../domain/modules/registry';
+import { isAdhocId } from '../../domain/modules/adhoc';
 import { lowerFrequency } from '../../domain/learning';
 import { DIFF_LABEL } from './TaskCard';
 
@@ -65,7 +66,7 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
   const info = dueInfo(task, st, today);
   const life = isLife(task);
   const RoomIcon = life ? DOMAIN_ICON[task.domain!] : ROOM_ICON[task.roomKind];
-  const ephemeral = task.id.startsWith('five:') || task.id.startsWith('rough:');
+  const ephemeral = task.id.startsWith('five:') || task.id.startsWith('rough:') || isAdhocId(task.id);
   const safety = task.domain ? SAFETY_LINE[task.domain as 'fitness' | 'breathing'] : undefined;
   const lower = lowerFrequency(task.frequency);
   const missing = task.needs.filter((n) => !supplies.has(n));
@@ -76,6 +77,7 @@ export const TaskDetailSheet = ({ id, fallback }: { id: string; fallback?: Task 
     <Sheet title={task.name} onClose={closeSheet} label={`Task: ${task.name}`}
       footer={ephemeral ? undefined : (
         <>
+          {task.ref?.kind === 'workout' && <Button variant="soft" icon={I.play} onClick={() => { closeSheet(); openSheet({ kind: 'workoutSession', workoutId: task.ref!.id, taskId: task.id }); }}>Start guided workout</Button>}
           <Button variant="soft" icon={I.timer} onClick={() => openSheet({ kind: 'timerPick', task })}>Start timer</Button>
           <Button icon={I.check} disabled={alreadyDone} onClick={() => { complete(task); closeSheet(); }}>{alreadyDone ? 'Done' : 'Mark complete'}</Button>
         </>

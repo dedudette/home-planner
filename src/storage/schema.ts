@@ -2,6 +2,8 @@ import { emptyAppData } from '../domain/appdata';
 import { anyModuleOn, defaultModulesFor } from '../domain/modules/registry';
 import { validateActivities, validateModules } from './moduleSchema';
 import { validateMeals, validateShopping } from './mealsSchema';
+import { validateMovement } from './movementSchema';
+import { validateWater, validateWellbeing } from './wellSchema';
 import { emptyHome, emptyPreferences } from '../domain/context';
 import {
   BLOCKERS, CLEANLINESS, ENERGY, EQUIPMENT_OPTIONS, FITNESS_LEVELS, FOCUS_OPTIONS, GARAGE_SIZES, GOALS, HOME_TYPES, PET_CHOICES,
@@ -426,6 +428,9 @@ export const validateAppData = (input: unknown, today?: ISODate): ValidationResu
     activities: validateActivities(raw.activities, t, c),
     meals: validateMeals(raw.meals, c),
     shopping: validateShopping(raw.shopping, c),
+    movement: validateMovement(raw.movement, c),
+    water: validateWater(raw.water, c),
+    wellbeing: validateWellbeing(raw.wellbeing, c),
   };
   const found = from;
   const fromFuture = found > SCHEMA_VERSION;

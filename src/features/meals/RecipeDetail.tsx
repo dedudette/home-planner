@@ -78,7 +78,7 @@ export const RecipeDetailSheet = ({ id }: { id: string }) => {
           <div className="chips" role="radiogroup" aria-label="Meal">{MEAL_SLOTS.map((s) => <Chip small key={s} role="radio" on={slot === s} onClick={() => setSlot(s)}>{SLOT_LABEL[s]}</Chip>)}</div>
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
-          <Button variant="soft" size="sm" icon={I.timer} onClick={() => openSheet({ kind: 'activityForm', defaults: { module: 'meals', name: `Cook: ${r.name}`, minutes: Math.max(5, mealMinutes(r)), ref: { kind: 'recipe', id: r.id }, schedule: { kind: 'once', date } } })}>Plan a cooking session</Button>
+          <Button variant="soft" size="sm" icon={I.timer} onClick={() => { closeSheet(); openSheet({ kind: 'activityForm', defaults: { module: 'meals', name: `Cook: ${r.name}`, minutes: Math.max(5, mealMinutes(r)), ref: { kind: 'recipe', id: r.id }, schedule: { kind: 'once', date } } }); }}>Plan a cooking session</Button>
           <Button variant="soft" size="sm" icon={I.heart} aria-pressed={fav} onClick={() => dispatch({ type: 'FAVOURITE', id: r.id, on: !fav })}>{fav ? 'Favourite' : 'Make a favourite'}</Button>
           {mine && <Button variant="ghost" size="sm" icon={I.pencil} onClick={() => openSheet({ kind: 'dishForm', editId: r.id })}>Edit</Button>}
         </div>

@@ -13,6 +13,8 @@ import { I } from '../../ui/icons';
 import { Button, Chip, Empty, IconButton, PageHead, ProgressBar } from '../../ui/primitives';
 import { TaskCard } from '../tasks/TaskCard';
 import { TodayMeals } from '../meals/TodayMeals';
+import { TodayCheckin } from '../wellbeing/Checkin';
+import { TodayWater } from '../wellbeing/WaterPanel';
 import { InsightCard, useInsights } from './Insights';
 
 const greeting = () => {
@@ -45,7 +47,7 @@ export const FreshStartCard = ({ days, neverLogged }: { days: number; neverLogge
 };
 
 /** The tracking cards. Each is added by its own section; a card whose section is not built or not on renders nothing. */
-const TodayCardHost = ({ card }: { card: TodayCard }) => (card === 'meals' ? <TodayMeals /> : null);
+const TodayCardHost = ({ card }: { card: TodayCard }) => (card === 'meals' ? <TodayMeals /> : card === 'water' ? <TodayWater /> : card === 'checkin' ? <TodayCheckin /> : null);
 
 export const Today = () => {
   const { view, data, today, hour, openSheet, dispatch, stamp, plan, visible } = useApp();

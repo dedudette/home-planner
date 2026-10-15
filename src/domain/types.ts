@@ -8,6 +8,9 @@
  */
 
 import type { MealsData, ShoppingData } from './meals/types';
+import type { MovementData } from './movement/types';
+import type { WaterData } from './water/types';
+import type { WellbeingData } from './wellbeing/types';
 import type { ActivityKind, ActivityModule, ActivityRef, ModulesState, PlannedActivity } from './modules/types';
 
 export type ISODate = string; // 'YYYY-MM-DD' in the user's local time
@@ -577,4 +580,7 @@ export interface AppData {
   activities: PlannedActivity[];
   meals: MealsData;
   shopping: ShoppingData;
+  movement: MovementData;
+  water: WaterData;
+  wellbeing: WellbeingData;
 }

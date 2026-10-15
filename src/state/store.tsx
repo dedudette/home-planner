@@ -50,6 +50,11 @@ export type Sheet =
   | { kind: 'dishForm'; editId?: string }
   | { kind: 'mealPicker'; date: ISODate; slot: MealSlot; tab?: 'recipes' | 'log' }
   | { kind: 'mealEdit'; id: string }
+  | { kind: 'workout'; id: string }
+  | { kind: 'workoutSession'; workoutId: string; taskId?: string }
+  | { kind: 'workoutForm'; editId?: string }
+  | { kind: 'journal'; editId?: string }
+  | { kind: 'waterEdit'; id: string }
   | { kind: 'shopGen' }
   | { kind: 'shopReview'; listId: string }
   | { kind: 'shopItem'; listId: string; itemId?: string }

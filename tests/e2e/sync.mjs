@@ -39,7 +39,11 @@ const nameOf = (label) => label.replace(/^Mark | complete$/g, '');
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const completedToday = async (p, name) => (await stored(p)).sessions.flatMap((s) => s.entries).filter((e) => e.date === today() && e.outcome === 'completed' && e.name === name).length;
 
-const open = async (second = null) => {
+// Which habits Today shows right now depends on the clock; the rest sit in closed groups. These tests need several tasks to click,
+// so they open every closed group first (the idle test does not, so its write count stays that of just opening a tab).
+const openGroups = async (p) => { for (let i = 0; i < 8; i++) { const t = p.locator('button.bucket-toggle[aria-expanded="false"]').first(); if (!(await t.count())) break; await t.click(); } };
+
+const open = async (second = null, expand = true) => {
   const ctx = await newContext(browser, { w: 1024, h: 768, mobile: false });
   await ctx.addInitScript(COUNT_WRITES);
   const a = await ctx.newPage(); watch(a, errors, 'A');
@@ -48,6 +52,7 @@ const open = async (second = null) => {
   const b = await ctx.newPage(); watch(b, errors, 'B');
   if (second) await b.addInitScript(second);
   await b.goto(BASE + '#/today'); await b.waitForSelector('text=Habits & routine'); await b.waitForTimeout(900);
+  if (expand) { await openGroups(a); await openGroups(b); await a.waitForTimeout(600); }
   return { ctx, a, b };
 };
 
@@ -64,7 +69,7 @@ const expectQuiet = async (name, a, b, ms = 3500) => {
 
 // 1. idle: just opening a second tab must not start anything
 await step('opening a second tab on the same data does not start a write loop', async () => {
-  const { ctx, a, b } = await open();
+  const { ctx, a, b } = await open(null, false);
   const q = await expectQuiet('idle', a, b);
   check(`idle: only a handful of writes in total (${q.total})`, q.total <= 12, `${q.total} writes`);
   await ctx.close();

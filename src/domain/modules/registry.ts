@@ -25,7 +25,7 @@ export const MODULES: Record<ModuleId, ModuleInfo> = {
 };
 
 /** Sections that have a working page in this build. A section is offered to people only once it is real. */
-export const AVAILABLE_MODULES: readonly ModuleId[] = ['movement', 'meals', 'learning', 'wellbeing'];
+export const AVAILABLE_MODULES: readonly ModuleId[] = ['movement', 'meals', 'water', 'learning', 'wellbeing'];
 
 export const ACTIVITY_LABEL: Record<ActivityModule, string> = {
   movement: 'Movement', meals: 'Meals & cooking', learning: 'Learning & hobbies', wellbeing: 'Wellbeing',

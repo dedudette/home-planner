@@ -53,7 +53,7 @@ export const MealEditSheet = ({ id }: { id: string }) => {
       {r && (e.ref.kind === 'recipe' || e.ref.kind === 'dish') && (
         <div className="row wrap" style={{ gap: 8 }}>
           <Button variant="secondary" size="sm" icon={I.list} onClick={() => openSheet({ kind: 'recipe', id: r.id })}>See the recipe</Button>
-          {!prep && <Button variant="soft" size="sm" icon={I.timer} onClick={() => openSheet({ kind: 'activityForm', defaults: { module: 'meals', name: `Cook: ${r.name}`, minutes: Math.max(5, r.prepMinutes + r.cookMinutes), ref: { kind: 'recipe', id: r.id }, schedule: { kind: 'once', date: e.date }, linkMealId: e.id } })}>Plan a cooking session</Button>}
+          {!prep && <Button variant="soft" size="sm" icon={I.timer} onClick={() => { closeSheet(); openSheet({ kind: 'activityForm', defaults: { module: 'meals', name: `Cook: ${r.name}`, minutes: Math.max(5, r.prepMinutes + r.cookMinutes), ref: { kind: 'recipe', id: r.id }, schedule: { kind: 'once', date: e.date }, linkMealId: e.id } }); }}>Plan a cooking session</Button>}
         </div>
       )}
 

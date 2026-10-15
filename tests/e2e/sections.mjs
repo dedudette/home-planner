@@ -79,7 +79,7 @@ const plan = async (page, { name, minutes, once = true, time, kind, section }) =
     check('a switched-off section says so', /switched off/.test(await text(page)));
   }, page);
   await step('A plan an activity for today in Movement', async () => {
-    await page.goto(BASE + '#/movement');
+    await page.goto(BASE + '#/movement?tab=plan');
     await page.waitForSelector('text=Nothing planned yet');
     await plan(page, { name: 'Morning stretch', minutes: 10 });
     check('it is listed in its section', /Morning stretch/.test(await text(page)));
@@ -105,7 +105,7 @@ const plan = async (page, { name, minutes, once = true, time, kind, section }) =
     check('one record again, in the fitness area', es.length === 1 && es[0].domain === 'fitness', JSON.stringify(es));
   }, page);
   await step('A its section shows the same completion, and not-recorded stays separate from skipped', async () => {
-    await page.goto(BASE + '#/movement');
+    await page.goto(BASE + '#/movement?tab=plan');
     await page.waitForSelector('text=Morning stretch');
     const t = await text(page);
     check('history says done', /1 done/.test(t), t.slice(0, 300));
@@ -129,7 +129,7 @@ const plan = async (page, { name, minutes, once = true, time, kind, section }) =
     await page.getByRole('switch', { name: 'Learning & hobbies' }).check().catch(() => {}); // already on for this demo (its goal is study)
     await page.getByRole('switch', { name: 'Movement' }).check();
     await page.waitForSelector('aside a[href="#/movement"]');
-    await page.goto(BASE + '#/movement');
+    await page.goto(BASE + '#/movement?tab=plan');
     await plan(page, { name: 'Gentle walk', minutes: 15 });
     await page.goto(BASE + '#/settings');
     await page.getByRole('switch', { name: 'Movement' }).uncheck();
@@ -137,7 +137,7 @@ const plan = async (page, { name, minutes, once = true, time, kind, section }) =
     check('gone from the sidebar', (await page.locator('aside a[href="#/movement"]').count()) === 0);
     check('its plan is still saved', (await stored(page)).activities.some((a) => a.name === 'Gentle walk'));
     await page.getByRole('switch', { name: 'Movement' }).check();
-    await page.goto(BASE + '#/movement');
+    await page.goto(BASE + '#/movement?tab=plan');
     check('and back when switched on again', /Gentle walk/.test(await text(page)));
   }, page);
   await step('B the last section cannot be switched off', async () => {
@@ -215,7 +215,7 @@ const plan = async (page, { name, minutes, once = true, time, kind, section }) =
       localStorage.setItem('cleanflow:v1', JSON.stringify(d));
     });
     await page.reload();
-    await page.goto(BASE + '#/movement');
+    await page.goto(BASE + '#/movement?tab=plan');
     await page.waitForSelector('text=Plan an activity');
     await plan(page, { name: 'Long bike ride', minutes: 45 });
     await page.goto(BASE + '#/today');
@@ -228,7 +228,7 @@ const plan = async (page, { name, minutes, once = true, time, kind, section }) =
     check('the activity is on Today', (await page.locator('article.task', { hasText: 'Long bike ride' }).count()) === 1);
   }, page);
   await step('D two fixed activities that overlap are reported, and both stay where the person put them', async () => {
-    await page.goto(BASE + '#/movement');
+    await page.goto(BASE + '#/movement?tab=plan');
     await plan(page, { name: 'Yoga class', minutes: 60, time: '18:00', kind: 'At a set time' });
     await plan(page, { name: 'Pilates', minutes: 45, time: '18:30', kind: 'At a set time' });
     await page.goto(BASE + '#/today');
@@ -267,7 +267,7 @@ for (const size of WIDTHS) {
     }, page);
   }
   await step(`E the planning sheet fits at ${size.w}px`, async () => {
-    await page.evaluate(() => (location.hash = '#/movement')); await page.waitForTimeout(250);
+    await page.evaluate(() => (location.hash = '#/movement?tab=plan')); await page.waitForTimeout(250);
     await page.getByRole('button', { name: 'Plan an activity' }).first().click();
     await page.waitForSelector('role=dialog');
     await page.waitForTimeout(400); // the sheet slides in for a moment; measure it once it has settled

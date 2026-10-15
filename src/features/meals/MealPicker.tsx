@@ -13,7 +13,7 @@ type Tab = 'recipes' | 'dishes' | 'log' | 'leftovers';
 
 export const RecipeRow = ({ r, onPick, onOpen, fav }: { r: Recipe; onPick?: () => void; onOpen?: () => void; fav?: boolean }) => (
   <div className="card row between" style={{ gap: 12, padding: 12 }}>
-    <button className="grow plain-btn" style={{ minHeight: 44 }} onClick={onOpen ?? onPick} aria-label={`${r.name}, ${mealMinutes(r)} minutes`}>
+    <button className="grow plain-btn" style={{ minHeight: 44 }} onClick={onOpen ?? onPick} aria-label={`${r.name}, ${mealMinutes(r)} minute${mealMinutes(r) === 1 ? '' : 's'}`}>
       <b>{r.name}</b>{fav ? <I.heart size={14} aria-hidden style={{ marginLeft: 6, color: 'var(--primary)' }} /> : null}
       <br /><span className="small muted">{mealMinutes(r)} min · serves {r.servings}{r.source === 'personal' ? ' · your dish' : ''}</span>
     </button>

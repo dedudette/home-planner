@@ -10,6 +10,9 @@ const mk = async (opts, ignore = null) => { const ctx = await newContext(browser
 const EXPECTED_CRASH = /boom|The above error occurred|CleanFlow crashed/;
 // Edits the saved data as another writer would: the revision is bumped, so the live page merges instead of overwriting.
 const patchStore = (page, fn) => page.evaluate((src) => { const d = JSON.parse(localStorage.getItem('cleanflow:v1')); new Function('d', src)(d); d._rev = (d._rev ?? 0) + 100; localStorage.setItem('cleanflow:v1', JSON.stringify(d)); }, fn);
+// Today tucks the parts of the day that are not "now" into closed groups, and which group a habit is in depends on the clock. This
+// opens every closed one (there can be one per scope: habits and home routines), so a test can find a task at any time of day.
+const openBuckets = async (page) => { for (let i = 0; i < 8; i++) { const b = page.locator('button.bucket-toggle[aria-expanded="false"]').first(); if (!(await b.count())) break; await b.click(); } };
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 // ───────────── 1. unreadable or odd saved data never produces a blank screen or silent loss ─────────────
@@ -162,6 +165,7 @@ const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
   await step('two rapid activations of "Mark complete" log one completion', async () => {
     const name = 'Plan tomorrow';
     const before = await countFor(name);
+    await openBuckets(page);
     await page.locator('.task-body', { hasText: name }).first().click(); await page.waitForSelector('.sheet-foot');
     await page.getByRole('button', { name: 'Mark complete' }).evaluate((b) => { b.click(); b.click(); });
     await page.waitForTimeout(700);
@@ -170,9 +174,8 @@ const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
   await step('a completion is saved even if the page is closed immediately', async () => {
     const name = 'Put your phone away for the night';
     const before = await countFor(name);
-    await page.locator('.task', { hasText: name }).first().locator('button.check').click().catch(async () => {
-      await page.getByRole('button', { name: /This evening/ }).click(); await page.locator('.task', { hasText: name }).first().locator('button.check').click();
-    });
+    await openBuckets(page);
+    await page.locator('.task', { hasText: name }).first().locator('button.check').click();
     await page.reload(); await page.waitForSelector('text=Habits & routine');
     check('survived an instant reload', (await countFor(name)) === before + 1, `before ${before} after ${await countFor(name)}`);
   }, page);
@@ -199,7 +202,8 @@ const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
   await step('two tabs: each tab\'s work survives, whichever saved last', async () => {
     const key = todayKey();
     const n0 = (await entriesOf(tab1)).filter((e) => e.date === key).length;
-    await tab1.locator('.task', { hasText: 'Plan tomorrow' }).first().locator('button.check').click().catch(async () => { await tab1.getByRole('button', { name: /This evening/ }).click(); await tab1.locator('.task', { hasText: 'Plan tomorrow' }).first().locator('button.check').click(); });
+    await openBuckets(tab1);
+    await tab1.locator('.task', { hasText: 'Plan tomorrow' }).first().locator('button.check').click();
     await tab1.waitForTimeout(700);
     // tab 2 never reloaded: it must have merged tab 1's change and must not erase it when it saves its own
     await tab2.locator('article.task button.check:not([disabled])').first().click(); await tab2.waitForTimeout(800);

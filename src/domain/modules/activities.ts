@@ -149,7 +149,8 @@ export const summarizeHistory = (occ: Occurrence[]): HistorySummary => ({
 
 export type Conflict =
   | { kind: 'overlap'; a: Task; b: Task }
-  | { kind: 'category'; module: ActivityModule; planned: number; cap: number };
+  | { kind: 'category'; module: ActivityModule; planned: number; cap: number }
+  | { kind: 'rest-day'; task: Task };
 
 /** Two fixed activities whose times overlap. The planner never moves either: it says so and the person decides. */
 export const timeConflicts = (tasks: Task[]): Conflict[] => {
@@ -176,7 +177,13 @@ export const categoryConflicts = (tasks: Task[], caps: Partial<Record<ActivityMo
   return out;
 };
 
+/** Something the person planned for movement on a weekday they declared a rest day. Reported, never moved or removed. */
+export const restDayConflicts = (tasks: Task[], restDays: number[], weekdayNum: number): Conflict[] =>
+  restDays.includes(weekdayNum) ? tasks.filter((t) => (t.module ?? moduleOfDomain(t.domain)) === 'movement' && t.userPlanned).map((task) => ({ kind: 'rest-day' as const, task })) : [];
+
 export const describeConflict = (c: Conflict): string =>
-  c.kind === 'overlap'
+  c.kind === 'rest-day'
+    ? `"${c.task.name}" is planned on a day you marked as a rest day. Nothing was moved. Keep it, move it, or change your rest days.`
+    : c.kind === 'overlap'
     ? `"${c.a.name}" (${clockLabel(c.a.time!)}) and "${c.b.name}" (${clockLabel(c.b.time!)}) overlap. Nothing was moved. Change one time if you want to.`
     : `${ACTIVITY_LABEL[c.module]} is ${c.planned - c.cap} min over the ${c.cap} min you set for it today. Nothing was removed.`;

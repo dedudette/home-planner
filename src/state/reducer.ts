@@ -15,8 +15,11 @@ import type {
 import { planVersionOf } from '../domain/planVersion';
 import { emptyAppData } from '../domain/appdata';
 import { applyOverride } from '../domain/schedule';
+import { isAdhocId } from '../domain/modules/adhoc';
 import { moduleReducer, type ModuleAction } from './moduleReducer';
 import { mealsReducer, type MealsAction } from './mealsReducer';
+import { movementReducer, type MovementAction } from './movementReducer';
+import { wellReducer, type WellAction } from './wellReducer';
 
 /**
  * When something happened. `hour` and `tz` are filled in by the store; when absent (tests, older callers) they are derived from `now`,
@@ -70,7 +73,9 @@ export type Action =
   | { type: 'SET_SESSION_CAP'; minutes: number | null; stamp: Stamp }
   | { type: 'SET_OPENED'; stamp: Stamp }
   | ModuleAction
-  | MealsAction;
+  | MealsAction
+  | MovementAction
+  | WellAction;
 
 const SESSION_GAP_MIN = 45;
 
@@ -152,7 +157,7 @@ export const isDuplicateCompletion = (data: AppData, task: Task, stamp: Stamp, v
 };
 
 /** Tasks generated on the fly (Just 5 Minutes, rough-day reset) have no schedule of their own. */
-const isEphemeral = (task: Task) => task.id.startsWith('five:') || task.id.startsWith('rough:');
+const isEphemeral = (task: Task) => task.id.startsWith('five:') || task.id.startsWith('rough:') || isAdhocId(task.id);
 
 /**
  * Before a profile edit, pin the *current* schedule into task state so that
@@ -385,7 +390,7 @@ export const reducer = (data: AppData, a: Action): AppData => {
     case 'SET_SESSION_CAP': return { ...data, preferences: { ...data.preferences, learnedSessionCap: a.minutes } };
     case 'SET_OPENED': return { ...data, lastOpened: a.stamp.today };
     // Section reducers each ignore actions that are not theirs, so the data passes through them in turn.
-    default: return mealsReducer(moduleReducer(data, a as ModuleAction), a as MealsAction);
+    default: return wellReducer(movementReducer(mealsReducer(moduleReducer(data, a as ModuleAction), a as MealsAction), a as MovementAction), a as WellAction);
   }
 };
 

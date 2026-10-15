@@ -6,7 +6,7 @@ import { isLife } from './scoring';
 import { dayEnergyOf, energyOk } from './safety';
 import { TIME_ORDER } from './options';
 import { applyOverride, customToTask, dueInfo, projectDates, type DueInfo } from './schedule';
-import { activityTasks, categoryConflicts, timeConflicts, type Conflict } from './modules/activities';
+import { activityTasks, categoryConflicts, restDayConflicts, timeConflicts, type Conflict } from './modules/activities';
 import { contentFor } from './modules/content';
 import { moduleOfDomain } from './modules/registry';
 import type { AppData, Domain, EnergyLevel, ISODate, LifeDomain, RoomKind, SessionEntry, Task, TaskState, TimeOfDay } from './types';
@@ -170,7 +170,7 @@ const assembleDay = (v: PlanView, date: ISODate, items: DueItem[], energy: Energ
     });
   const fit = fitDay(cands, budget, v.data.modules.caps);
   const planned = fit.planned.map((c) => c.item.task);
-  const conflicts: Conflict[] = [...timeConflicts(planned), ...categoryConflicts(planned, v.data.modules.caps)];
+  const conflicts: Conflict[] = [...timeConflicts(planned), ...categoryConflicts(planned, v.data.modules.caps), ...restDayConflicts(planned, v.data.movement.restDays, wd)];
   return { budget, fit, optional, conflicts };
 };
 
