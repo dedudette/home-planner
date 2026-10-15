@@ -29,6 +29,9 @@ export const ReminderRuntime = () => {
     return () => { setNativeActionHandler(null); setDueHandler(null); };
   }, [ready, dispatch, toast]);
 
+  // Once per start: forget "remind me again" and "already shown" records that are more than a day old, so they do not pile up.
+  useEffect(() => { if (ready) dispatch({ type: 'REMINDER_TIDY', now: new Date().toISOString() }); }, [ready, dispatch]);
+
   useEffect(() => {
     if (!ready) return;
     let alive = true;

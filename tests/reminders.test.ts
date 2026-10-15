@@ -267,4 +267,16 @@ describe('saved reminder settings are rebuilt, not trusted', () => {
     const sh = reducer(d, { type: 'REMINDER_SHOWN', key: `a@${TODAY}`, at: NOW.toISOString() });
     expect(reducer(sh, { type: 'REMINDER_SHOWN', key: `a@${TODAY}`, at: NOW.toISOString() })).toBe(sh);
   });
+  it('tidying drops records more than a day old, keeps recent ones, and does nothing when there is nothing to drop', () => {
+    const old = new Date(NOW.getTime() - 3 * 24 * 3600 * 1000).toISOString();
+    const fresh = new Date(NOW.getTime() + 3600 * 1000).toISOString();
+    let d = emptyAppData(TODAY);
+    d = reducer(d, { type: 'REMINDER_SNOOZE', key: `old@${TODAY}`, until: old });
+    d = reducer(d, { type: 'REMINDER_SNOOZE', key: `new@${TODAY}`, until: fresh });
+    d = reducer(d, { type: 'REMINDER_SHOWN', key: `old@${TODAY}`, at: old });
+    const tidy = reducer(d, { type: 'REMINDER_TIDY', now: NOW.toISOString() });
+    expect(Object.keys(tidy.reminders.snoozed)).toEqual([`new@${TODAY}`]);
+    expect(Object.keys(tidy.reminders.shown)).toEqual([]);
+    expect(reducer(tidy, { type: 'REMINDER_TIDY', now: NOW.toISOString() })).toBe(tidy);
+  });
 });
