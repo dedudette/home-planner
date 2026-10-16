@@ -1,6 +1,7 @@
 import { CLEANLINESS, EMPTY_ROOMS, ROOM_DEFAULTS, SIZE_BANDS, STYLES, isRoomFieldVisible } from './options';
 import type {
-  Blocker, Energy, Goal, Home, HomeType, Preferences, ProblemArea, Room, RoomCounts, RoomKind,
+  Blocker, Energy, EquipmentNeed, FitnessLevel, Goal, Home, HomeType, LifeFocus, LifeLevel, Preferences, ProblemArea, Room,
+  RoomCounts, RoomKind,
 } from './types';
 
 export const emptyHome = (): Home => ({
@@ -29,6 +30,11 @@ export const emptyPreferences = (): Preferences => ({
   blockers: [],
   goals: [],
   learnedSessionCap: null,
+  focus: ['home'],
+  fitnessLevel: 'beginner',
+  equipment: 'none',
+  lifeLevel: 1,
+  levelSince: null,
 });
 
 /** Apply the home type's room defaults (used until the user edits counts by hand). */
@@ -197,6 +203,20 @@ export interface Ctx {
   problems: Set<ProblemArea>;
   goals: Set<Goal>;
   blockers: Set<Blocker>;
+  focus: Set<LifeFocus>;
+  lifeLevel: LifeLevel;
+  fitnessLevel: FitnessLevel;
+  equipment: EquipmentNeed;
+  /** True when the user picked at least one non-home focus area. */
+  lifeActive: boolean;
+  /** True when the user wants a cleaning plan ('home' focus). */
+  homeOn: boolean;
+  /**
+   * How the user's daily time is divided. One budget, shared: 60/40 when both are on, all of it when only one is.
+   * (Home keeps a small share when it is off, only so a custom cleaning task the user adds still has somewhere to go.)
+   */
+  homeShare: number;
+  lifeShare: number;
   energy: Energy;
   energyLow: boolean;
   microSteps: boolean; // overwhelm-friendly presentation
@@ -256,6 +276,8 @@ export const deriveContext = (home: Home, prefs: Preferences): Ctx => {
   const energyLow = energy === 'very-low' || energy === 'low';
   const blockers = new Set(prefs.blockers);
   const goals = new Set(prefs.goals);
+  // Data saved before the life layer existed has no focus: treat it as the original home-cleaning app.
+  const focus = new Set<LifeFocus>(prefs.focus?.length ? prefs.focus : prefs.sections ? [] : ['home']);
   const microSteps =
     blockers.has('overwhelming') || blockers.has('where-to-start') || blockers.has('too-many-things') ||
     goals.has('less-overwhelm') || energy === 'very-low' || mess >= 5;
@@ -272,10 +294,18 @@ export const deriveContext = (home: Home, prefs: Preferences): Ctx => {
   const daysPerWeek = Math.max(1, Math.min(7, Math.round(days)));
   const activeDays = pickActiveDays(daysPerWeek, resolvedStyle === 'weekend');
 
+  const homeOn = focus.has('home');
+  // Sections (movement, meals…) share the day like habits do, but only when cleaning is off: cleaning alone keeps its whole day.
+  const lifeActive = [...focus].some((f) => f !== 'home') || (!!prefs.sections && !focus.has('home'));
+  const lifeShare = lifeActive ? (homeOn ? 0.4 : 1) : 0;
+  const homeShare = homeOn ? (lifeActive ? 0.6 : 1) : 0.25;
+
   let chunk = Math.min(sessionMinutes, ENERGY_CAP[energy]);
   if (prefs.learnedSessionCap) chunk = Math.min(chunk, prefs.learnedSessionCap);
   if (microSteps) chunk = Math.min(chunk, 15);
   if (goals.has('easier')) chunk = Math.min(chunk, 20);
+  // When cleaning shares the day with habits, a cleaning job must fit inside cleaning's share, not the whole day.
+  if (homeOn && lifeActive) chunk = Math.min(chunk, Math.round(sessionMinutes * homeShare));
   chunk = Math.max(5, chunk);
 
   const area = model.area;
@@ -287,7 +317,8 @@ export const deriveContext = (home: Home, prefs: Preferences): Ctx => {
   return {
     home, prefs, rooms, zones: model.zones, floors: model.floors, area, sizeClass, minimal,
     shared: home.type === 'shared', people, adults, children, occTier, kidTier, pets, mess,
-    problems: new Set(home.problemAreas), goals, blockers, energy, energyLow, microSteps, lean,
+    problems: new Set(home.problemAreas), goals, blockers, focus, lifeLevel: prefs.lifeLevel ?? 1,
+    fitnessLevel: prefs.fitnessLevel ?? 'beginner', equipment: prefs.equipment ?? 'none', lifeActive, homeOn, homeShare, lifeShare, energy, energyLow, microSteps, lean,
     style: resolvedStyle, sessionMinutes, daysPerWeek, activeDays,
     weeklyCapacity: sessionMinutes * daysPerWeek, chunkLimit: chunk,
     count: countKind,

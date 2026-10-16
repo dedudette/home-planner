@@ -6,7 +6,7 @@ import { ROOM_DEFAULTS } from './options';
 import type { AppData, CleaningSession, Home, Preferences, SessionEntry, TaskState } from './types';
 
 export interface DemoProfile {
-  id: 'A' | 'B' | 'C' | 'D';
+  id: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
   title: string;
   blurb: string;
   emoji: string;
@@ -48,6 +48,24 @@ export const DEMO_PROFILES: DemoProfile[] = [
       { bedrooms: 4, bathrooms: 3, livingRooms: 2, kitchens: 1, diningRooms: 1, offices: 1, laundryRooms: 1, hallways: 2, storageRooms: 1, garage: '2-car', balcony: 'medium', basement: 'medium', attic: 'small' }),
     prefs: { ...emptyPreferences(), style: 'weekend', sessionMinutes: 45, daysPerWeek: 2, daysTouched: true, energy: 'low', blockers: ['no-time', 'tired'], goals: ['less-time', 'weekly-routine', 'consistent'] },
   },
+  {
+    id: 'E', title: 'Beginner: discipline & fitness', emoji: '🌱', name: 'Mia',
+    blurb: 'No cleaning plan · 15 min a day · beginner fitness · discipline + movement',
+    home: base('apartment', { sizeBand: '25-40', exactSizeM2: 35, adults: 1, cleanliness: 'mostly-clean' }, { bedrooms: 1, hallways: 0, livingRooms: 1 }),
+    prefs: { ...emptyPreferences(), style: 'daily', sessionMinutes: 15, daysPerWeek: 7, daysTouched: true, energy: 'medium', blockers: ['procrastinate'], goals: ['habits'], focus: ['active', 'discipline'], fitnessLevel: 'beginner', equipment: 'none', lifeLevel: 1 },
+  },
+  {
+    id: 'F', title: '60 minutes: home & organization', emoji: '🗂️', name: 'Noor',
+    blurb: 'Apartment · 70 m² · 60 min · home + organize my life',
+    home: base('apartment', { sizeBand: '61-80', exactSizeM2: 70, adults: 2, cleanliness: 'little-messy', problemAreas: ['clutter', 'dishes', 'organization'] }, { bedrooms: 2, bathrooms: 1, livingRooms: 1, kitchens: 1, offices: 1, hallways: 1 }),
+    prefs: { ...emptyPreferences(), style: 'several-short', sessionMinutes: 60, daysPerWeek: 4, daysTouched: true, energy: 'high', blockers: ['clutter'], goals: ['declutter', 'weekly-routine'], focus: ['home', 'organize'], fitnessLevel: 'intermediate', equipment: 'none', lifeLevel: 2 },
+  },
+  {
+    id: 'G', title: 'Student: study, focus & less phone', emoji: '📚', name: 'Sam K.',
+    blurb: 'Dorm room · 30 min a day · study, focus, evening routine, phone-free time',
+    home: base('dorm', { sizeBand: 'u25', exactSizeM2: 16, adults: 1, cleanliness: 'little-messy' }, { bathrooms: 0, kitchens: 0 }),
+    prefs: { ...emptyPreferences(), style: 'daily', sessionMinutes: 30, daysPerWeek: 7, daysTouched: true, energy: 'medium', blockers: ['distracted'], goals: ['habits'], focus: ['home', 'study', 'focus', 'phone', 'evening'], fitnessLevel: 'beginner', equipment: 'none', lifeLevel: 1 },
+  },
 ];
 
 export const demoById = (id: DemoProfile['id']) => DEMO_PROFILES.find((d) => d.id === id)!;
@@ -59,7 +77,7 @@ export const appDataForDemo = (id: DemoProfile['id'], opts: { withHistory?: bool
     ...emptyAppData(today),
     user: { id: `demo_${id}`, name: d.name, createdAt: new Date().toISOString(), demo: true },
     home: structuredClone(d.home),
-    preferences: structuredClone(d.prefs),
+    preferences: { ...structuredClone(d.prefs), levelSince: opts.withHistory ? addDays(today, -21) : today },
     onboardingComplete: true,
     plan: { startDate: opts.withHistory ? addDays(today, -21) : today, resetCount: 0 },
   };
@@ -86,8 +104,10 @@ export const seedHistory = (data: AppData, today: string): AppData => {
   for (let back = 21; back >= 1; back--) {
     const date = addDays(today, -back);
     const isActive = plan.activeDays.includes(weekday(date));
-    if (!isActive && rand() > 0.3) continue;
-    if (rand() < 0.22) continue; // a rest / missed day, no pressure
+    // a few rest / missed days further back, but always some recent activity so the demo feels current
+    if (back > 2 && !isActive && rand() > 0.3) continue;
+    if (back > 2 && rand() < 0.22) continue;
+    if (back <= 2 && !isActive && back === 2) continue;
     const entries: SessionEntry[] = [];
     let used = 0;
     const candidates = [...pool].sort(() => rand() - 0.5).sort((a, b) => b.score - a.score + (rand() - 0.5) * 30);

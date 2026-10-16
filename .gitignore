@@ -2,3 +2,9 @@ node_modules
 dist
 *.local
 .DS_Store
+e2e-shots
+dist-server
+.env
+.env.*
+!.env.example
+cleanflow-sample-data.json

@@ -1,8 +1,11 @@
 import { PHASE_ORDER, TEMPLATES, type Template } from './catalog';
 import { deriveContext, type Ctx } from './context';
+import { nominalSplit } from './budget';
 import { assignSchedule } from './planner';
+import { buildLifeTasks } from './life';
+import { LADDER, isLife, occurrencesPerWeek, priorityOf } from './scoring';
 import type {
-  Frequency, Home, Preferences, PlanMeta, Priority, ProblemArea, ResetPhase, Room, Task,
+  GoalCoverage, Home, Preferences, PlanMeta, ProblemArea, ResetPhase, Room, Task,
 } from './types';
 
 /**
@@ -35,6 +38,9 @@ export interface PlanStats {
   splitCount: number;
   skippedExtras: number;
   stretched: number;
+  lifeCount: number;
+  lifeDailyMinutes: number;
+  lifeDayBudget: number;
 }
 
 export interface Plan {
@@ -42,6 +48,15 @@ export interface Plan {
   rooms: Room[];
   notes: PlanNote[];
   stats: PlanStats;
+  /** Which selected goals got a real task, and which were deferred (and why). Never faked. */
+  goalCoverage: GoalCoverage[];
+  homeShare: number;
+  /** Cleaning is one of the user's focus areas. */
+  homeOn: boolean;
+  lifeActive: boolean;
+  lifeBudget: number;
+  /** Minutes per day the daily micro-habits may take out of cleaning's share. They also run on rest days. */
+  habitBudget: number;
   activeDays: number[];
   sessionMinutes: number;
   chunkLimit: number;
@@ -51,22 +66,7 @@ export interface Plan {
   mess: number;
 }
 
-export const LADDER: Frequency[] = ['seasonal', 'monthly', 'biweekly', 'weekly', 'twice-weekly', 'daily'];
-
-export const occurrencesPerWeek = (f: Frequency, activeDayCount: number, habit: boolean): number => {
-  switch (f) {
-    case 'daily': return habit ? 7 : activeDayCount;
-    case 'twice-weekly': return 2;
-    case 'weekly': return 1;
-    case 'biweekly': return 0.5;
-    case 'monthly': return 7 / 28;
-    case 'seasonal': return 7 / 91;
-    default: return 0;
-  }
-};
-
-export const priorityOf = (score: number): Priority =>
-  score >= 85 ? 'URGENT' : score >= 62 ? 'HIGH' : score >= 40 ? 'MEDIUM' : 'LOW';
+export { LADDER, isLife, occurrencesPerWeek, priorityOf };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const resolve = <T,>(v: T | ((c: Ctx, r: Room | null) => T), c: Ctx, r: Room | null): T =>
@@ -126,14 +126,15 @@ const resetIncluded = (phase: ResetPhase | undefined, mess: number): boolean => 
 
 interface Counters { splitCount: number; skippedExtras: number; stretched: number; stepped: Set<string>; lessUsed: number }
 
-interface Instance extends Task { _tpl: Template; _essential: boolean; _base?: number }
+interface Instance extends Task { _tpl: Template; _essential: boolean; _keep: boolean; _base?: number }
 
 /** Instantiate one template for one room. Returns null when it does not apply. */
 const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Counters): Instance | null => {
   if (t.when && !t.when(c, r)) return null;
   const tags = t.tags ?? [];
   const isReset = t.tier === 'reset';
-  if (!isReset && t.tier !== 'deep') {
+  const keep = !!t.keep?.(c, r);
+  if (!isReset && t.tier !== 'deep' && !keep) {
     if ((tags.includes('extra') && (c.minimal || c.lean)) || (tags.includes('nicety') && c.lean)) { cnt.skippedExtras++; return null; }
   }
   const room = r ?? homeRoom(c);
@@ -191,6 +192,7 @@ const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Cou
   if (problemHits) notes.push('You listed this as a problem area, so it gets extra priority.');
 
   const baseReason = resolve(t.reason, c, r);
+  if (keep) notes.push('Kept as a daily habit because you want a better morning routine.');
   const reason = [baseReason, ...notes].join(' ');
   const steps = resolve(t.steps, c, r);
   const tiny = t.tiny ? resolve(t.tiny, c, r) : steps;
@@ -215,25 +217,29 @@ const instantiate = (t: Template, c: Ctx, r: Room | null, mess: number, cnt: Cou
     tinySteps: tiny,
     tier: t.tier ?? 'maintenance',
     phase: t.phase,
-    habit: tags.includes('habit'),
+    habit: tags.includes('habit') || keep,
     quickWin: tags.includes('quick') || (minutes <= 5 && t.impact >= 7),
     zone: room.zone,
     floor: room.floor,
     startDate: null,
     needs: t.needs ?? [],
     topics,
+    domain: 'home',
+    timeOfDay: t.time ?? 'anytime',
+    routine: !!t.time,
     _tpl: t,
     _essential: tags.includes('essential'),
+    _keep: keep,
   };
   if (t.tier === 'deep') { task.frequency = 'deep'; }
   return task;
 };
 
 /** Split a long task into sessions that fit the user's realistic chunk size. */
-const splitTask = (t: Instance, limit: number, cnt: Counters): Instance[] => {
+const splitTask = (t: Instance, limit: number, cnt: Counters, slack = 1.25): Instance[] => {
   if (t.tier === 'deep' || t.frequency === 'daily' || t.habit) return [t];
-  if (t.minutes <= limit * 1.25) return [t];
-  const parts = Math.min(4, Math.max(2, Math.ceil(t.minutes / limit)));
+  if (t.minutes <= limit * slack) return [t];
+  const parts = Math.min(slack === 1 ? 6 : 4, Math.max(2, Math.ceil(t.minutes / limit)));
   const per = Math.max(3, Math.round(t.minutes / parts));
   cnt.splitCount++;
   const sliceSteps = (steps: string[], i: number): string[] => {
@@ -287,8 +293,8 @@ const buildInstances = (c: Ctx, mess: number, cnt: Counters, forceReset: boolean
 };
 
 const strip = (t: Instance): Task => {
-  const { _tpl, _essential, ...rest } = t;
-  void _tpl; void _essential;
+  const { _tpl, _essential, _keep, ...rest } = t;
+  void _tpl; void _essential; void _keep;
   return rest;
 };
 
@@ -311,8 +317,10 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   const c = deriveContext(home, prefs);
   const cnt: Counters = { splitCount: 0, skippedExtras: 0, stretched: 0, stepped: new Set(), lessUsed: 0 };
   const mess = messFloor(c);
-  const base = buildInstances(c, mess, cnt, false);
-  let tasks: Instance[] = base.flatMap((t) => splitTask(t, c.chunkLimit, cnt));
+  const homeOn = c.focus.has('home');
+  const base = homeOn ? buildInstances(c, mess, cnt, false) : [];
+  // Not split yet: how big a part may be depends on how much of the day the daily habits take, worked out below.
+  let tasks: Instance[] = [...base];
 
   // ── Fit recurring load into the weekly time budget ──
   const recurring = () => tasks.filter((t) => t.tier === 'maintenance' && LADDER.includes(t.frequency) && !t.backlog);
@@ -321,17 +329,40 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
   const habits = () => recurring().filter((t) => t.habit);
   const habitPerDay = () => habits().reduce((s, t) => s + t.minutes * (occurrencesPerWeek(t.frequency, c.activeDays.length, true) / 7), 0);
 
-  const cap = c.weeklyCapacity * (c.goals.has('deep-clean') ? 0.75 : 1);
+  let stretched = 0;
+  let guard = 0;
+  // Habits get their own daily micro-budget (they run on non-cleaning days too).
+  const baseHabitBudget = Math.max(6, Math.min(c.activeDays.length >= 5 ? 20 : 15, c.sessionMinutes));
+  // Habits are part of cleaning's share of the day, not on top of it, and never more than the share itself.
+  const homeNominal = nominalSplit(c.sessionMinutes, homeOn, c.lifeActive, c.homeShare).home;
+  const habitBudget = Math.min(homeNominal, c.lifeActive && homeOn ? Math.max(2, Math.min(baseHabitBudget, Math.round(homeNominal * 0.6))) : baseHabitBudget);
+  guard = 0;
+  while (habitPerDay() > habitBudget && guard++ < 200) {
+    const cands = habits().filter((t) => !t._keep && LADDER.indexOf(t.frequency) > LADDER.indexOf('weekly')).sort((a, b) => keepScore(a) - keepScore(b));
+    if (!cands.length) break;
+    cands[0].frequency = LADDER[LADDER.indexOf(cands[0].frequency) - 1];
+    stretched++;
+  }
+
+
+  // A part of a cleaning job must fit in what is left of an active day once the daily habits have had their minutes, or it could
+  // never be planned. (The day view enforces the budget exactly, so the plan has to be built to match it.)
+  const dayHabits = habits().filter((t) => t.frequency === 'daily' || t.frequency === 'twice-weekly').reduce((n, t) => n + t.minutes, 0);
+  const splitLimit = clamp(nominalSplit(c.sessionMinutes, homeOn, c.lifeActive, c.homeShare).home - dayHabits, 3, c.chunkLimit);
+  tasks = tasks.flatMap((t) => splitTask(t, splitLimit, cnt, 1));
+
+  // When life-layer goals are on too, home cleaning shares the user's time with them.
+  // (One shared budget: cleaning's share is 60% when habits are on too, and habits take the other 40%.)
+  const homeShare = c.lifeActive && homeOn ? c.homeShare : 1;
+  const cap = c.weeklyCapacity * homeShare * (c.goals.has('deep-clean') ? 0.75 : 1);
   tasks.forEach((t) => { t._base = LADDER.indexOf(t.frequency); });
   const levels = (t: Instance) => (t._base ?? 0) - LADDER.indexOf(t.frequency);
   // Essentials never relax; nice-to-haves relax two levels, everything else one (weekly → biweekly).
   // Anything that still doesn't fit goes to the backlog instead of becoming a quarterly chore.
   const maxLevels = (t: Instance) =>
     t._essential ? 0 : t._tpl.tags?.some((g) => g === 'extra' || g === 'nicety') || t.score < 36 ? 2 : 1;
-  const canStretch = (t: Instance) => LADDER.indexOf(t.frequency) > 0 && levels(t) < maxLevels(t);
+  const canStretch = (t: Instance) => !t._keep && LADDER.indexOf(t.frequency) > 0 && levels(t) < maxLevels(t);
   const naturalLoad = weeklyLoad();
-  let stretched = 0;
-  let guard = 0;
   while (weeklyLoad() > cap && guard++ < 3000) {
     // Spread the sacrifice: always relax the task that has given up the least and matters the least.
     const target = nonHabit().filter(canStretch).sort((a, b) => keepScore(a) + 22 * levels(a) - (keepScore(b) + 22 * levels(b)))[0];
@@ -343,31 +374,23 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
     // Nothing left to relax: park the task with the least value per weekly minute.
     const weekly = (t: Instance) => t.minutes * occurrencesPerWeek(t.frequency, c.activeDays.length, false);
     const pool = nonHabit().sort((a, b) => keepScore(a) / (weekly(a) + 0.5) - keepScore(b) / (weekly(b) + 0.5));
-    const parked = pool.find((t) => !t._essential) ?? pool[0];
+    const parked = pool.find((t) => !t._essential && !t._keep) ?? pool[0];
     if (!parked) break;
     parked.backlog = true;
   }
 
-  // Habits get their own daily micro-budget (they run on non-cleaning days too).
-  const habitBudget = Math.max(6, Math.min(c.activeDays.length >= 5 ? 20 : 15, c.sessionMinutes));
-  guard = 0;
-  while (habitPerDay() > habitBudget && guard++ < 200) {
-    const cands = habits().filter((t) => LADDER.indexOf(t.frequency) > LADDER.indexOf('weekly')).sort((a, b) => keepScore(a) - keepScore(b));
-    if (!cands.length) break;
-    cands[0].frequency = LADDER[LADDER.indexOf(cands[0].frequency) - 1];
-    stretched++;
-  }
   cnt.stretched += stretched;
 
   // ── Schedule ──
   const { resetDays, resetMinutes } = assignSchedule(tasks, c, meta);
 
   const backlogCount = tasks.filter((t) => t.backlog).length;
-  const final = tasks.map(strip);
+  const life = buildLifeTasks(c, meta.startDate);
+  const final = [...tasks.map(strip), ...life.tasks];
 
   const stats: PlanStats = {
     taskCount: final.length,
-    recurringCount: final.filter((t) => t.tier === 'maintenance' && LADDER.includes(t.frequency) && !t.backlog).length,
+    recurringCount: final.filter((t) => !isLife(t) && t.tier === 'maintenance' && LADDER.includes(t.frequency) && !t.backlog).length,
     resetCount: final.filter((t) => t.tier === 'reset').length,
     deepCount: final.filter((t) => t.tier === 'deep').length,
     backlogCount,
@@ -379,48 +402,61 @@ export const generatePlan = (home: Home, prefs: Preferences, meta: PlanMeta): Pl
     splitCount: cnt.splitCount,
     skippedExtras: cnt.skippedExtras,
     stretched: cnt.stretched,
+    lifeCount: life.picked,
+    lifeDailyMinutes: life.dailyMinutes,
+    lifeDayBudget: life.dayBudget,
   };
 
-  const notes = buildNotes(c, stats, cnt, mess, resetDays, final);
+  const notes = buildNotes(c, stats, cnt, mess, resetDays, final.filter((t) => !isLife(t)), life.tasks);
   return {
-    tasks: final, rooms: c.rooms, notes, stats, activeDays: c.activeDays, sessionMinutes: c.sessionMinutes,
+    tasks: final, rooms: c.rooms, notes, stats, goalCoverage: life.coverage, homeShare: c.homeShare, homeOn, lifeActive: c.lifeActive, lifeBudget: life.dayBudget, habitBudget,
+    activeDays: c.activeDays, sessionMinutes: c.sessionMinutes,
     chunkLimit: c.chunkLimit, microSteps: c.microSteps, zones: c.zones, startDate: meta.startDate, mess,
   };
 };
 
 // ───────────────────────── Explanations ─────────────────────────
 
-const buildNotes = (c: Ctx, s: PlanStats, cnt: Counters, mess: number, resetDays: number, tasks: Task[]): PlanNote[] => {
+const buildNotes = (c: Ctx, s: PlanStats, cnt: Counters, mess: number, resetDays: number, tasks: Task[], lifeTasks: Task[]): PlanNote[] => {
   const n: PlanNote[] = [];
   const push = (id: string, icon: string, title: string, detail: string) => n.push({ id, icon, title, detail });
 
-  const type = c.home.type;
-  if (c.minimal) {
-    push('size', 'home', `Compact home (about ${c.area} m²)`, `We merged floor care into one quick pass and skipped ${cnt.skippedExtras} tasks a small space doesn't need.`);
-  } else if (c.sizeClass === 'large' || c.sizeClass === 'xl') {
-    push('size', 'home', `Larger home (about ${c.area} m²)`, `Cleaning is split into ${c.zones.length} zone${c.zones.length === 1 ? '' : 's'} (${c.zones.join(', ')}) so each session covers one area instead of everything.`);
-  } else {
-    push('size', 'home', `Mid-size home (about ${c.area} m²)`, 'Room-sized tasks are timed for the rooms you actually have.');
+  const homeOn = c.focus.has('home');
+  if (homeOn) {
+    const type = c.home.type;
+    if (c.minimal) {
+      push('size', 'home', `Compact home (about ${c.area} m²)`, `We merged floor care into one quick pass and skipped ${cnt.skippedExtras} tasks a small space doesn't need.`);
+    } else if (c.sizeClass === 'large' || c.sizeClass === 'xl') {
+      push('size', 'home', `Larger home (about ${c.area} m²)`, `Cleaning is split into ${c.zones.length} zone${c.zones.length === 1 ? '' : 's'} (${c.zones.join(', ')}) so each session covers one area instead of everything.`);
+    } else {
+      push('size', 'home', `Mid-size home (about ${c.area} m²)`, 'Room-sized tasks are timed for the rooms you actually have.');
+    }
+    const baths = c.count('bathroom');
+    if (baths >= 2) push('baths', 'bath', `${baths} bathrooms`, 'Every bathroom gets its own tasks. Bathrooms that are used less get a lighter rhythm.');
+    if (c.floors > 1) push('floors', 'layers', `${c.floors} floors`, `Tasks are grouped by floor (${c.zones.filter((z) => z !== 'Outside & utility spaces').join(' / ')}) so you are not carrying supplies up and down.`);
+    if (c.occTier >= 2) push('people', 'users', `${c.people} people at home`, 'Dishes, laundry, trash and bathroom tasks happen more often and take a bit longer.');
+    if (c.children > 0) push('kids', 'baby', c.children > 1 ? 'Kids at home' : 'A child at home', 'Table, floor and entrance tasks are more frequent because kids create more crumbs and clutter.');
+    if (c.pets.any) {
+      const bits = [c.pets.sheds && c.pets.indoor ? 'extra vacuuming and furniture hair removal' : '', c.pets.features.has('litter') && c.pets.cats ? 'daily litter scooping' : '', c.pets.features.has('feeding') ? 'feeding-area cleanup' : ''].filter(Boolean);
+      push('pets', 'paw', 'Pets', bits.length ? `Added ${bits.join(', ')}.` : 'Added pet-specific tasks for what you told us about.');
+    }
+    if (type === 'shared') push('shared', 'users', 'Shared apartment', 'Only your own bedroom is on your list. Common areas are marked so you can agree on a rotation.');
+    if (type === 'dorm') push('dorm', 'home', 'Dorm room', 'Shared bathroom and kitchen tasks are kept light, with the focus on your own space.');
+    if (mess >= 4) push('mess', 'sparkles', 'Reset first, maintenance second', `Your home needs a reset, so a gentle reset phase (${s.resetCount} small steps, about ${s.resetMinutes} minutes in total, spread over ${Math.max(1, resetDays)} cleaning day${resetDays === 1 ? '' : 's'}) comes before the regular routine begins.`);
+    else if (mess >= 2) push('mess', 'sparkles', 'Light reset included', 'A few quick reset tasks (trash, dishes, clutter) come first, then your routine.');
+
   }
-  const baths = c.count('bathroom');
-  if (baths >= 2) push('baths', 'bath', `${baths} bathrooms`, 'Every bathroom gets its own tasks. Bathrooms that are used less get a lighter rhythm.');
-  if (c.floors > 1) push('floors', 'layers', `${c.floors} floors`, `Tasks are grouped by floor (${c.zones.filter((z) => z !== 'Outside & utility spaces').join(' / ')}) so you are not carrying supplies up and down.`);
-  if (c.occTier >= 2) push('people', 'users', `${c.people} people at home`, 'Dishes, laundry, trash and bathroom tasks happen more often and take a bit longer.');
-  if (c.children > 0) push('kids', 'baby', c.children > 1 ? 'Kids at home' : 'A child at home', 'Table, floor and entrance tasks are more frequent because kids create more crumbs and clutter.');
-  if (c.pets.any) {
-    const bits = [c.pets.sheds && c.pets.indoor ? 'extra vacuuming and furniture hair removal' : '', c.pets.features.has('litter') && c.pets.cats ? 'daily litter scooping' : '', c.pets.features.has('feeding') ? 'feeding-area cleanup' : ''].filter(Boolean);
-    push('pets', 'paw', 'Pets', bits.length ? `Added ${bits.join(', ')}.` : 'Added pet-specific tasks for what you told us about.');
-  }
-  if (type === 'shared') push('shared', 'users', 'Shared apartment', 'Only your own bedroom is on your list. Common areas are marked so you can agree on a rotation.');
-  if (type === 'dorm') push('dorm', 'home', 'Dorm room', 'Shared bathroom and kitchen tasks are kept light, with the focus on your own space.');
-  if (mess >= 4) push('mess', 'sparkles', 'Reset first, maintenance second', `Your home needs a reset, so a gentle reset phase (${s.resetCount} small steps, about ${s.resetMinutes} minutes in total, spread over ${Math.max(1, resetDays)} cleaning day${resetDays === 1 ? '' : 's'}) comes before the regular routine begins.`);
-  else if (mess >= 2) push('mess', 'sparkles', 'Light reset included', 'A few quick reset tasks (trash, dishes, clutter) come first, then your routine.');
   push('time', 'clock', `${c.sessionMinutes}-minute sessions, ${c.daysPerWeek} day${c.daysPerWeek === 1 ? '' : 's'} a week`, s.splitCount ? `${s.splitCount} bigger task${s.splitCount === 1 ? ' was' : 's were'} split into parts so no session runs over ${c.chunkLimit} minutes.` : 'Every task fits inside a single session.');
   if (c.energyLow) push('energy', 'battery', 'Low energy mode', 'Smaller tasks, tiny steps, and heavy jobs spaced further apart.');
   if (c.microSteps) push('micro', 'list', 'Tiny steps', 'Tasks open as one-step-at-a-time checklists, so you never face the whole job at once.');
   if (c.activeDays.length < 5 && tasks.some((t) => t.habit)) push('habits', 'repeat', 'Daily micro-habits', `A few essentials (${tasks.filter((t) => t.habit).slice(0, 3).map((t) => t.name.toLowerCase()).join(', ')}) run daily, about ${s.habitMinutesPerDay} min a day, so nothing critical waits for your cleaning days.`);
   if (s.stretched > 0 || s.backlogCount > 0) push('fit', 'scale', 'Fitted to your time', `We spaced out ${s.stretched} lower-impact task${s.stretched === 1 ? '' : 's'}${s.backlogCount ? ` and parked ${s.backlogCount} in your backlog` : ''} so the week fits about ${s.weeklyMinutes} of your ${s.weeklyCapacity} minutes.${s.naturalWeeklyMinutes > s.weeklyCapacity * 1.15 ? ` Covering everything would take about ${s.naturalWeeklyMinutes} minutes a week, so a couple of extra 10-minute sessions would bring more of the backlog into your routine.` : ''}`);
   if (c.lean) push('lean', 'minus', 'Essentials only', 'Nice-to-have tasks were left out to keep cleaning short.');
+  if (c.lifeActive) {
+    const picked = lifeTasks.filter((t) => !t.challenge);
+    const challenges = lifeTasks.length - picked.length;
+    push('life', 'sprout', 'Your daily discipline plan', `${picked.length} small habits, about ${s.lifeDailyMinutes} minutes a day, chosen from the ${[...c.focus].filter((f) => f !== 'home').length} area${[...c.focus].filter((f) => f !== 'home').length === 1 ? '' : 's'} you picked (budget ${s.lifeDayBudget} min a day). ${challenges ? `${challenges} optional challenge${challenges === 1 ? '' : 's'} sit one step above your level.` : ''}`.trim());
+  }
   return n;
 };
 

@@ -1,6 +1,8 @@
 import { addDays, daysInRange, diffDays, endOfMonth, formatShort, startOfMonth, startOfWeek } from './dates';
-import { ROOM_MODE_LABEL, allEntries, projectRemaining, type PlanView } from './view';
-import type { ISODate, Progress, RoomKind } from './types';
+import { ROOM_MODE_LABEL, allEntries, plannedRemaining, type PlanView } from './view';
+import { DOMAIN_SHORT } from './options';
+import { isLife } from './scoring';
+import type { ISODate, LifeDomain, Progress, RoomKind } from './types';
 
 const completed = (v: PlanView) => allEntries(v.data).filter((e) => e.outcome === 'completed');
 
@@ -33,8 +35,9 @@ export const computeProgress = (v: PlanView): Progress => {
   const inRange = (from: ISODate, to: ISODate) => done.filter((e) => e.date >= from && e.date <= to);
   const weekDone = inRange(weekStart, weekEnd).length;
   const monthDone = inRange(monthStart, monthEnd).length;
-  const weekPlanned = weekDone + projectRemaining(v, today, weekEnd);
-  const monthPlanned = monthDone + projectRemaining(v, today, monthEnd);
+  // "Planned" is what the day fit puts on each remaining day, so the ring never promises the unfitted calendar.
+  const weekPlanned = weekDone + plannedRemaining(v, today, weekEnd);
+  const monthPlanned = monthDone + plannedRemaining(v, today, monthEnd);
 
   const last7 = daysInRange(addDays(today, -6), today).map((date) => {
     const es = done.filter((e) => e.date === date);
@@ -47,7 +50,15 @@ export const computeProgress = (v: PlanView): Progress => {
   });
 
   const byRoom = new Map<RoomKind, { tasks: number; minutes: number }>();
+  const byArea = new Map<LifeDomain, { tasks: number; minutes: number }>();
   for (const e of done) {
+    if (isLife(e)) {
+      const d = e.domain as LifeDomain;
+      const a = byArea.get(d) ?? { tasks: 0, minutes: 0 };
+      a.tasks++; a.minutes += e.actualMinutes;
+      byArea.set(d, a);
+      continue;
+    }
     const k: RoomKind = ['dining', 'storage', 'home'].includes(e.roomKind) ? 'other' : e.roomKind;
     const cur = byRoom.get(k) ?? { tasks: 0, minutes: 0 };
     cur.tasks++; cur.minutes += e.actualMinutes;
@@ -57,6 +68,8 @@ export const computeProgress = (v: PlanView): Progress => {
     .map(([kind, x]) => ({ kind, name: ROOM_MODE_LABEL[kind] ?? kind, ...x }))
     .sort((a, b) => b.tasks - a.tasks);
 
+  const areas = [...byArea.entries()].map(([domain, x]) => ({ domain, name: DOMAIN_SHORT[domain], ...x })).sort((a, b) => b.tasks - a.tasks);
+
   return {
     tasksCompleted: done.length,
     minutesCleaned: done.reduce((s, e) => s + e.actualMinutes, 0),
@@ -64,6 +77,7 @@ export const computeProgress = (v: PlanView): Progress => {
     bestStreak: best,
     sessions: v.data.sessions.filter((s) => s.entries.some((e) => e.outcome === 'completed')).length,
     weekDone, weekPlanned, monthDone, monthPlanned, last7, weeks, rooms,
-    roomsRefreshedThisWeek: new Set(inRange(weekStart, weekEnd).map((e) => e.roomName)).size,
+    areas,
+    roomsRefreshedThisWeek: new Set(inRange(weekStart, weekEnd).filter((e) => !isLife(e)).map((e) => e.roomName)).size,
   };
 };

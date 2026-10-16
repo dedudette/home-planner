@@ -96,15 +96,14 @@ describe('schedule rules', () => {
 });
 
 describe('today, calendar and sections', () => {
-  it('today never exceeds the session budget except for one oversized first task', () => {
+  it('today never exceeds the session budget, with no exception for an oversized first task', () => {
     for (const id of ['A', 'B', 'C', 'D'] as const) {
       for (let i = 0; i < 14; i++) {
         const v = view(demo(id), addDays(TODAY, i));
         const t = todayPlan(v);
-        const nonHabit = t.focus.filter((f) => !f.task.habit);
-        const minutes = nonHabit.reduce((s, f) => s + f.task.minutes, 0);
-        if (nonHabit.length > 1) expect(minutes).toBeLessThanOrEqual(t.budget * 1.1 + 1);
-        if (!t.isActiveDay) expect(nonHabit).toHaveLength(0);
+        expect(t.totalPlanned, `demo ${id} day ${i}`).toBeLessThanOrEqual(t.totalBudget);
+        expect(t.overBy).toBe(0);
+        if (!t.isActiveDay) expect(t.focus.filter((f) => !f.task.habit)).toHaveLength(0);
       }
     }
   });
@@ -242,7 +241,9 @@ describe('reducer: completing, rescheduling, resetting', () => {
   });
 
   it('skip, snooze, move to tomorrow and reschedule all take the task off today without shaming', () => {
-    const tasks = todayPlan(v).focus.filter((f) => !f.task.habit).map((f) => f.task);
+    // Everything due today that is not a daily basic, planned or not: the point is what happens to it once the user acts.
+    const t0 = todayPlan(v);
+    const tasks = [...t0.focus, ...t0.extra].filter((f) => !f.task.habit).map((f) => f.task);
     const [a, b, c] = tasks;
     const tomorrow = addDays(TODAY, 1);
     const d = act(base,
@@ -336,7 +337,8 @@ describe('learning', () => {
   it('offers four options after a task is skipped three times in a row', () => {
     let d = demo('B');
     const t = view(d).tasks.find((x) => x.cadence.kind === 'every' && x.frequency === 'weekly')!;
-    for (let i = 0; i < 3; i++) d = reducer(d, { type: 'TASK_SKIP', task: t, stamp: stamp() });
+    // three skips on three different days: one bad afternoon is not a pattern
+    for (let i = 3; i >= 1; i--) d = reducer(d, { type: 'TASK_SKIP', task: t, stamp: stamp(addDays(TODAY, -i)), entryId: `sk${i}` });
     const ins = computeInsights(view(d)).find((i) => i.id === `skip:${t.id}`)!;
     expect(ins.actions.map((a) => a.id)).toEqual(expect.arrayContaining(['smaller', 'less-often', 'move', 'remove']));
     // make it smaller → half the time and tiny steps

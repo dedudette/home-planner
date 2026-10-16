@@ -1,0 +1,107 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FREQ_LABEL } from '../../domain/schedule';
+import type { Task } from '../../domain/types';
+import { useApp } from '../../state/store';
+import { DOMAIN_ICON, I, ROOM_ICON, TIME_ICON } from '../../ui/icons';
+import { isLife } from '../../domain/scoring';
+import { TIME_LABEL } from '../../domain/options';
+import { Button, Dots, PriorityTag, cx } from '../../ui/primitives';
+import { clockLabel } from '../../domain/modules/registry';
+
+export const DIFF_LABEL = ['', 'Easy', 'Medium', 'Hard'];
+
+export const TaskMenu = ({ task, onClose, returnFocus }: { task: Task; onClose: () => void; returnFocus?: () => void }) => {
+  const { openSheet, skip, snooze, moveTo, today } = useApp();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
+    // Closing from the keyboard puts focus back on the button that opened the menu, not on the page.
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { onClose(); returnFocus?.(); } };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    ref.current?.querySelector<HTMLElement>('button')?.focus();
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [onClose, returnFocus]);
+  const tomorrow = new Date(`${today}T12:00:00`);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tISO = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+  // Focus goes back to the trigger first, so a sheet opened by the action returns here when it closes.
+  const act = (fn: () => void) => () => { onClose(); returnFocus?.(); fn(); };
+  return (
+    <div className="menu-pop" role="menu" ref={ref}>
+      <button role="menuitem" onClick={act(() => openSheet({ kind: 'task', id: task.id, task }))}><I.list size={18} /> Details &amp; steps</button>
+      <button role="menuitem" onClick={act(() => skip(task))}><I.skip size={18} /> Skip this time</button>
+      <button role="menuitem" onClick={act(() => snooze(task))}><I.alarm size={18} /> Snooze 2 days</button>
+      <button role="menuitem" onClick={act(() => moveTo(task, tISO, 'Moved to tomorrow.'))}><I.cal size={18} /> Move to tomorrow</button>
+      <button role="menuitem" onClick={act(() => openSheet({ kind: 'reschedule', task }))}><I.calDays size={18} /> Pick another day…</button>
+    </div>
+  );
+};
+
+interface Props {
+  task: Task;
+  done?: boolean;
+  overdue?: boolean;
+  dueLabel?: string;
+  hideTimer?: boolean;
+  hideMenu?: boolean;
+  compact?: boolean;
+  note?: string;
+  onComplete?: () => void;
+  via?: 'checkoff' | 'timebox' | 'reset' | 'five';
+}
+
+export const TaskCard = ({ task, done, overdue, dueLabel, hideTimer, hideMenu, compact, note, onComplete, via }: Props) => {
+  const { complete, openSheet, plan } = useApp();
+  const [menu, setMenu] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setMenu(false), []);
+  const focusTrigger = useCallback(() => trigger.current?.focus(), []);
+  const life = isLife(task);
+  const RoomIcon = life ? DOMAIN_ICON[task.domain!] : ROOM_ICON[task.roomKind];
+  const TodIcon = TIME_ICON[task.timeOfDay ?? 'anytime'];
+  const toggle = () => { if (done) return; if (onComplete) onComplete(); else complete(task, { via: via ?? 'checkoff' }); };
+  return (
+    <article className={cx('task', done && 'done')} aria-label={task.name}>
+      <button className={cx('check', done && 'on')} aria-label={done ? `${task.name} completed` : `Mark ${task.name} complete`} aria-pressed={!!done} onClick={toggle} disabled={done}>
+        <I.check size={22} strokeWidth={3} aria-hidden />
+      </button>
+      <button className="task-body" onClick={() => openSheet({ kind: 'task', id: task.id, task })}>
+        <div className="task-name">{task.name}</div>
+        <div className="task-meta">
+          <span className="m"><RoomIcon size={14} aria-hidden /> {task.roomName}</span>
+          <span className="m"><I.clock size={14} aria-hidden /> {task.minutes} min</span>
+          {!compact && <span className="m" title={task.challenge ? 'Optional stretch' : `Difficulty: ${DIFF_LABEL[task.difficulty]}`}><Dots n={task.difficulty} /> {!task.challenge && <span className="sr-only">Difficulty </span>}{task.challenge ? 'Stretch' : DIFF_LABEL[task.difficulty]}</span>}
+          <span className="m"><I.repeat size={14} aria-hidden /> {task.scheduleLabel ?? (task.habit && task.frequency === 'daily' ? 'Daily habit' : FREQ_LABEL[task.frequency])}</span>
+          {task.kind === 'fixed' && task.time && <span className="m" data-testid="fixed-time"><I.alarm size={14} aria-hidden /> {clockLabel(task.time)}</span>}
+          {dueLabel && <span className="m"><I.cal size={14} aria-hidden /> {dueLabel}</span>}
+          {life && task.timeOfDay && task.timeOfDay !== 'anytime' && <span className="m"><TodIcon size={14} aria-hidden /> {TIME_LABEL[task.timeOfDay]}</span>}
+        </div>
+        <div className="row wrap" style={{ marginTop: 8, gap: 6 }}>
+          {task.challenge ? <span className="tag lav"><I.trophy size={12} aria-hidden /> Optional challenge</span>
+            : task.kind === 'optional' ? <span className="tag lav">Optional idea</span>
+            : task.kind ? <span className="tag green">{task.kind === 'fixed' ? 'Set time' : 'Planned by you'}</span>
+            : <PriorityTag p={task.priority} />}
+          {overdue && <span className="tag lav">Whenever you're ready</span>}
+          {life && task.intensity && task.domain === 'fitness' && <span className="tag">{task.intensity === 'gentle' ? 'Gentle' : task.intensity === 'moderate' ? 'Moderate' : 'Vigorous'}{task.lowImpact ? ' · low impact' : ''}</span>}
+          {task.part && <span className="tag green">Part {task.part.index} of {task.part.of}</span>}
+          {plan.microSteps && (task.tinySteps.length || task.substeps.length) > 1 && !compact && <span className="tag green">{(task.tinySteps.length || task.substeps.length)} tiny step{(task.tinySteps.length || task.substeps.length) === 1 ? '' : 's'}</span>}
+        </div>
+        {note && <p className="small muted" style={{ marginTop: 8 }}>{note}</p>}
+      </button>
+      <div className="task-actions">
+        {!hideMenu && (
+          <div className="menu">
+            <button ref={trigger} className="icon-btn" aria-label={`More options for ${task.name}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><I.more size={22} aria-hidden /></button>
+            {menu && <TaskMenu task={task} onClose={closeMenu} returnFocus={focusTrigger} />}
+          </div>
+        )}
+      </div>
+      {!hideTimer && !done && (
+        <div style={{ gridColumn: '2 / 4' }}>
+          <Button size="sm" variant="soft" icon={I.timer} onClick={() => openSheet({ kind: 'timerPick', task })}>Start timer</Button>
+        </div>
+      )}
+    </article>
+  );
+};

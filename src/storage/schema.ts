@@ -1,0 +1,460 @@
+import { emptyAppData } from '../domain/appdata';
+import { anyModuleOn, defaultModulesFor } from '../domain/modules/registry';
+import { validateActivities, validateModules } from './moduleSchema';
+import { validateMeals, validateShopping } from './mealsSchema';
+import { readAppearance } from '../domain/appearance/apply';
+import { validateHealth } from './healthSchema';
+import { validateInterests } from './interestsSchema';
+import { validateReminders } from './remindersSchema';
+import { validateMovement } from './movementSchema';
+import { validateWater, validateWellbeing } from './wellSchema';
+import { emptyHome, emptyPreferences } from '../domain/context';
+import {
+  BLOCKERS, CLEANLINESS, ENERGY, EQUIPMENT_OPTIONS, FITNESS_LEVELS, FOCUS_OPTIONS, GARAGE_SIZES, GOALS, HOME_TYPES, PET_CHOICES,
+  PET_FEATURES, PET_TYPES, PROBLEM_AREAS, SIZE_BANDS, SIZE_LEVELS, STYLES, SUPPLY_CATEGORIES,
+} from '../domain/options';
+import type {
+  AppData, CleaningSession, CustomTask, Domain, ExposureItem, ExposureRecord, Frequency, ISODate, LifeFocus, LifeLevel,
+  LeftOutItem, PlanVersion, Priority, RecommendationEvent, RetentionNote, RoomCounts, SessionEntry, Supply, TaskState, TimeOfDay,
+} from '../domain/types';
+
+/**
+ * Schema validation and migration for saved data.
+ *
+ * Principles:
+ *  - Never throw, and never throw data away that can be understood. Bad fields are repaired; bad list items are dropped and counted.
+ *  - Data that is *not recognisable* returns null so the caller keeps the original bytes untouched (recovery screen) instead of
+ *    replacing them with an empty app.
+ *  - Data written by a newer version of the app is read as far as this version understands it, and flagged so it is backed up
+ *    before anything overwrites it.
+ */
+
+import {
+  bool, Ctx, date, intn, isISODate, isObj, isoStamp, keepFirst, keepNewest, list, num, oneOf, oneOfOrNull, str, strList, values,
+} from './primitives';
+export { isISODate };
+
+export const SCHEMA_VERSION = 3;
+
+export interface ValidationResult {
+  data: AppData;
+  /** Human-readable notes about what had to be repaired. */
+  repairs: string[];
+  /** List items that could not be understood and were left out. */
+  dropped: number;
+  /** The version found in the file (1 when the file predates versioning). */
+  foundVersion: number;
+  fromFuture: boolean;
+}
+
+const DOMAINS: readonly Domain[] = ['home', 'fitness', 'breathing', 'care', 'mind', 'digital', 'admin', 'learning', 'outdoor', 'sleep', 'meals'];
+const FREQS: readonly Frequency[] = ['daily', 'twice-weekly', 'weekly', 'biweekly', 'monthly', 'seasonal', 'deep', 'once'];
+const PRIOS: readonly Priority[] = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'];
+const OUTCOMES = ['completed', 'skipped', 'snoozed', 'moved', 'stopped'] as const;
+const VIAS = ['checkoff', 'timer', 'five', 'timebox', 'reset', 'plan'] as const;
+const ROOM_KINDS = ['kitchen', 'bathroom', 'bedroom', 'living', 'dining', 'office', 'hallway', 'laundry', 'storage', 'balcony', 'garage', 'basement', 'attic', 'other', 'home'] as const;
+const TODS: readonly TimeOfDay[] = ['morning', 'afternoon', 'evening', 'anytime'];
+const INTENSITIES = ['gentle', 'moderate', 'vigorous'] as const;
+const SURFACES = ['today', 'plan', 'schedule', 'progress', 'home', 'supplies', 'settings', 'more', 'detail', 'timebox', 'five', 'reset', 'rough', 'timer', 'movement', 'meals', 'learning', 'wellbeing', 'other'] as const;
+const PLANNED = ['selected', 'left-out', 'not-planned'] as const;
+const EXCLUSIONS = ['not-enough-time', 'low-energy-day', 'not-a-cleaning-day'] as const;
+const ENERGY_LEVELS = ['low', 'ok', 'high'] as const;
+
+/**
+ * Sanity limits, not storage policy. They exist so a hostile or corrupt file cannot make the app build gigantic structures. They are
+ * far above anything real use reaches (storage fills first: see domain/retention.ts), and every time one bites, the person is told.
+ * Lists that are chronological keep their NEWEST items, because recent behaviour is what matters most.
+ */
+const MAX = { sessions: 50_000, entriesPerSession: 400, customTasks: 500, supplies: 300, exposures: 120, planVersions: 60, recEvents: 400, taskStates: 5000, energyDays: 3650, retention: 20 };
+
+// ───────────────────────── sections ─────────────────────────
+
+const validateHome = (raw: unknown, c: Ctx): AppData['home'] => {
+  const d = emptyHome();
+  if (!isObj(raw)) { if (raw !== undefined) c.note('Home details were unreadable and were reset.'); return d; }
+  const r = isObj(raw.rooms) ? raw.rooms : {};
+  const rooms: RoomCounts = {
+    bedrooms: intn(r.bedrooms, d.rooms.bedrooms, 0, 12), bathrooms: intn(r.bathrooms, d.rooms.bathrooms, 0, 10), livingRooms: intn(r.livingRooms, d.rooms.livingRooms, 0, 8),
+    kitchens: intn(r.kitchens, d.rooms.kitchens, 0, 5), diningRooms: intn(r.diningRooms, d.rooms.diningRooms, 0, 5), offices: intn(r.offices, d.rooms.offices, 0, 6),
+    laundryRooms: intn(r.laundryRooms, d.rooms.laundryRooms, 0, 5), hallways: intn(r.hallways, d.rooms.hallways, 0, 8), storageRooms: intn(r.storageRooms, d.rooms.storageRooms, 0, 6),
+    balcony: oneOf(r.balcony, values(SIZE_LEVELS), 'none'), garage: oneOf(r.garage, values(GARAGE_SIZES), 'none'),
+    basement: oneOf(r.basement, values(SIZE_LEVELS), 'none'), attic: oneOf(r.attic, values(SIZE_LEVELS), 'none'),
+  };
+  const p = isObj(raw.pets) ? raw.pets : {};
+  const choice = oneOf(p.choice, PET_CHOICES.map((x) => x.value), 'none');
+  const extra = Array.isArray(raw.extraRooms)
+    ? raw.extraRooms.flatMap((x) => (isObj(x) && typeof x.id === 'string' ? [{ id: x.id.slice(0, 40), name: str(x.name, 'Extra space', 40) }] : [])).slice(0, 12)
+    : [];
+  return {
+    type: oneOfOrNull(raw.type, values(HOME_TYPES)), customType: str(raw.customType, '', 40), sizeBand: oneOfOrNull(raw.sizeBand, values(SIZE_BANDS)),
+    exactSizeM2: typeof raw.exactSizeM2 === 'number' && raw.exactSizeM2 >= 8 && raw.exactSizeM2 <= 2000 ? Math.round(raw.exactSizeM2) : null,
+    rooms, roomsTouched: bool(raw.roomsTouched), floors: intn(raw.floors, 1, 1, 4), extraRooms: extra,
+    adults: intn(raw.adults, 1, 1, 12), children: intn(raw.children, 0, 0, 12),
+    pets: {
+      choice, types: list(p.types, values(PET_TYPES)), count: intn(p.count, 1, 1, 3),
+      access: list(p.access, ['indoor', 'outdoor'] as const).length ? list(p.access, ['indoor', 'outdoor'] as const) : ['indoor'],
+      features: list(p.features, values(PET_FEATURES)),
+    },
+    cleanliness: oneOfOrNull(raw.cleanliness, values(CLEANLINESS)), problemAreas: list(raw.problemAreas, values(PROBLEM_AREAS)), problemOther: str(raw.problemOther, '', 60),
+  };
+};
+
+const validatePrefs = (raw: unknown, c: Ctx, sectionsOn: boolean): AppData['preferences'] => {
+  const d = emptyPreferences();
+  if (!isObj(raw)) { if (raw !== undefined) c.note('Preferences were unreadable and were reset.'); return d; }
+  let focus = list(raw.focus, values(FOCUS_OPTIONS));
+  // An empty focus is real once sections exist: someone who wants meals and water, and no cleaning plan, has no goals to list.
+  if (!focus.length && !(sectionsOn && Array.isArray(raw.focus))) {
+    // Saves from before the life layer have no focus: they are the original home-cleaning app.
+    focus = ['home'];
+    if (raw.focus !== undefined && !(Array.isArray(raw.focus) && raw.focus.length === 0)) c.note('Your focus areas were unreadable, so cleaning was selected.');
+  }
+  return {
+    style: oneOfOrNull(raw.style, values(STYLES)),
+    sessionMinutes: typeof raw.sessionMinutes === 'number' && Number.isFinite(raw.sessionMinutes) ? intn(raw.sessionMinutes, 20, 5, 180) : null,
+    daysPerWeek: typeof raw.daysPerWeek === 'number' && Number.isFinite(raw.daysPerWeek) ? intn(raw.daysPerWeek, 4, 1, 7) : null,
+    daysTouched: bool(raw.daysTouched), energy: oneOfOrNull(raw.energy, values(ENERGY)), blockers: list(raw.blockers, values(BLOCKERS)), goals: list(raw.goals, values(GOALS)),
+    learnedSessionCap: typeof raw.learnedSessionCap === 'number' && raw.learnedSessionCap > 0 ? intn(raw.learnedSessionCap, 15, 5, 90) : null,
+    focus: focus as LifeFocus[], fitnessLevel: oneOf(raw.fitnessLevel, values(FITNESS_LEVELS), 'beginner'), equipment: oneOf(raw.equipment, values(EQUIPMENT_OPTIONS), 'none'),
+    lifeLevel: intn(raw.lifeLevel, 1, 1, 3) as LifeLevel, levelSince: date(raw.levelSince),
+  };
+};
+
+const validateTaskState = (raw: unknown): TaskState | null => {
+  if (!isObj(raw)) return null;
+  const s: TaskState = {};
+  if (date(raw.anchor)) s.anchor = raw.anchor as ISODate;
+  if (raw.due === null) s.due = null; else if (date(raw.due)) s.due = raw.due as ISODate;
+  if (date(raw.lastDone)) s.lastDone = raw.lastDone as ISODate;
+  if (typeof raw.doneCount === 'number') s.doneCount = intn(raw.doneCount, 0, 0, 1e6);
+  if (typeof raw.skipStreak === 'number') s.skipStreak = intn(raw.skipStreak, 0, 0, 1e6);
+  if (typeof raw.skipTotal === 'number') s.skipTotal = intn(raw.skipTotal, 0, 0, 1e6);
+  if (raw.done === true) s.done = true;
+  if (raw.hidden === true) s.hidden = true;
+  if (isObj(raw.override)) {
+    const o: NonNullable<TaskState['override']> = {};
+    if (typeof raw.override.minutes === 'number') o.minutes = intn(raw.override.minutes, 5, 1, 480);
+    if (typeof raw.override.frequency === 'string' && (FREQS as readonly string[]).includes(raw.override.frequency)) o.frequency = raw.override.frequency as Frequency;
+    if (raw.override.smaller === true) o.smaller = true;
+    if (Object.keys(o).length) s.override = o;
+  }
+  return s;
+};
+
+const validateEntry = (raw: unknown): SessionEntry | null => {
+  if (!isObj(raw)) return null;
+  const at = raw.at, dt = date(raw.date);
+  if (typeof raw.id !== 'string' || typeof raw.taskId !== 'string' || !dt || typeof at !== 'string' || Number.isNaN(Date.parse(at))) return null;
+  const outcome = oneOfOrNull(raw.outcome, OUTCOMES);
+  if (!outcome) return null;
+  const e: SessionEntry = {
+    id: raw.id.slice(0, 60), at, date: dt, taskId: raw.taskId.slice(0, 120), name: str(raw.name, 'Task', 200),
+    roomKind: oneOf(raw.roomKind, ROOM_KINDS, 'home'), roomName: str(raw.roomName, '', 80), category: str(raw.category, '', 60),
+    plannedMinutes: num(raw.plannedMinutes, 0, 0, 1440), actualMinutes: num(raw.actualMinutes, 0, 0, 1440), outcome, via: oneOf(raw.via, VIAS, 'plan'),
+  };
+  const dom = oneOfOrNull(raw.domain, DOMAINS); if (dom) e.domain = dom;
+  if (typeof raw.templateId === 'string') e.templateId = raw.templateId.slice(0, 80); else if (raw.templateId === null) e.templateId = null;
+  if (raw.level === 1 || raw.level === 2 || raw.level === 3) e.level = raw.level;
+  if (raw.difficulty === 1 || raw.difficulty === 2 || raw.difficulty === 3) e.difficulty = raw.difficulty;
+  const inten = oneOfOrNull(raw.intensity, INTENSITIES); if (inten) e.intensity = inten;
+  const tod = oneOfOrNull(raw.timeOfDay, TODS); if (tod) e.timeOfDay = tod;
+  if (typeof raw.localHour === 'number') e.localHour = intn(raw.localHour, 0, 0, 23);
+  if (typeof raw.tzOffsetMin === 'number') e.tzOffsetMin = intn(raw.tzOffsetMin, 0, -900, 900);
+  const goals = list(raw.goals, values(FOCUS_OPTIONS)); if (goals.length) e.goals = goals as LifeFocus[];
+  if (typeof raw.planVersion === 'string') e.planVersion = raw.planVersion.slice(0, 40);
+  const en = oneOfOrNull(raw.energy, ENERGY_LEVELS); if (en) e.energy = en;
+  if (raw.fromDue === null || date(raw.fromDue)) e.fromDue = (raw.fromDue as ISODate | null);
+  if (raw.toDue === null || date(raw.toDue)) e.toDue = (raw.toDue as ISODate | null);
+  const surf = oneOfOrNull(raw.surface, SURFACES); if (surf) e.surface = surf;
+  const planned = oneOfOrNull(raw.planned, PLANNED); if (planned) e.planned = planned;
+  if (isObj(raw.part)) { const of = intn(raw.part.of, 0, 0, 50), index = intn(raw.part.index, 0, 0, 50); if (of >= 2 && index >= 1 && index <= of) e.part = { index, of }; }
+  return e;
+};
+
+const validateSessions = (raw: unknown, c: Ctx): CleaningSession[] => {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) { c.note('Your history list was unreadable and was reset.'); return []; }
+  const out: CleaningSession[] = [];
+  const seen = new Set<string>();
+  let lost = 0;
+  for (const s of keepNewest(raw, MAX.sessions, c, 'history sessions')) {
+    if (!isObj(s) || !Array.isArray(s.entries)) { lost++; continue; }
+    const entries: SessionEntry[] = [];
+    for (const e of keepNewest(s.entries, MAX.entriesPerSession, c, 'entries in one session')) {
+      const v = validateEntry(e);
+      if (!v || seen.has(v.id)) { lost++; continue; }
+      seen.add(v.id); entries.push(v);
+    }
+    if (!entries.length) { if (Array.isArray(s.entries) && s.entries.length === 0) lost++; continue; }
+    const first = entries[0], last = entries[entries.length - 1];
+    out.push({ id: str(s.id, `s_${first.id}`, 60), date: date(s.date) ?? first.date, startedAt: isoStamp(s.startedAt, first.at), endedAt: isoStamp(s.endedAt, last.at), entries });
+  }
+  c.dropped += lost;
+  if (lost) c.note(`${lost} unreadable history item${lost === 1 ? ' was' : 's were'} left out.`);
+  return out;
+};
+
+const validateCustom = (raw: unknown, today: ISODate, c: Ctx): CustomTask[] => {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) { c.note('Your own tasks were unreadable and were reset.'); return []; }
+  const out: CustomTask[] = [];
+  const ids = new Set<string>();
+  for (const t of keepFirst(raw, MAX.customTasks, c, 'of your own tasks')) {
+    if (!isObj(t) || typeof t.id !== 'string' || !str(t.name).trim() || ids.has(t.id)) { c.dropped++; continue; }
+    ids.add(t.id);
+    out.push({
+      id: t.id.slice(0, 60), domain: oneOf(t.domain, DOMAINS, 'home'), name: str(t.name, '', 80).trim(), roomId: str(t.roomId, 'other', 40),
+      frequency: oneOf(t.frequency, FREQS.filter((f) => f !== 'deep'), 'once'), minutes: intn(t.minutes, 10, 1, 480), priority: oneOf(t.priority, PRIOS, 'MEDIUM'),
+      notes: str(t.notes, '', 300), startDate: date(t.startDate) ?? today, createdAt: str(t.createdAt, today, 40),
+    });
+  }
+  return out;
+};
+
+const validateSupplies = (raw: unknown, c: Ctx): Supply[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: Supply[] = [];
+  for (const s of keepFirst(raw, MAX.supplies, c, 'supplies')) {
+    if (!isObj(s) || typeof s.id !== 'string' || !str(s.product).trim()) continue;
+    const sup: Supply = {
+      id: s.id.slice(0, 60), product: str(s.product, '', 80), category: oneOf(s.category, values(SUPPLY_CATEGORIES), 'other'),
+      room: oneOf(s.room, [...ROOM_KINDS, 'any'] as const, 'any'), quantity: str(s.quantity, '', 40), notes: str(s.notes, '', 200),
+    };
+    if (Array.isArray(s.tools)) sup.tools = s.tools.filter((x): x is NonNullable<Supply['tools']>[number] => typeof x === 'string');
+    out.push(sup);
+  }
+  return out;
+};
+
+const validateRetention = (raw: unknown): RetentionNote[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: RetentionNote[] = [];
+  for (const n of raw.slice(-MAX.retention)) {
+    if (!isObj(n) || !date(n.removedThrough) || !date(n.oldestKept)) continue;
+    const note: RetentionNote = { at: isoStamp(n.at, ''), removedSessions: intn(n.removedSessions, 0, 0, 1e7), removedEntries: intn(n.removedEntries, 0, 0, 1e7), removedThrough: n.removedThrough as ISODate, oldestKept: n.oldestKept as ISODate };
+    if (isObj(n.thinned)) note.thinned = { waterDays: intn(n.thinned.waterDays, 0, 0, 1e7), exerciseDetails: intn(n.thinned.exerciseDetails, 0, 0, 1e7) };
+    if (isObj(n.removedOther)) { const o = n.removedOther; note.removedOther = { meals: intn(o.meals, 0, 0, 1e7), workouts: intn(o.workouts, 0, 0, 1e7), water: intn(o.water, 0, 0, 1e7), hobbySessions: intn(o.hobbySessions, 0, 0, 1e7), checkins: intn(o.checkins, 0, 0, 1e7), shoppingLists: intn(o.shoppingLists, 0, 0, 1e7) }; }
+    out.push(note);
+  }
+  return out;
+};
+
+const validateLeft = (raw: unknown): LeftOutItem[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: LeftOutItem[] = [];
+  const seen = new Set<string>();
+  for (const i of raw.slice(0, 80)) {
+    if (!isObj(i) || typeof i.taskId !== 'string') continue;
+    const reason = oneOfOrNull(i.reason, EXCLUSIONS);
+    const energy = oneOfOrNull(i.energy, ENERGY_LEVELS);
+    // a left-out entry without its reason is not a fact we can use, so it is dropped rather than given a reason
+    if (!reason || !energy || typeof i.at !== 'string' || Number.isNaN(Date.parse(i.at))) continue;
+    const key = `${i.taskId}|${reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const it: LeftOutItem = {
+      taskId: i.taskId.slice(0, 120), templateId: typeof i.templateId === 'string' ? i.templateId.slice(0, 80) : null, domain: oneOf(i.domain, DOMAINS, 'home'),
+      minutes: num(i.minutes, 0, 0, 1440), difficulty: (i.difficulty === 2 || i.difficulty === 3 ? i.difficulty : 1), reason, at: i.at, energy, budget: num(i.budget, 0, 0, 1440),
+    };
+    if (typeof i.seenAt === 'string' && !Number.isNaN(Date.parse(i.seenAt))) it.seenAt = i.seenAt;
+    if (i.level === 1 || i.level === 2 || i.level === 3) it.level = i.level;
+    const inten = oneOfOrNull(i.intensity, INTENSITIES); if (inten) it.intensity = inten;
+    const tod = oneOfOrNull(i.timeOfDay, TODS); if (tod) it.timeOfDay = tod;
+    const goals = list(i.goals, values(FOCUS_OPTIONS)); if (goals.length) it.goals = goals as LifeFocus[];
+    out.push(it);
+  }
+  return out;
+};
+
+const validateEnergyChanges = (raw: unknown): { energyChanges?: { at: string; level: (typeof ENERGY_LEVELS)[number] }[] } => {
+  if (!Array.isArray(raw)) return {};
+  const out = raw.filter(isObj).map((x) => ({ at: isoStamp(x.at, ''), level: oneOfOrNull(x.level, ENERGY_LEVELS) })).filter((x): x is { at: string; level: (typeof ENERGY_LEVELS)[number] } => !!x.level && !!x.at).slice(-12);
+  return out.length ? { energyChanges: out } : {};
+};
+
+const validateExposure = (raw: unknown): ExposureRecord | null => {
+  if (!isObj(raw) || !date(raw.date) || !Array.isArray(raw.items)) return null;
+  const items: ExposureItem[] = [];
+  for (const i of raw.items.slice(0, 80)) {
+    if (!isObj(i) || typeof i.taskId !== 'string') continue;
+    const it: ExposureItem = {
+      taskId: i.taskId.slice(0, 120), templateId: typeof i.templateId === 'string' ? i.templateId.slice(0, 80) : null, domain: oneOf(i.domain, DOMAINS, 'home'),
+      minutes: num(i.minutes, 0, 0, 1440), difficulty: (i.difficulty === 2 || i.difficulty === 3 ? i.difficulty : 1), kind: oneOf(i.kind, ['focus', 'life', 'extra', 'catchUp'] as const, 'focus'),
+    };
+    if (typeof i.shownAt === 'string' && !Number.isNaN(Date.parse(i.shownAt))) it.shownAt = i.shownAt;
+    if (typeof i.selectedAt === 'string' && !Number.isNaN(Date.parse(i.selectedAt))) it.selectedAt = i.selectedAt;
+    if (typeof i.seenAt === 'string' && !Number.isNaN(Date.parse(i.seenAt))) it.seenAt = i.seenAt;
+    const ie = oneOfOrNull(i.energy, ENERGY_LEVELS); if (ie) it.energy = ie;
+    if (i.level === 1 || i.level === 2 || i.level === 3) it.level = i.level;
+    const inten = oneOfOrNull(i.intensity, INTENSITIES); if (inten) it.intensity = inten;
+    const tod = oneOfOrNull(i.timeOfDay, TODS); if (tod) it.timeOfDay = tod;
+    const goals = list(i.goals, values(FOCUS_OPTIONS)); if (goals.length) it.goals = goals as LifeFocus[];
+    items.push(it);
+  }
+  const left = raw.contract === 2 ? validateLeft(raw.left) : undefined;
+  return {
+    date: raw.date as ISODate, ...(raw.contract === 2 ? { contract: 2 as const } : {}), recordedAt: isoStamp(raw.recordedAt, `${raw.date}T00:00:00.000Z`), planVersion: str(raw.planVersion, '', 40), activeDay: bool(raw.activeDay, true),
+    energy: oneOf(raw.energy, ENERGY_LEVELS, 'ok'), ...validateEnergyChanges(raw.energyChanges), tzOffsetMin: intn(raw.tzOffsetMin, 0, -900, 900), budgetMinutes: num(raw.budgetMinutes, 0, 0, 1440), items, ...(left ? { left } : {}),
+  };
+};
+
+const validateDeferredGoals = (raw: unknown): { deferredGoals?: NonNullable<PlanVersion['deferredGoals']> } => {
+  if (!Array.isArray(raw)) return {};
+  const goals = values(FOCUS_OPTIONS) as readonly string[];
+  const out = raw.filter(isObj).flatMap((g) => {
+    const reason = oneOfOrNull(g.reason, ['budget', 'cap', 'safety', 'context', 'none'] as const);
+    if (typeof g.goal !== 'string' || !goals.includes(g.goal) || !reason) return [];
+    return [{ goal: g.goal as LifeFocus, reason, ...(typeof g.needMinutes === 'number' ? { needMinutes: intn(g.needMinutes, 0, 0, 1440) } : {}) }];
+  }).slice(0, 12);
+  return Array.isArray(raw) ? { deferredGoals: out } : {};
+};
+
+const validatePlanVersion = (raw: unknown): PlanVersion | null => {
+  if (!isObj(raw) || typeof raw.id !== 'string') return null;
+  return {
+    id: raw.id.slice(0, 40), at: isoStamp(raw.at, new Date(0).toISOString()), focus: list(raw.focus, values(FOCUS_OPTIONS)) as LifeFocus[],
+    lifeLevel: intn(raw.lifeLevel, 1, 1, 3) as LifeLevel, fitnessLevel: oneOf(raw.fitnessLevel, values(FITNESS_LEVELS), 'beginner'),
+    sessionMinutes: typeof raw.sessionMinutes === 'number' ? intn(raw.sessionMinutes, 20, 5, 180) : null, daysPerWeek: typeof raw.daysPerWeek === 'number' ? intn(raw.daysPerWeek, 4, 1, 7) : null,
+    ...validateDeferredGoals(raw.deferredGoals),
+  };
+};
+
+const validateRecEvent = (raw: unknown): RecommendationEvent | null => {
+  if (!isObj(raw) || typeof raw.id !== 'string' || typeof raw.recommendationId !== 'string' || !date(raw.date)) return null;
+  const kind = oneOfOrNull(raw.kind, ['shown', 'accepted', 'dismissed'] as const);
+  if (!kind) return null;
+  const ev: RecommendationEvent = {
+    id: raw.id.slice(0, 80), at: isoStamp(raw.at, `${raw.date}T00:00:00.000Z`), date: raw.date as ISODate, localHour: intn(raw.localHour, 0, 0, 23), kind,
+    recommendationId: raw.recommendationId.slice(0, 120), code: str(raw.code, 'unknown', 60), planVersion: str(raw.planVersion, '', 40),
+  };
+  if (isObj(raw.evidence)) {
+    const e: Record<string, number | string> = {};
+    for (const [k, v] of Object.entries(raw.evidence).slice(0, 12)) if (typeof v === 'number' || typeof v === 'string') e[k.slice(0, 40)] = typeof v === 'string' ? v.slice(0, 80) : v;
+    ev.evidence = e;
+  }
+  if (typeof raw.action === 'string') ev.action = raw.action.slice(0, 40);
+  return ev;
+};
+
+// ───────────────────────── migrations ─────────────────────────
+
+type Raw = Record<string, unknown>;
+/** Each migration upgrades the *shape* by one version. The validator then fills in anything still missing. */
+const MIGRATIONS: Record<number, (d: Raw) => Raw> = {
+  // v1 → v2: analytics foundation (exposures, energy log, plan versions, recommendation events) and `levelSince`.
+  1: (d) => {
+    const plan = isObj(d.plan) ? d.plan : {};
+    const prefs = isObj(d.preferences) ? d.preferences : {};
+    return {
+      ...d, version: 2,
+      preferences: { ...prefs, levelSince: prefs.levelSince ?? (date(plan.startDate) ?? null) },
+      exposures: d.exposures ?? [], energyLog: d.energyLog ?? {}, planVersions: d.planVersions ?? [], recEvents: d.recEvents ?? [],
+    };
+  },
+};
+
+/** v2 → v3: sections and planned activities. Nothing existing changes; sections are switched on only where a goal already points at them. */
+MIGRATIONS[2] = (d) => {
+  const prefs = isObj(d.preferences) ? d.preferences : {};
+  return {
+    ...d, version: 3,
+    modules: isObj(d.modules) ? d.modules : defaultModulesFor(list(prefs.focus, values(FOCUS_OPTIONS)).length ? (list(prefs.focus, values(FOCUS_OPTIONS)) as LifeFocus[]) : ['home'], false),
+    activities: Array.isArray(d.activities) ? d.activities : [],
+  };
+};
+
+export const migrate = (raw: Raw): { raw: Raw; from: number } => {
+  const found = typeof raw.version === 'number' && Number.isFinite(raw.version) ? Math.floor(raw.version) : 1;
+  let cur = raw;
+  for (let v = Math.max(1, found); v < SCHEMA_VERSION; v++) cur = (MIGRATIONS[v] ?? ((x) => x))(cur);
+  return { raw: cur, from: found };
+};
+
+/** Does this look like CleanFlow data at all? Guards against replacing a real save with defaults because of an unrelated object. */
+export const looksLikeAppData = (raw: unknown): raw is Raw =>
+  isObj(raw) && ['home', 'preferences', 'sessions', 'taskStates', 'user', 'onboardingComplete', 'customTasks'].some((k) => k in raw);
+
+/**
+ * Validate and repair. Returns null only when the input is not recognisable as CleanFlow data.
+ * `today` is injectable for tests.
+ */
+export const validateAppData = (input: unknown, today?: ISODate): ValidationResult | null => {
+  if (!looksLikeAppData(input)) return null;
+  const { raw, from } = migrate(input);
+  const c = new Ctx();
+  const base = emptyAppData(today);
+  const t = today ?? base.plan.startDate;
+  const user = isObj(raw.user) ? raw.user : {};
+  const plan = isObj(raw.plan) ? raw.plan : {};
+  const planStart = date(plan.startDate) ?? t;
+  if (plan.startDate !== undefined && !date(plan.startDate)) c.note('Your plan start date was unreadable and was reset to today.');
+
+  const states: Record<string, TaskState> = {};
+  if (isObj(raw.taskStates)) {
+    for (const [k, v] of keepFirst(Object.entries(raw.taskStates), MAX.taskStates, c, 'task settings')) { const s = validateTaskState(v); if (s) states[k] = s; else c.dropped++; }
+  } else if (raw.taskStates !== undefined) c.note('Your task settings were unreadable and were reset.');
+
+  const resetRaw = raw.resetRun;
+  const energyLog: AppData['energyLog'] = {};
+  if (isObj(raw.energyLog)) for (const [k, v] of keepNewest(Object.entries(raw.energyLog).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)), MAX.energyDays, c, 'days of energy history')) if (isISODate(k) && (ENERGY_LEVELS as readonly unknown[]).includes(v)) energyLog[k] = v as AppData['energyLog'][string];
+  const dismissed: Record<string, ISODate> = {};
+  if (isObj(raw.dismissedInsights)) for (const [k, v] of Object.entries(raw.dismissedInsights).slice(0, 200)) if (date(v)) dismissed[k.slice(0, 120)] = v as ISODate;
+  const energyDay = isObj(raw.dayEnergy) && date(raw.dayEnergy.date) && (ENERGY_LEVELS as readonly unknown[]).includes(raw.dayEnergy.level)
+    ? { date: raw.dayEnergy.date as ISODate, level: raw.dayEnergy.level as 'low' | 'ok' | 'high' } : null;
+
+  const rawPrefs = isObj(raw.preferences) ? raw.preferences : {};
+  const legacyFocus = list(rawPrefs.focus, values(FOCUS_OPTIONS)) as LifeFocus[];
+  const modules = validateModules(raw.modules, legacyFocus, c);
+  // An empty focus is real while onboarding is still open (nothing is pre-selected) and once sections exist.
+  const prefs = validatePrefs(raw.preferences, c, anyModuleOn(modules) || raw.onboardingComplete !== true && Array.isArray(rawPrefs.focus));
+  if (!prefs.levelSince) prefs.levelSince = planStart;
+
+  const data: AppData = {
+    version: 3,
+    user: { id: str(user.id, base.user.id, 60), name: str(user.name, '', 30), createdAt: isoStamp(user.createdAt, base.user.createdAt), demo: bool(user.demo) },
+    home: validateHome(raw.home, c),
+    preferences: prefs,
+    onboardingComplete: bool(raw.onboardingComplete),
+    plan: { startDate: planStart, resetCount: intn(plan.resetCount, 0, 0, 1e4) },
+    taskStates: states,
+    customTasks: validateCustom(raw.customTasks, t, c),
+    sessions: validateSessions(raw.sessions, c),
+    supplies: validateSupplies(raw.supplies, c),
+    resetRun: isObj(resetRaw) && typeof resetRaw.startedAt === 'string'
+      ? { startedAt: resetRaw.startedAt, doneIds: strList(resetRaw.doneIds, 400), ...(typeof resetRaw.finishedAt === 'string' ? { finishedAt: resetRaw.finishedAt } : {}) } : null,
+    fiveRecent: strList(raw.fiveRecent, 8),
+    dismissedInsights: dismissed,
+    dayEnergy: energyDay,
+    lastOpened: date(raw.lastOpened),
+    exposures: keepNewest((Array.isArray(raw.exposures) ? raw.exposures : []).map(validateExposure).filter((x): x is ExposureRecord => !!x), MAX.exposures, c, 'days of what was shown'),
+    energyLog,
+    planVersions: keepNewest((Array.isArray(raw.planVersions) ? raw.planVersions : []).map(validatePlanVersion).filter((x): x is PlanVersion => !!x), MAX.planVersions, c, 'plan versions'),
+    recEvents: keepNewest((Array.isArray(raw.recEvents) ? raw.recEvents : []).map(validateRecEvent).filter((x): x is RecommendationEvent => !!x), MAX.recEvents, c, 'suggestion events'),
+    retention: validateRetention(raw.retention),
+    modules,
+    activities: validateActivities(raw.activities, t, c),
+    meals: validateMeals(raw.meals, c),
+    shopping: validateShopping(raw.shopping, c),
+    movement: validateMovement(raw.movement, c),
+    water: validateWater(raw.water, c),
+    wellbeing: validateWellbeing(raw.wellbeing, c),
+    interests: validateInterests(raw.interests, c),
+    appearance: readAppearance(raw.appearance),
+    reminders: validateReminders(raw.reminders, c),
+    health: validateHealth(raw.health, c),
+  };
+  const found = from;
+  const fromFuture = found > SCHEMA_VERSION;
+  if (fromFuture) c.note('This data was saved by a newer version of CleanFlow. It was opened as far as this version understands it, and a copy was kept.');
+  return { data, repairs: c.repairs, dropped: c.dropped, foundVersion: found, fromFuture };
+};
+
+/** A short, human summary used by the import confirmation. */
+export const summarize = (d: AppData): { entries: number; days: number; focus: number; tasks: number; name: string } => {
+  const entries = d.sessions.reduce((n, s) => n + s.entries.length, 0);
+  return { entries, days: new Set(d.sessions.map((s) => s.date)).size, focus: d.preferences.focus.length, tasks: d.customTasks.length, name: d.user.name };
+};
+
+/** Does this data hold anything worth protecting before it gets replaced? */
+export const hasUserData = (d: AppData): boolean => d.onboardingComplete || d.sessions.length > 0 || d.customTasks.length > 0;
+
