@@ -27,6 +27,7 @@ export const AccountPanel = () => {
         <p className="small"><span className="muted">Signed in as</span> <b>{user.email}</b> <span className="tag green">{user.emailVerified ? 'Email confirmed' : 'Email not confirmed'}</span></p>
         <p className="small muted">Your plan and history live on this device, under this account. Signing in on another device starts an empty plan there.</p>
       </div>
+      <div><a className="btn sm secondary" href="#/account">Trial &amp; plans</a></div>
       <ChangePassword />
       <SignOutRow onSignOut={signOut} />
       <LegacyDownload today={stamp().today} />

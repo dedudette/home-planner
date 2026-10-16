@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { App } from '../App';
 import { AppProvider } from '../state/store';
+import { navigate } from '../ui/router';
 import { AccountProvider, useAccount } from './AccountProvider';
+import { peekBillingReturn, stripBillingParams } from './billingReturn';
 
 /**
  * A one-time message from the account side (for example "Email confirmed") once the app is on screen. It draws itself instead of using
@@ -25,6 +27,17 @@ const Flash = () => {
   );
 };
 
+/** Coming back from the payment page lands on `/?billing=…`: tidy the address and open Trial & plans, which asks the server what happened. */
+const BillingReturnRouter = () => {
+  const { mode, user } = useAccount();
+  useEffect(() => {
+    if (mode !== 'accounts' || !user || peekBillingReturn().kind === 'none') return;
+    try { window.history.replaceState(null, '', stripBillingParams(window.location.href)); } catch { /* ignore */ }
+    navigate('account');
+  }, [mode, user]);
+  return null;
+};
+
 /**
  * The app, inside whatever account scope applies: the original storage when there are no accounts, or the signed-in account's own
  * storage. The key makes the app start fresh when the account changes, so one person's plan can never sit in memory for the next.
@@ -34,6 +47,7 @@ export const ScopedApp = () => (
     {({ repo, scopeKey }) => (
       <AppProvider key={scopeKey} repo={repo}>
         <Flash />
+        <BillingReturnRouter />
         <App />
       </AppProvider>
     )}

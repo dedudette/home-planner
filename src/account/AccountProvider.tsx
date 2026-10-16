@@ -32,6 +32,8 @@ export interface AccountContextValue {
   user: AccountUser | null;
   legal: NonNullable<PublicConfig['accounts']>['legal'];
   mailDelivers: boolean;
+  /** The payment provider's mode on this server ("test" = no real money), or null when billing is not set up. */
+  billingMode: 'test' | 'live' | null;
   /** Ends the session on the server and on this device's screen. Throws an ApiError if the server could not be told. */
   signOut(): Promise<void>;
   /** Called after the server deleted the account: leaves the signed-in state. */
@@ -41,7 +43,7 @@ export interface AccountContextValue {
 }
 
 const NO_LEGAL = { privacy: null, terms: null, billing: null, company: null };
-const Ctx = createContext<AccountContextValue>({ mode: 'local', user: null, legal: NO_LEGAL, mailDelivers: true, signOut: async () => undefined, accountDeleted: () => undefined, takeFlash: () => null });
+const Ctx = createContext<AccountContextValue>({ mode: 'local', user: null, legal: NO_LEGAL, mailDelivers: true, billingMode: null, signOut: async () => undefined, accountDeleted: () => undefined, takeFlash: () => null });
 export const useAccount = (): AccountContextValue => useContext(Ctx);
 
 type State =
@@ -145,6 +147,7 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
     user: state.s === 'signed-in' ? state.user : null,
     legal: accounts?.legal ?? NO_LEGAL,
     mailDelivers: accounts?.mail.delivers ?? true,
+    billingMode: accounts?.billing.mode ?? null,
     signOut, accountDeleted,
     takeFlash: () => { const f = flash.current; flash.current = null; return f; },
   }), [state, accounts, signOut, accountDeleted]);

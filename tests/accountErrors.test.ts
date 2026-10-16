@@ -39,7 +39,7 @@ describe('what the person is told when an account request fails', () => {
   });
   it('server text is never shown as it is', () => {
     const secret = 'select * from "user" where id = 42 -- internal detail';
-    for (const ctx of ['sign-in', 'sign-up', 'forgot', 'reset', 'resend', 'change-password', 'delete', 'sign-out', 'load'] as const) {
+    for (const ctx of ['sign-in', 'sign-up', 'forgot', 'reset', 'resend', 'change-password', 'delete', 'sign-out', 'load', 'start-trial', 'checkout', 'sync'] as const) {
       for (const status of [400, 401, 403, 404, 409, 422, 500]) expect(describeAuthError(e(status, 'WHATEVER', secret), ctx).message).not.toContain('internal detail');
     }
   });
@@ -60,6 +60,21 @@ describe('what the person is told when an account request fails', () => {
     expect(describeAuthError(e(400, 'INVALID_PASSWORD'), 'change-password').message).toMatch(/current password is not right/i);
     expect(describeAuthError(e(401), 'delete').message).toMatch(/nothing was deleted/i);
     expect(describeAuthError(e(500, 'X'), 'delete').message).not.toMatch(/deleted\.$/);
+  });
+  it('starting the trial: already used, unconfirmed and ended-session each say so; anything else says nothing changed', () => {
+    expect(describeAuthError(e(409, 'already-used'), 'start-trial').message).toMatch(/already been used/i);
+    expect(describeAuthError(e(403, 'unverified'), 'start-trial').message).toMatch(/confirm your email/i);
+    expect(describeAuthError(e(401), 'start-trial').message).toMatch(/sign in again/i);
+    const other = describeAuthError(e(500), 'start-trial');
+    expect(other.message).toMatch(/nothing was changed/i);
+    expect(other.action).toBe('retry');
+  });
+  it('checkout and the payment check never claim a payment happened', () => {
+    expect(describeAuthError(e(409, 'already-subscribed'), 'checkout').message).toMatch(/nothing was charged/i);
+    expect(describeAuthError(e(503, 'billing-unavailable'), 'checkout').message).toMatch(/nothing was charged/i);
+    expect(describeAuthError(e(500), 'checkout').message).toMatch(/nothing was charged/i);
+    expect(describeAuthError(e(500), 'sync').message).toMatch(/nothing is assumed/i);
+    expect(describeAuthError(e(429, 'slow-down'), 'sync').message).toMatch(/one moment/i);
   });
   it('a session that ended asks to sign in again', () => {
     expect(describeAuthError(e(401), 'load').message).toMatch(/sign in again/i);

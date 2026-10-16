@@ -40,11 +40,12 @@ import { DishFormSheet } from './features/meals/DishForm';
 import { RecipeDetailSheet } from './features/meals/RecipeDetail';
 import { ShopGenSheet, ShopItemSheet, ShopReviewSheet } from './features/meals/ShoppingTab';
 import { PRIMARY, SETTINGS_ITEM, sectionsFor } from './features/nav';
+import { TrialPlans } from './account/TrialPlans';
 import { useApp } from './state/store';
 import { I } from './ui/icons';
 import { navigate, useRoute } from './ui/router';
 
-const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', patterns: 'Your patterns', home: 'Home', supplies: 'Supplies', settings: 'Settings', more: 'More', movement: 'Movement', meals: 'Meals & shopping', learning: 'Learning & hobbies', wellbeing: 'Wellbeing' };
+const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', patterns: 'Your patterns', home: 'Home', supplies: 'Supplies', settings: 'Settings', account: 'Trial & plans', more: 'More', movement: 'Movement', meals: 'Meals & shopping', learning: 'Learning & hobbies', wellbeing: 'Wellbeing' };
 
 /** A section the person switched off. The page says so and how to bring it back; their data in it is untouched. */
 const SectionOff = ({ path }: { path: string }) => (
@@ -150,6 +151,9 @@ export const App = () => {
   if (!ready) return <div className="onb" role="status" aria-label="Loading"><div className="onb-body center" style={{ justifyContent: 'center' }}><p className="muted">Loading CleanFlow…</p></div></div>;
 
   if (recovery) return <RecoveryScreen mode="unreadable" repo={repo} raw={recovery.raw} reason={recovery.reason} onStartFresh={startFresh} />;
+
+  // Trial & plans is an account screen, reachable before and after the first plan is made.
+  if (route.path === 'account') return <TrialPlans />;
 
   if (!data.onboardingComplete) {
     return route.path === 'onboarding'
