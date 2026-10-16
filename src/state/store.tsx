@@ -15,6 +15,7 @@ import type { MealSlot } from '../domain/meals/types';
 import type { ActivityDefaults } from '../domain/modules/types';
 import type { AppData, EntrySurface, ISODate, RecommendationEvent, Task } from '../domain/types';
 import { buildView, type PlanView } from '../domain/view';
+import { nsKey } from '../storage/namespace';
 import { LocalStorageRepository, exportJSON, type LoadResult, type Repository } from '../storage/repository';
 import { downloadText } from '../ui/download';
 import { compactHistory, describeRetention, storageLevel, type StorageLevel } from '../domain/retention';
@@ -132,7 +133,7 @@ export const useApp = (): Store => {
   return s;
 };
 
-const TIMER_KEY = 'cleanflow:timer';
+const timerKey = (): string => nsKey('cleanflow:timer');
 const DONE_LINES = ['Nice. That counts.', 'Done. One less thing.', 'Good work.', 'That helps.', 'Progress made.'];
 const SAVE_DELAY = 250;
 
@@ -514,7 +515,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   // ── timer ──
   const [timer, setTimer] = useState<TimerState | null>(() => {
     try {
-      const raw = window.localStorage.getItem(TIMER_KEY);
+      const raw = window.localStorage.getItem(timerKey());
       return raw ? (JSON.parse(raw) as TimerState) : null;
     } catch { return null; }
   });
@@ -527,7 +528,7 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
 
   useEffect(() => {
     try {
-      if (timer) window.localStorage.setItem(TIMER_KEY, JSON.stringify(timer)); else window.localStorage.removeItem(TIMER_KEY);
+      if (timer) window.localStorage.setItem(timerKey(), JSON.stringify(timer)); else window.localStorage.removeItem(timerKey());
     } catch { /* ignore */ }
   }, [timer]);
 

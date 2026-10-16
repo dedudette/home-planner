@@ -1,6 +1,7 @@
 import { createNativePlatform, createWebPlatform, nonePlatform, type LocalNotificationsLike, type ReminderPlatform } from '../domain/reminders/platform';
 import type { ScheduledRecord } from '../domain/reminders/plan';
 import type { ReminderOccurrence } from '../domain/reminders/types';
+import { nsKey } from '../storage/namespace';
 
 /**
  * Chooses where this device's reminders are delivered, once. In the phone app the operating system holds them (so they can arrive when
@@ -39,6 +40,6 @@ let cached: Promise<ReminderPlatform> | null = null;
 export const getPlatform = (): Promise<ReminderPlatform> => (cached ??= load());
 
 // What this device was last told. Kept on the device only, because a scheduled notification belongs to one device.
-const KEY = 'cleanflow:scheduled';
-export const readScheduled = (): Record<number, ScheduledRecord> => { try { const t = window.localStorage.getItem(KEY); return t ? (JSON.parse(t) as Record<number, ScheduledRecord>) : {}; } catch { return {}; } };
-export const writeScheduled = (r: Record<number, ScheduledRecord>): void => { try { window.localStorage.setItem(KEY, JSON.stringify(r)); } catch { /* the next sync simply sets things up again */ } };
+const key = (): string => nsKey('cleanflow:scheduled');
+export const readScheduled = (): Record<number, ScheduledRecord> => { try { const t = window.localStorage.getItem(key()); return t ? (JSON.parse(t) as Record<number, ScheduledRecord>) : {}; } catch { return {}; } };
+export const writeScheduled = (r: Record<number, ScheduledRecord>): void => { try { window.localStorage.setItem(key(), JSON.stringify(r)); } catch { /* the next sync simply sets things up again */ } };

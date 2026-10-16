@@ -7,14 +7,15 @@ import type { Felt } from '../../domain/movement/types';
 import { dueInfo } from '../../domain/schedule';
 import { reducer } from '../../state/reducer';
 import { useApp } from '../../state/store';
+import { nsKey } from '../../storage/namespace';
 import { I } from '../../ui/icons';
 import { Button, ProgressBar, Sheet, Hint } from '../../ui/primitives';
 
-const KEY = 'cleanflow:workout';
+const key = (): string => nsKey('cleanflow:workout');
 const read = (workoutId: string): SessionState | null => {
-  try { const raw = window.localStorage.getItem(KEY); const s = raw ? (JSON.parse(raw) as SessionState) : null; return s && s.workoutId === workoutId && Array.isArray(s.steps) ? s : null; } catch { return null; }
+  try { const raw = window.localStorage.getItem(key()); const s = raw ? (JSON.parse(raw) as SessionState) : null; return s && s.workoutId === workoutId && Array.isArray(s.steps) ? s : null; } catch { return null; }
 };
-const write = (s: SessionState | null) => { try { if (s) window.localStorage.setItem(KEY, JSON.stringify(s)); else window.localStorage.removeItem(KEY); } catch { /* ignore */ } };
+const write = (s: SessionState | null) => { try { if (s) window.localStorage.setItem(key(), JSON.stringify(s)); else window.localStorage.removeItem(key()); } catch { /* ignore */ } };
 
 const FELT: { value: Felt; label: string }[] = [{ value: 'easy', label: 'Easy' }, { value: 'right', label: 'About right' }, { value: 'hard', label: 'Hard' }, { value: 'pain', label: 'I stopped: pain or discomfort' }];
 

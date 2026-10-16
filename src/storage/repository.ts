@@ -118,6 +118,10 @@ export class LocalStorageRepository implements Repository {
     try { return typeof window !== 'undefined' ? window.localStorage : null; } catch { return null; }
   }
 
+  /** The default key keeps its historical backup and recovery keys; any other (an account's) derives them from its own. */
+  private get backupKey(): string { return this.key === STORAGE_KEY ? BACKUP_KEY : `${this.key}:backups`; }
+  private get rawKey(): string { return this.key === STORAGE_KEY ? RAW_KEY : `${this.key}:recovery`; }
+
   readRaw(): string | null {
     try { return this.ls()?.getItem(this.key) ?? null; } catch { return null; }
   }
@@ -157,7 +161,7 @@ export class LocalStorageRepository implements Repository {
 
   private readBackups(): StoredBackup[] {
     try {
-      const raw = this.ls()?.getItem(BACKUP_KEY);
+      const raw = this.ls()?.getItem(this.backupKey);
       const arr = raw ? JSON.parse(raw) : [];
       return Array.isArray(arr) ? arr.filter((b): b is StoredBackup => !!b && typeof b.id === 'string' && typeof b.json === 'string') : [];
     } catch { return []; }
@@ -178,7 +182,7 @@ export class LocalStorageRepository implements Repository {
     let list = evict([info, ...existing]);
     while (list.length > 1 && list.reduce((n, b) => n + b.bytes, 0) > MAX_BACKUP_BYTES) list = list.slice(0, -1);
     const write = (l: StoredBackup[]): boolean => {
-      try { store.setItem(BACKUP_KEY, JSON.stringify(l)); return this.readBackups().some((b) => b.id === info.id); } catch { return false; }
+      try { store.setItem(this.backupKey, JSON.stringify(l)); return this.readBackups().some((b) => b.id === info.id); } catch { return false; }
     };
     // If it does not fit alongside the older copies, the new one replaces them. If it still does not fit, report failure and leave the old copies alone.
     if (write(list) || write([info])) { const { json: _j, ...out } = info; void _j; return out; }
@@ -207,13 +211,13 @@ export class LocalStorageRepository implements Repository {
   }
 
   stashRaw(raw: string): void {
-    try { this.ls()?.setItem(RAW_KEY, raw); } catch { /* quota: the original is still in the main key */ }
+    try { this.ls()?.setItem(this.rawKey, raw); } catch { /* quota: the original is still in the main key */ }
   }
 
   async clear(): Promise<void> {
     const store = this.ls();
     if (!store) return;
-    for (const k of [this.key, BACKUP_KEY, RAW_KEY]) { try { store.removeItem(k); } catch { /* ignore */ } }
+    for (const k of [this.key, this.backupKey, this.rawKey]) { try { store.removeItem(k); } catch { /* ignore */ } }
   }
 
   subscribe(onChange: (r: LoadResult) => void): () => void {

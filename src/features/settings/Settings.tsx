@@ -1,6 +1,7 @@
 import { compactHistory, describeRetention, HARD_CHARS, serializedSize } from '../../domain/retention';
 import { useMemo, useRef, useState } from 'react';
 import { DEMO_PROFILES, appDataForDemo } from '../../domain/demo';
+import { nsKey } from '../../storage/namespace';
 import { exportJSON, importJSON } from '../../storage/repository';
 import { hasUserData, summarize } from '../../storage/schema';
 import { useApp } from '../../state/store';
@@ -94,7 +95,7 @@ export const Settings = () => {
     extra: { label: 'Download a backup first', run: download },
     onConfirm: async () => {
       await repo.clear();
-      try { window.localStorage.removeItem('cleanflow:onb-step'); window.localStorage.removeItem('cleanflow:timer'); } catch { /* ignore */ }
+      try { window.localStorage.removeItem(nsKey('cleanflow:onb-step')); window.localStorage.removeItem(nsKey('cleanflow:timer')); } catch { /* ignore */ }
       dispatch({ type: 'RESET_ALL', stamp: stamp() });
       navigate('');
     },

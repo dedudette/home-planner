@@ -7,6 +7,7 @@ import { fail, json, originOk } from '../http';
 import type { EntitlementService } from '../billing/entitlements';
 import type { Mailer } from '../mail/mailer';
 import { startTrial } from '../trial/trial';
+import { backupRoutes } from './backup';
 import { buildAccountView, type BillingStatus } from './view';
 
 /**
@@ -17,6 +18,7 @@ import { buildAccountView, type BillingStatus } from './view';
  *   GET  /api/account           the signed-in account: entitlement, trial, subscription, real AI allowance
  *   POST /api/account/trial     start the 14-day trial (verified account, explicit request, once)
  *   GET  /api/account/export    everything the server holds about the account, as a download; always available, whatever the state
+ *   GET/PUT/DELETE /api/account/backup   optional cloud backup of plan data (see backup.ts); reading and deleting are always available
  *
  * Sign-up, sign-in, sign-out, email verification, password reset, password change and account deletion are Better Auth's own routes
  * under /api/auth/*.
@@ -36,6 +38,7 @@ export interface AccountDeps {
 
 export const createAccountRoutes = (deps: AccountDeps) => {
   const log = deps.log ?? (() => undefined);
+  const backup = backupRoutes(deps.db, { now: deps.now, fullAccess: async (id) => (await deps.entitlements.get(id, deps.now()))?.entitlement.access === 'full' });
   return async (req: Request): Promise<Response | null> => {
     const path = new URL(req.url).pathname;
 
@@ -73,6 +76,13 @@ export const createAccountRoutes = (deps: AccountDeps) => {
         }
         const view = await buildAccountView({ entitlements: deps.entitlements, ledger: deps.ledger, billing: deps.billing(), now: deps.now }, user);
         return json(200, { ok: true, account: view });
+      }
+
+      if (path === '/api/account/backup') {
+        if (req.method === 'GET') return await backup.get(user.id, new URL(req.url).searchParams.get('meta') === '1');
+        if (req.method === 'PUT') return await backup.put(user.id, req);
+        if (req.method === 'DELETE') return await backup.remove(user.id);
+        return fail(405, 'method', 'Use GET, PUT or DELETE.', {}, { allow: 'GET, PUT, DELETE' });
       }
 
       if (path === '/api/account/export') {

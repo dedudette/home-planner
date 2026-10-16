@@ -40,29 +40,32 @@ Status key: ✅ verified here · ⚠️ built, needs something external to verif
 | Item | Status | Note |
 |---|---|---|
 | Plans €25/month and €255/year, exactly 15% off, shared constants and disclosure text | ✅ | `tests/billingPlans.test.ts` |
-| Entitlement state machine, per-state access table | ✅ | `tests/entitlement.test.ts`, `docs/billing.md` |
+| Entitlement state machine, per-state access table, offline policy | ✅ | `tests/entitlement.test.ts`, `docs/billing.md` |
 | AI allowance windows (same monthly number for both plans, anchored to subscription start) | ✅ | `tests/usageWindow.test.ts` |
-| Database, migrations, row-level security | ⏳ | |
-| Accounts: sign-up, email verification, sign-in/out, reset, session expiry, re-authentication, deletion | ⏳ | |
-| 14-day trial: once per account (and per email across deletion), server timestamps | ⏳ | |
-| Stripe Checkout, Portal, webhooks, reconcile, duplicate guards, refund/dispute policy | ⏳ | fake-provider tests; real sandbox procedure in `docs/billing-sandbox.md` |
-| AI usage ledger and gate on every AI endpoint | ⏳ | |
-| Notifications with retry and de-duplication | ⏳ | delivery depends on a configured email provider |
-| Client: sign-up, gate, pricing, billing, allowance, local-data linking | ⏳ | |
-| Mobile billing (Apple/Google) | ⛔ | documented, kept unavailable |
+| Database, migrations (checksummed), per-account row-level security | ✅ | real PostgreSQL: `tests/db/rls.test.ts` |
+| Accounts: sign-up, email verification, sign-in/out, reset, session expiry, deletion with password | ✅ | real Better Auth + PostgreSQL: `tests/db/accounts.test.ts` |
+| 14-day trial: once per person (email HMAC survives deletion), server clock, no client input | ✅ | same file |
+| AI usage ledger (reserve/commit/release, concurrency) and the gate on coach and assistant | ✅ | `tests/db/ledger.test.ts`, `tests/db/aiGate.test.ts` |
+| Stripe Checkout, Portal, cancel/resume, webhooks, reconcile, duplicate guards, refund/dispute policy | ✅ fake provider only | real Stripe SDK against a local stand-in (`tests/db/billing.test.ts`); **never run against Stripe itself** |
+| Notifications: queue, de-duplication, retry, honest status | ✅ fake provider only | delivery needs a configured email provider; Resend adapter not run live |
+| Stripe setup script (product, prices, portal) | ✅ against the stand-in only | `tests/billingSetup.test.ts` |
+| Optional cloud backup endpoints (opt-in, private parts stripped server-side, revision check) | ✅ | `tests/db/backup.test.ts` |
+| Per-account namespacing of device storage keys (plan, backups, timer, workout, onboarding, schedule) | ✅ built; unit tests pass | e2e suites not re-run after this change (local mode keeps the original keys) |
+| Client API module for the above | ⚠️ written, type-checked, **not wired to any screen** | `src/account/api.ts` |
+| Client: sign-up/sign-in screens, gate, pricing selector, billing page, allowance display, local-data linking with preview, cloud-backup UI, browser e2e | ⏳ **not started** | next step |
+| Server docs (billing, sandbox procedure, deployment) | ✅ drafted | README and PR #1 description not yet updated |
+| Mobile billing (Apple/Google) | ⛔ | documented, no purchase buttons planned in native |
 
 ### Paolo expansion (brief part A)
 
 | Milestone | Status |
 |---|---|
-| 1 Paolo identity, launcher, adaptive conversational onboarding | ⏳ |
-| 2 Voice (speech in/out) | ⏳ |
-| 3 Nutrition, hydration, reminders | ⏳ |
-| 4 Visual exercise and food content | ⏳ |
-| 5 Behavioural reflection, wellbeing, learning | ⏳ |
-| 6 Native focus blocking and external integrations | ⏳ |
-
-Statuses above are updated at the end of the work (section 5).
+| 1 Paolo identity, launcher, adaptive conversational onboarding | ⏳ not started |
+| 2 Voice (speech in/out) | ⏳ not started |
+| 3 Nutrition, hydration, reminders | ⏳ not started |
+| 4 Visual exercise and food content | ⏳ not started |
+| 5 Behavioural reflection, wellbeing, learning | ⏳ not started |
+| 6 Native focus blocking and external integrations | ⏳ not started |
 
 ## 4. External blockers (stated, not worked around)
 
@@ -74,6 +77,6 @@ Statuses above are updated at the end of the work (section 5).
 - **Food composition data** (USDA FoodData Central needs an API key and its licence terms), **licensed exercise/food media**, **Canva** (OAuth app registration), **speech recognition on a real device**.
 - **Legal documents** (privacy policy, terms, refund policy, company details): placeholders only; not launch-ready and not claimed to be.
 
-## 5. Final status
+## 5. Checkpoint status
 
-Filled in at the end of the work.
+Paused by request after the server side of Part B. Nothing is merged; PR #1 stays a draft. The product is **not** sandbox-ready for people yet: the server can run accounts, trial, billing and the AI allowance, but the browser app has no sign-in or subscription screens, so a signed-out person cannot use accounts mode today. Local mode (no `DATABASE_URL`) is unchanged.
