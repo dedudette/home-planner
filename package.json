@@ -18,7 +18,8 @@
     "storage-growth": "vite-node scripts/storage-growth.ts",
     "cap:sync": "npm run build && cap sync",
     "test:db": "sh scripts/test-db.sh run vitest run tests/db",
-    "db:migrate": "vite-node scripts/migrate.ts"
+    "db:migrate": "vite-node scripts/migrate.ts",
+    "stripe:setup": "vite-node scripts/stripe-setup.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",

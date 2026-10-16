@@ -71,7 +71,7 @@ export const baseEnv = (extra: Record<string, string> = {}): Record<string, stri
   ...extra,
 });
 
-export const makeRig = async (o: { env?: Record<string, string>; overrides?: RuntimeOverrides; start?: string } = {}): Promise<Rig> => {
+export const makeRig = async (o: { env?: Record<string, string>; overrides?: RuntimeOverrides & { fetch?: typeof fetch }; start?: string } = {}): Promise<Rig> => {
   const t = await createTestDb();
   const mailer = createCaptureMailer();
   const clock = { now: new Date(o.start ?? '2026-03-10T12:00:00Z') };

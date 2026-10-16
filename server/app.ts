@@ -4,6 +4,7 @@ import { createLedger, type Ledger } from './ai/ledger';
 import { createAccountRoutes } from './account/routes';
 import { createAuth, sessionUser, type Auth } from './auth/auth';
 import { createEntitlementService, type EntitlementService } from './billing/entitlements';
+import { createBillingFromEnv } from './billing/index';
 import type { BillingService } from './billing/types';
 import type { Env } from './coach/config';
 import type { AccountsConfig } from './config';
@@ -39,11 +40,13 @@ export interface RuntimeOverrides {
   mailer?: Mailer;
   now?: () => Date;
   log?: (e: { event: string; code?: string }) => void;
-  /** Built after the auth and database exist, because deleting an account has to reach billing. */
-  billing?: (rt: Pick<AccountsRuntime, 'db' | 'config' | 'mailer' | 'now' | 'log'>) => BillingService | null;
+  /** Replaces billing built from the environment (tests). Built after the auth and database exist, because deleting an account has to reach billing. */
+  billing?: (rt: Pick<AccountsRuntime, 'db' | 'config' | 'mailer' | 'now' | 'log' | 'entitlements' | 'ledger'>) => BillingService | null;
   maxOutputTokens?: number;
   legal?: Partial<LegalLinks>;
-  fetch?: typeof fetch;
+  /** Tests: the HTTP used for the mail provider and for Stripe (the AI provider's is `fetch` in the API dependencies). */
+  mailFetch?: typeof fetch;
+  stripeFetch?: typeof fetch;
 }
 
 const legalFromEnv = (env: Env): LegalLinks => {
@@ -56,7 +59,7 @@ export const buildAccountsRuntime = (config: AccountsConfig, env: Env, o: Runtim
   const now = o.now ?? (() => new Date());
   const log = o.log ?? ((e) => console.warn(JSON.stringify(e)));
   const db = o.db ?? createDb(config.databaseUrl);
-  const mailer = o.mailer ?? (config.mail.provider === 'resend' ? createResendMailer({ apiKey: config.mail.resendKey!, from: config.mail.from, fetch: o.fetch }) : createConsoleMailer());
+  const mailer = o.mailer ?? (config.mail.provider === 'resend' ? createResendMailer({ apiKey: config.mail.resendKey!, from: config.mail.from, fetch: o.mailFetch }) : createConsoleMailer());
   const entitlements = createEntitlementService(db, { allowance: config.allowance, policy: config.policy, now });
   const ledger = createLedger(db, { now });
   let billing: BillingService | null = null;
@@ -70,7 +73,7 @@ export const buildAccountsRuntime = (config: AccountsConfig, env: Env, o: Runtim
     },
     async close() { if (!o.db) await db.end().catch(() => undefined); },
   };
-  billing = o.billing ? o.billing(rt) : null;
+  billing = o.billing ? o.billing(rt) : createBillingFromEnv(env, { ...rt, billing: () => billing }, { fetch: o.stripeFetch });
   rt.billing = billing;
   return rt;
 };
