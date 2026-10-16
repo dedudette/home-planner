@@ -18,6 +18,7 @@ export const SignedInBar = () => {
   return (
     <div className="signed-in-bar small" role="group" aria-label="Account">
       <span>Signed in as <b>{user.email}</b></span>
+      <a className="link-btn" href="#/account">Trial &amp; plans</a>
       <button type="button" className="link-btn" disabled={busy} onClick={() => void out()}>{busy ? 'Signing out…' : 'Sign out'}</button>
       {err && <span className="field-error" role="alert">{err}</span>}
     </div>

@@ -108,6 +108,15 @@ Queued in `notifications`, de-duplicated by key (one per invoice, one per schedu
 
 Not implemented. The data model is provider-neutral (`subscriptions.provider` ∈ stripe | apple | google, one live subscription per account across providers, one trial per person) so store billing can be added, but StoreKit / Play Billing, receipt/notification verification and restore are not built, and **the native app shows no purchase buttons** (a web Stripe checkout is not assumed to be allowed inside a store app). Store rules about unlocking features, linking to outside payment and account deletion change and need a current review before any store submission; no store release was prepared or submitted.
 
+## Charging currency is not payout currency
+
+Checked on 2026-10-16 through search results that quote Stripe's documentation (the Stripe pages themselves could not be opened from the build environment, so **re-read them before relying on this**): [Supported currencies](https://docs.stripe.com/currencies), [Multi-currency settlement](https://docs.stripe.com/payouts/multi-currency-settlement), [Receive payouts](https://docs.stripe.com/payouts).
+
+- The **charge (presentment) currency** is what the customer is shown and pays: €25 and €255 here. EUR is in Stripe's list of supported presentment currencies.
+- The **settlement/payout currency** is what lands in the merchant's bank account. These can differ. A charge in a currency other than a settlement currency the account has configured is converted to the account's default settlement currency, and some additional settlement currencies carry a fee. To settle in euro without conversion the account needs a euro-capable bank account, which is a Dashboard/Stripe-support question for the specific account, not something this code decides.
+- So a business in Romania is **not** assumed unable to charge in EUR. What is unverified is only the payout side (which settlement currencies the Romanian account offers, and the conversion fee). That does not block building or testing the screens: sandbox checks run in test mode, and the server already refuses to enable checkout unless each Price is exactly the expected EUR amount.
+- Payment methods beyond cards (and the Apple Pay / Google Pay wallets that ride on cards) depend on the account's country and on whether the method supports subscriptions. From the same search: PayPal subscriptions in Checkout are for businesses located in Europe and need PayPal recurring payments enabled in the Dashboard; Revolut Pay is described as gated; the support matrix for SEPA Direct Debit and Link could not be read. The code sets no `payment_method_types`, so what is offered is whatever is enabled in the Dashboard.
+
 ## Open items before any production activation (none is resolved by this repository)
 
 1. **Tax**: €25 and €255 are treated as the intended consumer totals; `stripe_tax_inclusive` makes Stripe Tax calculate tax inside them. Which countries, registrations, whether prices stay inclusive, and invoice requirements are decisions for a tax adviser. Production billing refuses to start with `BILLING_TAX_MODE` unset, and `none_sandbox_only` is test-mode only.

@@ -648,3 +648,15 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
 .signed-in-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; padding: max(10px, env(safe-area-inset-top, 0px)) 16px 0; color: var(--ink-2); }
 .signed-in-bar .link-btn { padding: 4px; }
+
+/* ───────────── accounts: trial and plans ───────────── */
+.auth-card.wide { max-width: 40rem; }
+.plan-opts { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
+.plan-opt { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card, transparent); cursor: pointer; min-height: 44px; }
+.plan-opt.on { border-color: var(--primary); background: var(--primary-soft); }
+.plan-opt input { width: 22px; height: 22px; flex: none; margin-top: 2px; accent-color: var(--primary); }
+.plan-opt:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.plan-opt-body { display: grid; gap: 2px; }
+.plan-opt-title { font-weight: 700; }
+.plan-opt-price { font-family: var(--font-head); font-size: 1.15rem; }
+a.link-btn { display: inline-flex; align-items: center; }
