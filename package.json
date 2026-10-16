@@ -16,10 +16,11 @@
     "dev:coach": "sh scripts/with-keychain-key.sh npm run dev",
     "sample-data": "vite-node scripts/make-sample-data.ts",
     "storage-growth": "vite-node scripts/storage-growth.ts",
-    "cap:sync": "npm run build && cap sync",
+    "cap:sync": "VITE_CLEANFLOW_STANDALONE=1 npm run build && cap sync",
     "test:db": "sh scripts/test-db.sh run vitest run tests/db",
     "db:migrate": "vite-node scripts/migrate.ts",
     "stripe:setup": "vite-node scripts/stripe-setup.ts",
+    "e2e:standalone": "node tests/e2e/standalone.mjs",
     "e2e:accounts": "sh scripts/test-db.sh run node tests/e2e/accounts.mjs"
   },
   "dependencies": {

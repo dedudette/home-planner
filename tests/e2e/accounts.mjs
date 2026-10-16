@@ -80,7 +80,7 @@ let legacyRaw = '';
     await page.goto(BASE);
     await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
     check('sign-in is the only content', (await page.locator('nav').count()) === 0 && (await page.locator('.onb').count()) === 0);
-    check('only the remembered mode is stored; no plan, no account data', JSON.stringify(await keys(page)) === JSON.stringify(['cleanflow:mode']), JSON.stringify(await keys(page)));
+    check('nothing is stored: no plan, no account data', (await keys(page)).length === 0, JSON.stringify(await keys(page)));
   }, page);
   await step('empty and malformed forms say what is wrong, move focus to the first problem, and send nothing', async () => {
     let sent = 0;
@@ -336,11 +336,13 @@ let legacyRaw = '';
 }
 {
   const { ctx, page } = await open({ label: 'offline' });
-  await step('with no server reachable and no memory of accounts, the app runs as it always did', async () => {
+  await step('with no server reachable the app does not guess "local": it says so, offers Try again, and touches nothing', async () => {
+    await page.addInitScript(() => { if (!localStorage.getItem('sentinel')) { localStorage.setItem('sentinel', '1'); localStorage.setItem('cleanflow:v1', '{"sentinel":"legacy plan"}'); } });
     await page.route('**/api/config', (r) => r.abort());
     await page.goto(BASE);
-    await welcomeVisible(page);
-    check('no sign-in is shown', (await page.getByRole('heading', { name: 'Sign in', exact: true }).count()) === 0);
+    await page.getByRole('heading', { name: 'Cannot reach the server' }).waitFor();
+    check('no welcome page, no sign-in', (await page.getByRole('heading', { name: /One calm plan/ }).count()) === 0 && (await page.getByRole('heading', { name: 'Sign in', exact: true }).count()) === 0);
+    check('stored data untouched', (await page.evaluate(() => localStorage.getItem('cleanflow:v1'))) === '{"sentinel":"legacy plan"}');
   }, page);
   await ctx.close();
   const o2 = await open({ label: 'offline-known' });
@@ -383,24 +385,29 @@ let legacyRaw = '';
   await ctx.close();
 }
 {
-  // A server that is there but failing (an outage, a deploy, a proxy error) is not "no server": the app must not fall back to the original storage.
+  // Any answer that is not a valid config is unexpected, not "no server": a recoverable error screen, scope and stored data untouched.
   const { ctx, page } = await open({ label: 'server-error' });
-  await step('/api/config answering with an error is not mistaken for a local app, with or without a memory of accounts; Try again recovers', async () => {
-    const mode = (p) => p.evaluate(() => localStorage.getItem('cleanflow:mode'));
-    await page.route('**/api/config', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"down"}' }));
-    await page.goto(BASE);
-    await page.getByRole('heading', { name: 'Something went wrong' }).waitFor();
-    check('first visit during an outage: no welcome page, no mode remembered', (await page.getByRole('heading', { name: /One calm plan/ }).count()) === 0 && (await mode(page)) === null);
-    await page.unroute('**/api/config');
-    await page.getByRole('button', { name: 'Try again' }).click();
-    await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
-    check('accounts remembered', (await mode(page)) === 'accounts');
-    await page.route('**/api/config', (r) => r.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }));
-    await page.reload();
-    await page.getByRole('heading', { name: 'Something went wrong' }).waitFor();
-    check('a 502 after accounts were seen: still no welcome page', (await page.getByRole('heading', { name: /One calm plan/ }).count()) === 0);
-    check('the remembered mode was not overwritten', (await mode(page)) === 'accounts');
-    check('no plan was created under the original key', !(await keys(page)).some((k) => k.startsWith('cleanflow:v1')));
+  await step('every unexpected /api/config response shows a recoverable error and leaves stored data alone; Try again recovers', async () => {
+    await page.addInitScript(() => { if (!localStorage.getItem('sentinel')) { localStorage.setItem('sentinel', '1'); localStorage.setItem('cleanflow:v1', '{"sentinel":"legacy plan"}'); } });
+    const cases = [
+      ['503 JSON', 503, 'application/json', '{"error":"down"}'],
+      ['502 HTML', 502, 'text/html', '<h1>Bad gateway</h1>'],
+      ['404', 404, 'text/html', '<h1>Not found</h1>'],
+      ['405', 405, 'text/plain', ''],
+      ['410', 410, 'text/plain', 'gone'],
+      ['200 HTML', 200, 'text/html', '<!doctype html><title>CleanFlow</title><div id="root"></div>'],
+      ['200 malformed JSON', 200, 'application/json', '{"mode":'],
+      ['200 wrong shape', 200, 'application/json', '{"mode":"nope"}'],
+      ['200 accounts without its settings', 200, 'application/json', '{"mode":"accounts"}'],
+    ];
+    for (const [name, status, contentType, body] of cases) {
+      await page.unroute('**/api/config').catch(() => undefined);
+      await page.route('**/api/config', (r) => r.fulfill({ status, contentType, body }));
+      await page.goto(BASE);
+      await page.getByRole('heading', { name: 'Something went wrong' }).waitFor();
+      check(`${name}: no welcome page and no sign-in`, (await page.getByRole('heading', { name: /One calm plan/ }).count()) === 0 && (await page.getByRole('heading', { name: 'Sign in', exact: true }).count()) === 0);
+      check(`${name}: stored data untouched, nothing new written`, JSON.stringify(await keys(page)) === JSON.stringify(['cleanflow:v1', 'sentinel']) && (await page.evaluate(() => localStorage.getItem('cleanflow:v1'))) === '{"sentinel":"legacy plan"}');
+    }
     await page.unroute('**/api/config');
     await page.getByRole('button', { name: 'Try again' }).click();
     await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
@@ -409,9 +416,11 @@ let legacyRaw = '';
 }
 {
   // The last edit made just before a session ends must reach the account's own storage, not be dropped with the debounce.
+  // Deterministic: the page clock is paused, so the 250 ms debounce timer cannot fire. The test asserts that the edit is in memory but NOT
+  // yet in storage (a save is pending) before the session end is triggered, and the session-end request is held until then.
   const { ctx, page } = await open({ label: 'edit-at-expiry' });
   await page.clock.install();
-  await step('an edit made just before the session-ended check is saved to the account, not lost', async () => {
+  await step('with a save pending, the session ending still writes the edit to the account storage before leaving', async () => {
     await page.goto(BASE);
     await page.getByRole('button', { name: 'Create an account' }).click();
     const D = 'dina.four@example.test';
@@ -422,15 +431,22 @@ let legacyRaw = '';
     await page.clock.resume();
     await confirmFromMail(page, D);
     await welcomeVisible(page);
-    const stored = () => page.evaluate(() => { const k = Object.keys(localStorage).find((x) => x.startsWith('cleanflow:v1@') && !x.includes(':', 13)); return k ? (localStorage.getItem(k) ?? '').length : 0; });
+    const stored = () => page.evaluate(() => { const k = Object.keys(localStorage).find((x) => /^cleanflow:v1@[^:]+$/.test(x)); return k ? (localStorage.getItem(k) ?? '') : ''; });
     const before = await stored();
-    await ctx.clearCookies();                                   // the session is gone
-    await page.clock.setSystemTime(Date.now() + 6 * 3600 * 1000);   // past the re-check interval, without firing any timer
-    // Edit and trigger the check in the same tick: the debounced save (250 ms) is still pending when the session end is noticed.
-    await page.getByText('Student: study, focus & less phone').first().evaluate((el) => { el.click(); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.clock.pauseAt(new Date(Date.now() + 6 * 3600 * 1000));      // past the re-check interval; from here no timer fires
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    await page.route('**/api/account', async (route) => { await gate; await route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthenticated","message":"Sign in to continue."}}' }); });
+    await page.getByText('Student: study, focus & less phone').first().click();    // the edit
+    await page.waitForSelector('text=Habits & routine');
+    check('the edit is in the app but not yet in storage: a save is pending', (await stored()) === before, 'storage changed before the session ended');
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));   // the session-end check starts; its answer is held
+    await page.waitForTimeout(300);
+    check('still pending while the check is in flight (clock paused)', (await stored()) === before);
+    release();                                                                    // the 401 arrives: the app leaves the account
     await page.getByText('Your session has ended. Sign in again to continue.').waitFor({ timeout: 10000 });
     const after = await stored();
-    check('the edit was written to the account storage before leaving', after > before, `${before} -> ${after}`);
+    check('the pending edit was written to the account storage before leaving', after !== before && after.length > before.length, `${before.length} -> ${after.length}`);
   }, page);
   await ctx.close();
 }

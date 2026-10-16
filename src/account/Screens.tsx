@@ -36,7 +36,9 @@ export const Notice = ({ kind = 'info', children }: { kind?: 'info' | 'error' | 
 export const ServerUnreachable = ({ onRetry, failed }: { onRetry: () => void; failed?: boolean }) => (
   <AuthFrame
     title={failed ? 'Something went wrong' : 'Cannot reach the server'}
-    lead={failed ? 'The server answered, but not in a way the app could use. Nothing was changed.' : 'This app signs you in through a server, and it cannot be reached right now. Your data on this device is safe and has not been changed.'}
+    lead={failed
+      ? 'The server answered, but not in a way the app could use, so it cannot tell whether to ask you to sign in. It may be restarting or set up incorrectly. Your data on this device is safe and has not been changed.'
+      : 'The app could not reach its server right now, so it cannot tell whether to ask you to sign in. Your data on this device is safe and has not been changed.'}
   >
     <Button onClick={onRetry} block>Try again</Button>
   </AuthFrame>

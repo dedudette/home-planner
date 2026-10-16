@@ -9,18 +9,21 @@ import { LegacyNoticeScreen, ServerUnreachable } from './Screens';
 import { markLegacyNoticeSeen, shouldShowLegacyNotice } from './legacy';
 import { readAuthLink, stripAuthParams, type AuthLink } from './links';
 import { switchNamespace } from './scope';
+import { isStandalone } from './config';
 
 /**
  * Whether this app is running with accounts, and if so who is signed in. Three situations:
  *
- *  - local   The server has no accounts (or there is no server at all, as on a static host or in the phone app without a server address).
- *            The app runs exactly as it always did, on the original storage keys. No sign-in is shown anywhere.
+ *  - local   The server answered GET /api/config with `{ mode: 'local' }`, or this build was made for "no server at all"
+ *            (VITE_CLEANFLOW_STANDALONE=1: a static host, the phone app). The app runs exactly as it always did, on the original storage keys.
  *  - accounts, signed out   The sign-in, sign-up and recovery screens.
  *  - accounts, signed in    The app, working in this account's own storage namespace.
  *
- * Who is signed in is whatever the server says (`GET /api/account` with the session cookie); nothing about it is kept in the browser
- * except which MODE the server was last seen in, so that a brief loss of connection does not silently turn an accounts deployment
- * into a local one. This file does not look at subscriptions or entitlements.
+ * Any other outcome of asking for the config (no answer, an error status, a 404 or 405 from a proxy, an HTML page, malformed JSON) is NOT
+ * local mode: the app shows "try again" and does not touch the scope or any stored data.
+ *
+ * Who is signed in is whatever the server says (`GET /api/account` with the session cookie); nothing about it is kept in the browser.
+ * This file does not look at subscriptions or entitlements.
  */
 export interface AccountUser { id: string; email: string; name: string; emailVerified: boolean }
 
@@ -41,14 +44,10 @@ const NO_LEGAL = { privacy: null, terms: null, billing: null, company: null };
 const Ctx = createContext<AccountContextValue>({ mode: 'local', user: null, legal: NO_LEGAL, mailDelivers: true, signOut: async () => undefined, accountDeleted: () => undefined, takeFlash: () => null });
 export const useAccount = (): AccountContextValue => useContext(Ctx);
 
-const MODE_KEY = 'cleanflow:mode';
-const readMode = (): 'accounts' | 'local' | null => { try { const v = window.localStorage.getItem(MODE_KEY); return v === 'accounts' || v === 'local' ? v : null; } catch { return null; } };
-const writeMode = (m: 'accounts' | 'local'): void => { try { window.localStorage.setItem(MODE_KEY, m); } catch { /* the next load simply asks again */ } };
-
 type State =
   | { s: 'loading' }
   | { s: 'local' }
-  | { s: 'unreachable'; known: 'accounts' }
+  | { s: 'unreachable' }
   | { s: 'failed' }
   | { s: 'signed-out'; start: FlowStart }
   | { s: 'signed-in'; user: AccountUser; legacyNotice: boolean };
@@ -77,19 +76,16 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
 
   const load = useCallback(async (opts: { quiet?: boolean } = {}) => {
     if (!opts.quiet) setState({ s: 'loading' });
-    let cfg: PublicConfig | null;
+    if (isStandalone()) { switchNamespace(null); setState({ s: 'local' }); return; }    // a build made for "no server at all"
+    let cfg: PublicConfig;
     try { cfg = await api.getConfig(); } catch (e) {
+      // No valid answer. This never selects local mode and never touches the scope or any stored data: the person sees a way to try again.
       if (opts.quiet) return;
-      // A server that answered with an error (an outage, a deploy, a proxy) is there: never fall back to the original storage then, and keep
-      // the remembered mode as it was. Only "no answer at all" with no memory of accounts means a plain local app.
-      if (e instanceof api.ApiError && e.status > 0) { setState({ s: 'failed' }); return; }
-      // Could not reach any server. If this deployment was last seen with accounts, do not pretend it has none.
-      if (readMode() === 'accounts') setState({ s: 'unreachable', known: 'accounts' }); else { switchNamespace(null); setState({ s: 'local' }); }
+      setState(e instanceof api.ApiError && e.offline ? { s: 'unreachable' } : { s: 'failed' });
       return;
     }
     setConfig(cfg);
-    if (!cfg || cfg.mode === 'local') { writeMode('local'); switchNamespace(null); setState({ s: 'local' }); return; }
-    writeMode('accounts');
+    if (cfg.mode === 'local') { switchNamespace(null); setState({ s: 'local' }); return; }
     // A password-reset link opened in this browser always goes to the new-password form, signed in or not: the person asked for it.
     const first = initialLink.current;
     if (!opts.quiet && (first.kind === 'reset' || (first.kind === 'bad-link' && first.what === 'reset'))) { initialLink.current = { kind: 'none' }; leave(startFor(first)); return; }
@@ -110,7 +106,7 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
         return;
       }
       if (opts.quiet) return;           // offline while checking in the background: keep working, the next check will try again
-      if (e instanceof api.ApiError && e.offline) setState({ s: 'unreachable', known: 'accounts' }); else setState({ s: 'failed' });
+      if (e instanceof api.ApiError && e.offline) setState({ s: 'unreachable' }); else setState({ s: 'failed' });
     }
   }, [enter, leave]);
 
