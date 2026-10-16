@@ -1,6 +1,7 @@
 import type { AccountView, PublicConfig } from '../domain/billing/account';
 import type { PlanId } from '../domain/billing/plans';
 import type { AppData } from '../domain/types';
+import { validateConfig } from './config';
 
 /**
  * The browser's side of the account endpoints. Every call is to this app's own origin with the session cookie (HttpOnly, so this code
@@ -29,12 +30,21 @@ const call = async <T>(method: string, path: string, body?: unknown): Promise<T>
   return json as T;
 };
 
-/** `null` when the answer is not JSON (a static host answering every path with the app's page): there is no server behind this app. */
-export const getConfig = async (): Promise<PublicConfig | null> => {
+/**
+ * The server's own, valid answer to GET /api/config, or an ApiError. There is deliberately no "null means no server": a 404 from a proxy, an
+ * HTML page, malformed JSON, an error status or an answer of the wrong shape are all unexpected (status > 0, `offline` false), and no answer at
+ * all is `offline`. Only a valid config selects a mode; a deployment with no server at all says so at build time (see ./config.ts).
+ */
+export const getConfig = async (): Promise<PublicConfig> => {
   let res: Response;
   try { res = await fetch('/api/config', { credentials: 'same-origin', cache: 'no-store' }); } catch { throw new ApiError(0, 'offline', 'The server could not be reached.'); }
-  if (!res.ok) return null;
-  try { const j = (await res.json()) as PublicConfig; return j && (j.mode === 'local' || j.mode === 'accounts') ? j : null; } catch { return null; }
+  const unexpected = (code: string): ApiError => new ApiError(res.status, code, 'The server did not give an answer the app can use.');
+  if (!res.ok) throw unexpected('config-unavailable');
+  let body: unknown;
+  try { body = await res.json(); } catch { throw unexpected('config-not-json'); }
+  const cfg = validateConfig(body);
+  if (!cfg) throw unexpected('config-invalid');
+  return cfg;
 };
 
 export const getAccount = async (): Promise<AccountView> => (await call<{ account: AccountView }>('GET', '/api/account')).account;

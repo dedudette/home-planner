@@ -9,6 +9,7 @@ import { I } from '../../ui/icons';
 import { downloadText } from '../../ui/download';
 import { Button, PageHead } from '../../ui/primitives';
 import { navigate } from '../../ui/router';
+import { AccountPanel } from '../../account/AccountPanel';
 import { AppearancePanel } from './AppearancePanel';
 import { HealthPanel } from './HealthPanel';
 import { RemindersPanel } from './RemindersPanel';
@@ -112,6 +113,8 @@ export const Settings = () => {
         )}
         <div><Button variant="secondary" icon={homeOn ? I.home : I.flame} onClick={() => navigate('home')}>{homeOn ? 'Edit my home & preferences' : 'Edit my goals'}</Button></div>
       </section>
+
+      <AccountPanel />
 
       <OwlTipCard place="settings" />
 

@@ -8,3 +8,5 @@ dist-server
 .env.*
 !.env.example
 cleanflow-sample-data.json
+dist-standalone
+dist-plain
