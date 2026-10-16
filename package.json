@@ -16,7 +16,9 @@
     "dev:coach": "sh scripts/with-keychain-key.sh npm run dev",
     "sample-data": "vite-node scripts/make-sample-data.ts",
     "storage-growth": "vite-node scripts/storage-growth.ts",
-    "cap:sync": "npm run build && cap sync"
+    "cap:sync": "npm run build && cap sync",
+    "test:db": "sh scripts/test-db.sh run vitest run tests/db",
+    "db:migrate": "vite-node scripts/migrate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",

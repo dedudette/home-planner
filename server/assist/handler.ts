@@ -5,6 +5,7 @@ import { describeAvailability, readCoachConfig, type CoachAvailability, type Coa
 import { createLimiter, type Limiter } from '../coach/limiter';
 import { createProvider, ProviderError, type CoachProvider } from '../coach/provider';
 import { buildPrompt } from './prompt';
+import type { AiGate, AiTicket } from '../ai/gate';
 
 /**
  * The assistant endpoint: one reviewed request in, a checked proposal out. It shares the coach's settings (the same provider key, model,
@@ -26,6 +27,8 @@ export interface AssistDeps {
   now?: () => number;
   log?: AssistLog;
   provider?: (config: CoachConfig) => CoachProvider;
+  /** Accounts mode: identifies the caller, checks entitlement and reserves allowance before the provider is called. */
+  gate?: AiGate;
 }
 
 const MAX_BODY = 16 * 1024;
@@ -90,6 +93,12 @@ export const createAssistHandler = (deps: AssistDeps = {}): AssistHandler => {
     return limiter.limiter;
   };
 
+  let accountLimiter: { key: number; limiter: Limiter } | null = null;
+  const accountLimiterFor = (c: CoachConfig): Limiter => {
+    if (!accountLimiter || accountLimiter.key !== c.cooldownSeconds) accountLimiter = { key: c.cooldownSeconds, limiter: createLimiter({ cooldownSeconds: c.cooldownSeconds, perClientDaily: 1e9, globalDaily: 1e9 }) };
+    return accountLimiter.limiter;
+  };
+
   const handler = (async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url);
     const isStatus = url.pathname === '/api/assist/status';
@@ -123,8 +132,15 @@ export const createAssistHandler = (deps: AssistDeps = {}): AssistHandler => {
     }
 
     const t = now();
-    const limit = limiterFor(config).take(clientOf(req, config), t);
+    let ticket: AiTicket | null = null;
+    if (deps.gate) {
+      const g = await deps.gate.begin(req, 'assist');
+      if (!g.ok) return g.response;
+      ticket = g.ticket;
+    }
+    const limit = (ticket ? accountLimiterFor(config) : limiterFor(config)).take(ticket ? `u:${ticket.userId}` : clientOf(req, config), t);
     if (!limit.ok) {
+      await ticket?.release();
       log({ event: 'assist.rejected', code: limit.code });
       const msg = limit.code === 'cooldown' ? `Please wait ${limit.retryAfterSeconds} seconds before asking again.` : 'The AI request limit has been reached for now. Try again later.';
       return fail(429, limit.code, msg, { retryAfterSeconds: limit.retryAfterSeconds }, { 'retry-after': String(limit.retryAfterSeconds) });
@@ -136,8 +152,9 @@ export const createAssistHandler = (deps: AssistDeps = {}): AssistHandler => {
     const timer = setTimeout(() => abort.abort(), config.timeoutMs);
     let reply;
     try {
-      reply = await provider.generate({ system: prompt.system, user: prompt.user, maxOutputTokens: config.maxOutputTokens, signal: abort.signal });
+      reply = await provider.generate({ system: prompt.system, user: prompt.user, maxOutputTokens: Math.min(config.maxOutputTokens, ticket?.maxOutputTokens ?? config.maxOutputTokens), signal: abort.signal });
     } catch (e) {
+      await ticket?.release();
       const code = e instanceof ProviderError ? e.code : 'unavailable';
       log({ event: 'assist.provider-error', code });
       if (code === 'timeout') return fail(504, 'timeout', 'The AI service took too long. Nothing was changed. You can try again in a moment.');
@@ -145,11 +162,12 @@ export const createAssistHandler = (deps: AssistDeps = {}): AssistHandler => {
     } finally { clearTimeout(timer); }
 
     const meta = { provider: provider.label, model: provider.model };
-    const unreliable = () => json(200, { ok: true, proposal: null, notice: 'unreliable', meta });
+    const unreliable = async () => { await ticket?.release(reply.usage); return json(200, { ok: true, proposal: null, notice: 'unreliable', meta }); };
     if (reply.stop !== 'end') { log({ event: 'assist.unusable', code: reply.stop }); return unreliable(); }
     const out = validateProposal(reply.text, check.request);
     if (!out.ok) { log({ event: 'assist.unusable', code: out.reason }); return unreliable(); }
     if (out.dropped) log({ event: 'assist.dropped', code: String(out.dropped) });
+    await ticket?.commit(reply.usage);
     return json(200, { ok: true, proposal: out.proposal, meta });
   }) as AssistHandler;
   handler.describe = () => describeAvailability(readCoachConfig(env())).replace('AI suggestions', 'AI assistant');

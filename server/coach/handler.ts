@@ -4,6 +4,7 @@ import { describeAvailability, readCoachConfig, type CoachAvailability, type Coa
 import { createLimiter, type Limiter } from './limiter';
 import { buildPrompt } from './prompt';
 import { createProvider, ProviderError, type CoachProvider } from './provider';
+import type { AiGate, AiTicket } from '../ai/gate';
 
 /**
  * The AI coach endpoint, as a plain `(Request) => Response` function so any host can mount it (the Vite dev and preview servers and the
@@ -28,6 +29,11 @@ export interface CoachDeps {
   log?: CoachLog;
   /** For tests: a ready-made provider instead of the real adapter. */
   provider?: (config: CoachConfig) => CoachProvider;
+  /**
+   * Accounts mode: the door that identifies the caller, checks their entitlement and reserves one unit of their AI allowance before the
+   * provider is called. Absent in local mode (the original single-device app), where the in-memory limiter is the only control.
+   */
+  gate?: AiGate;
 }
 
 const json = (status: number, body: unknown, extra: Record<string, string> = {}): Response =>
@@ -94,6 +100,12 @@ export const createCoachHandler = (deps: CoachDeps = {}): CoachHandler => {
     return limiter.limiter;
   };
 
+  let accountLimiter: { key: number; limiter: Limiter } | null = null;
+  const accountLimiterFor = (c: CoachConfig): Limiter => {
+    if (!accountLimiter || accountLimiter.key !== c.cooldownSeconds) accountLimiter = { key: c.cooldownSeconds, limiter: createLimiter({ cooldownSeconds: c.cooldownSeconds, perClientDaily: 1e9, globalDaily: 1e9 }) };
+    return accountLimiter.limiter;
+  };
+
   const handler = (async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url);
     const isStatus = url.pathname === '/api/coach/status';
@@ -126,8 +138,16 @@ export const createCoachHandler = (deps: CoachDeps = {}): CoachHandler => {
     }
 
     const t = now();
-    const limit = limiterFor(config).take(clientOf(req, config), t);
+    let ticket: AiTicket | null = null;
+    if (deps.gate) {
+      const g = await deps.gate.begin(req, 'coach');
+      if (!g.ok) return g.response;
+      ticket = g.ticket;
+    }
+    // With accounts the allowance ledger is the quota; the in-memory limiter keeps only its cooldown, per account.
+    const limit = (ticket ? accountLimiterFor(config) : limiterFor(config)).take(ticket ? `u:${ticket.userId}` : clientOf(req, config), t);
     if (!limit.ok) {
+      await ticket?.release();
       log({ event: 'coach.rejected', code: limit.code });
       const msg = limit.code === 'cooldown' ? `Please wait ${limit.retryAfterSeconds} seconds before asking again.` : 'The AI suggestion limit has been reached for now. Try again later.';
       return fail(429, limit.code, msg, { retryAfterSeconds: limit.retryAfterSeconds }, { 'retry-after': String(limit.retryAfterSeconds) });
@@ -139,8 +159,9 @@ export const createCoachHandler = (deps: CoachDeps = {}): CoachHandler => {
     const timer = setTimeout(() => abort.abort(), config.timeoutMs);
     let reply;
     try {
-      reply = await provider.generate({ system: prompt.system, user: prompt.user, maxOutputTokens: config.maxOutputTokens, signal: abort.signal });
+      reply = await provider.generate({ system: prompt.system, user: prompt.user, maxOutputTokens: Math.min(config.maxOutputTokens, ticket?.maxOutputTokens ?? config.maxOutputTokens), signal: abort.signal });
     } catch (e) {
+      await ticket?.release();
       const code = e instanceof ProviderError ? e.code : 'unavailable';
       log({ event: 'coach.provider-error', code });
       if (code === 'timeout') return fail(504, 'timeout', 'The AI service took too long. Nothing was changed. You can try again in a moment.');
@@ -148,12 +169,14 @@ export const createCoachHandler = (deps: CoachDeps = {}): CoachHandler => {
     } finally { clearTimeout(timer); }
 
     const meta = { provider: provider.label, model: provider.model };
-    const unreliable = () => json(200, { ok: true, suggestions: [] as CoachSuggestion[], notice: 'unreliable', meta });
+    // An answer the person cannot use is not charged to their allowance: release, never commit.
+    const unreliable = async () => { await ticket?.release(reply.usage); return json(200, { ok: true, suggestions: [] as CoachSuggestion[], notice: 'unreliable', meta }); };
     if (reply.stop !== 'end') { log({ event: 'coach.unusable', code: reply.stop }); return unreliable(); }
     const out = validateCoachOutput(reply.text, check.payload, check.strength);
     if (!out.ok) { log({ event: 'coach.unusable', code: out.reason }); return unreliable(); }
     if (out.dropped) log({ event: 'coach.dropped', code: String(out.dropped) });
-    if (out.output.insufficient) return json(200, { ok: true, suggestions: [], notice: 'insufficient', meta });
+    if (out.output.insufficient) { await ticket?.release(reply.usage); return json(200, { ok: true, suggestions: [], notice: 'insufficient', meta }); }
+    await ticket?.commit(reply.usage);
     return json(200, { ok: true, suggestions: out.output.suggestions, meta });
   }) as CoachHandler;
   handler.describe = () => describeAvailability(readCoachConfig(env()));

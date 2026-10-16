@@ -36,7 +36,7 @@ export const createAnthropicProvider = (config: CoachConfig, fetchImpl?: typeof 
         );
         const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
         const stop = res.stop_reason === 'end_turn' ? 'end' : res.stop_reason === 'refusal' ? 'refusal' : res.stop_reason === 'max_tokens' ? 'truncated' : 'other';
-        return { text, stop };
+        return { text, stop, usage: { inputTokens: res.usage?.input_tokens ?? 0, outputTokens: res.usage?.output_tokens ?? 0 } };
       } catch (e) {
         throw classify(e, req.signal);
       }

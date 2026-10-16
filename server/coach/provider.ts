@@ -28,6 +28,8 @@ export interface ProviderReply {
   text: string;
   /** "refusal" and "truncated" mean the text is not a finished answer. */
   stop: 'end' | 'refusal' | 'truncated' | 'other';
+  /** Token counts the provider reported, when it reports them. Recorded in the usage ledger for cost checking; never shown or logged with text. */
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 export interface CoachProvider {
