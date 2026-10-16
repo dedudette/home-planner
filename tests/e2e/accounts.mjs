@@ -383,6 +383,58 @@ let legacyRaw = '';
   await ctx.close();
 }
 {
+  // A server that is there but failing (an outage, a deploy, a proxy error) is not "no server": the app must not fall back to the original storage.
+  const { ctx, page } = await open({ label: 'server-error' });
+  await step('/api/config answering with an error is not mistaken for a local app, with or without a memory of accounts; Try again recovers', async () => {
+    const mode = (p) => p.evaluate(() => localStorage.getItem('cleanflow:mode'));
+    await page.route('**/api/config', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"down"}' }));
+    await page.goto(BASE);
+    await page.getByRole('heading', { name: 'Something went wrong' }).waitFor();
+    check('first visit during an outage: no welcome page, no mode remembered', (await page.getByRole('heading', { name: /One calm plan/ }).count()) === 0 && (await mode(page)) === null);
+    await page.unroute('**/api/config');
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+    check('accounts remembered', (await mode(page)) === 'accounts');
+    await page.route('**/api/config', (r) => r.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }));
+    await page.reload();
+    await page.getByRole('heading', { name: 'Something went wrong' }).waitFor();
+    check('a 502 after accounts were seen: still no welcome page', (await page.getByRole('heading', { name: /One calm plan/ }).count()) === 0);
+    check('the remembered mode was not overwritten', (await mode(page)) === 'accounts');
+    check('no plan was created under the original key', !(await keys(page)).some((k) => k.startsWith('cleanflow:v1')));
+    await page.unroute('**/api/config');
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+  }, page);
+  await ctx.close();
+}
+{
+  // The last edit made just before a session ends must reach the account's own storage, not be dropped with the debounce.
+  const { ctx, page } = await open({ label: 'edit-at-expiry' });
+  await page.clock.install();
+  await step('an edit made just before the session-ended check is saved to the account, not lost', async () => {
+    await page.goto(BASE);
+    await page.getByRole('button', { name: 'Create an account' }).click();
+    const D = 'dina.four@example.test';
+    await field(page, 'Email').fill(D);
+    await field(page, 'Password').fill(PW);
+    await btn(page, 'Create account').click();
+    await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+    await page.clock.resume();
+    await confirmFromMail(page, D);
+    await welcomeVisible(page);
+    const stored = () => page.evaluate(() => { const k = Object.keys(localStorage).find((x) => x.startsWith('cleanflow:v1@') && !x.includes(':', 13)); return k ? (localStorage.getItem(k) ?? '').length : 0; });
+    const before = await stored();
+    await ctx.clearCookies();                                   // the session is gone
+    await page.clock.setSystemTime(Date.now() + 6 * 3600 * 1000);   // past the re-check interval, without firing any timer
+    // Edit and trigger the check in the same tick: the debounced save (250 ms) is still pending when the session end is noticed.
+    await page.getByText('Student: study, focus & less phone').first().evaluate((el) => { el.click(); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.getByText('Your session has ended. Sign in again to continue.').waitFor({ timeout: 10000 });
+    const after = await stored();
+    check('the edit was written to the account storage before leaving', after > before, `${before} -> ${after}`);
+  }, page);
+  await ctx.close();
+}
+{
   const { ctx, page } = await open({ label: 'local-mode' });
   await step('a server without accounts: no sign-in anywhere, original storage keys, Settings has no Account section', async () => {
     await page.goto(LOCAL);

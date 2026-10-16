@@ -1,13 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { PublicConfig } from '../domain/billing/account';
 import { LocalStorageRepository, STORAGE_KEY, type Repository } from '../storage/repository';
-import { getNamespace, nsKey, setNamespace } from '../storage/namespace';
+import { getNamespace, nsKey } from '../storage/namespace';
 import { defaultRepo } from '../state/store';
 import * as api from './api';
 import { AuthFlow, type FlowStart } from './AuthScreens';
 import { LegacyNoticeScreen, ServerUnreachable } from './Screens';
 import { markLegacyNoticeSeen, shouldShowLegacyNotice } from './legacy';
 import { readAuthLink, stripAuthParams, type AuthLink } from './links';
+import { switchNamespace } from './scope';
 
 /**
  * Whether this app is running with accounts, and if so who is signed in. Three situations:
@@ -65,26 +66,29 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
 
   const enter = useCallback((user: AccountUser) => {
     // The namespace is set BEFORE the app mounts, so everything it reads on its first render is this account's.
-    setNamespace(user.id);
+    switchNamespace(user.id);
     setState({ s: 'signed-in', user, legacyNotice: shouldShowLegacyNotice(user.id) });
   }, []);
 
   const leave = useCallback((start: FlowStart) => {
-    setNamespace(null);
+    switchNamespace(null);
     setState({ s: 'signed-out', start });
   }, []);
 
   const load = useCallback(async (opts: { quiet?: boolean } = {}) => {
     if (!opts.quiet) setState({ s: 'loading' });
     let cfg: PublicConfig | null;
-    try { cfg = await api.getConfig(); } catch {
-      // Could not reach any server. If this deployment was last seen with accounts, do not pretend it has none.
+    try { cfg = await api.getConfig(); } catch (e) {
       if (opts.quiet) return;
-      if (readMode() === 'accounts') setState({ s: 'unreachable', known: 'accounts' }); else { setNamespace(null); setState({ s: 'local' }); }
+      // A server that answered with an error (an outage, a deploy, a proxy) is there: never fall back to the original storage then, and keep
+      // the remembered mode as it was. Only "no answer at all" with no memory of accounts means a plain local app.
+      if (e instanceof api.ApiError && e.status > 0) { setState({ s: 'failed' }); return; }
+      // Could not reach any server. If this deployment was last seen with accounts, do not pretend it has none.
+      if (readMode() === 'accounts') setState({ s: 'unreachable', known: 'accounts' }); else { switchNamespace(null); setState({ s: 'local' }); }
       return;
     }
     setConfig(cfg);
-    if (!cfg || cfg.mode === 'local') { writeMode('local'); setNamespace(null); setState({ s: 'local' }); return; }
+    if (!cfg || cfg.mode === 'local') { writeMode('local'); switchNamespace(null); setState({ s: 'local' }); return; }
     writeMode('accounts');
     // A password-reset link opened in this browser always goes to the new-password form, signed in or not: the person asked for it.
     const first = initialLink.current;

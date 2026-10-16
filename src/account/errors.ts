@@ -25,7 +25,9 @@ export const describeAuthError = (e: unknown, ctx: AuthContext): Described => {
   const code = e.code;
   switch (ctx) {
     case 'sign-in':
-      if (code === 'EMAIL_NOT_VERIFIED' || e.status === 403) return { message: 'This address has not been confirmed yet. Open the link in the email we sent, or ask for a new one.', action: 'resend-verification' };
+      // Only the server's own "not confirmed" code: a 403 can also be a refused origin or a proxy, which must not tell the person to check email.
+      if (code === 'EMAIL_NOT_VERIFIED') return { message: 'This address has not been confirmed yet. Open the link in the email we sent, or ask for a new one.', action: 'resend-verification' };
+      if (e.status === 403) return { message: 'The request was refused. Reload the page and try again. Nothing was changed.', action: 'retry' };
       return { message: 'The email or password is not right. Check both and try again, or reset your password.' };
     case 'sign-up':
       if (code === 'PASSWORD_TOO_SHORT') return { message: 'That password is too short. Use at least 10 characters.' };

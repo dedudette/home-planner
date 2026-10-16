@@ -13,10 +13,17 @@ describe('what the person is told when an account request fails', () => {
     expect(wrong.action).toBeUndefined();
   });
   it('an unconfirmed address offers to send the email again', () => {
-    for (const x of [e(403, 'EMAIL_NOT_VERIFIED'), e(403)]) {
-      const d = describeAuthError(x, 'sign-in');
-      expect(d.action).toBe('resend-verification');
-      expect(d.message).toMatch(/not been confirmed/i);
+    const d = describeAuthError(e(403, 'EMAIL_NOT_VERIFIED'), 'sign-in');
+    expect(d.action).toBe('resend-verification');
+    expect(d.message).toMatch(/not been confirmed/i);
+  });
+  it('any other 403 (a refused origin, a proxy) is NOT reported as an unconfirmed address', () => {
+    for (const code of ['INVALID_ORIGIN', 'MISSING_OR_NULL_ORIGIN', 'error']) {
+      const d = describeAuthError(e(403, code), 'sign-in');
+      expect(d.action).not.toBe('resend-verification');
+      expect(d.message).not.toMatch(/confirmed|email we sent/i);
+      expect(d.message).toMatch(/refused/i);
+      expect(d.message).toMatch(/nothing was changed/i);
     }
   });
   it('too many attempts, a server fault and being offline each say what happened and that nothing changed', () => {

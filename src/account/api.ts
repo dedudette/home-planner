@@ -29,11 +29,18 @@ const call = async <T>(method: string, path: string, body?: unknown): Promise<T>
   return json as T;
 };
 
-/** `null` when the answer is not JSON (a static host answering every path with the app's page): there is no server behind this app. */
+/**
+ * `null` when there is no server behind this app: the answer is not JSON (a static host answering every path with the app's page) or the
+ * path does not exist (404/405/410). A server that is there but failing (5xx, 429, 401/403 from a proxy) is NOT "no server": it throws, so a
+ * deployment with accounts is never mistaken for a local one during an outage or a deploy.
+ */
 export const getConfig = async (): Promise<PublicConfig | null> => {
   let res: Response;
   try { res = await fetch('/api/config', { credentials: 'same-origin', cache: 'no-store' }); } catch { throw new ApiError(0, 'offline', 'The server could not be reached.'); }
-  if (!res.ok) return null;
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 405 || res.status === 410) return null;
+    throw new ApiError(res.status, 'config-unavailable', 'The server answered with an error.');
+  }
   try { const j = (await res.json()) as PublicConfig; return j && (j.mode === 'local' || j.mode === 'accounts') ? j : null; } catch { return null; }
 };
 
