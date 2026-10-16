@@ -50,9 +50,10 @@ Status key: ✅ verified here · ⚠️ built, needs something external to verif
 | Notifications: queue, de-duplication, retry, honest status | ✅ fake provider only | delivery needs a configured email provider; Resend adapter not run live |
 | Stripe setup script (product, prices, portal) | ✅ against the stand-in only | `tests/billingSetup.test.ts` |
 | Optional cloud backup endpoints (opt-in, private parts stripped server-side, revision check) | ✅ | `tests/db/backup.test.ts` |
-| Per-account namespacing of device storage keys (plan, backups, timer, workout, onboarding, schedule) | ✅ built; unit tests pass | e2e suites not re-run after this change (local mode keeps the original keys) |
-| Client API module for the above | ⚠️ written, type-checked, **not wired to any screen** | `src/account/api.ts` |
-| Client: sign-up/sign-in screens, gate, pricing selector, billing page, allowance display, local-data linking with preview, cloud-backup UI, browser e2e | ⏳ **not started** | next step |
+| Per-account namespacing of device storage keys (plan, backups, timer, workout, onboarding, schedule) | ✅ | unit tests; with the auth UI in place the local-mode browser suites flow, integrity, sync and responsive were re-run and pass (local mode keeps the original keys) |
+| Client API module for the above | ✅ | `src/account/api.ts` (the auth calls are used by the UI; the billing and backup calls are not used by any screen yet) |
+| **Authentication UI** (issue #3): sign-up, sign-in, email confirmation, forgot/reset password, sign-out, account settings (change password, delete account), loading/validation/error states, responsive and accessible; local-only mode and existing data preserved | ✅ | unit tests `tests/account*.test.ts`; browser suite `npm run e2e:accounts` (real API, real PostgreSQL, a mailbox instead of an email provider) |
+| Client: subscription gate, pricing selector, billing page, allowance display, local-data linking with preview, cloud-backup UI | ⏳ **not started** | next issues. Until the gate exists the UI does not check a signed-in account for a trial or subscription |
 | Server docs (billing, sandbox procedure, deployment) | ✅ drafted | README and PR #1 description not yet updated |
 | Mobile billing (Apple/Google) | ⛔ | documented, no purchase buttons planned in native |
 
@@ -79,4 +80,4 @@ Status key: ✅ verified here · ⚠️ built, needs something external to verif
 
 ## 5. Checkpoint status
 
-Paused by request after the server side of Part B. Nothing is merged; PR #1 stays a draft. The product is **not** sandbox-ready for people yet: the server can run accounts, trial, billing and the AI allowance, but the browser app has no sign-in or subscription screens, so a signed-out person cannot use accounts mode today. Local mode (no `DATABASE_URL`) is unchanged.
+After the server side of Part B (paused by request), the authentication screens were added (issue #3, branch `claude/issue-3-auth-ui`, draft PR into `claude/cleanflow-app-cw6hwb`). Nothing is merged. Accounts mode now has working sign-up, sign-in, confirmation, reset and account settings in the browser, but **no subscription gate, pricing or billing screens yet**, so it is not sandbox-ready for people. Local mode (no `DATABASE_URL`) is unchanged.

@@ -19,7 +19,8 @@
     "cap:sync": "npm run build && cap sync",
     "test:db": "sh scripts/test-db.sh run vitest run tests/db",
     "db:migrate": "vite-node scripts/migrate.ts",
-    "stripe:setup": "vite-node scripts/stripe-setup.ts"
+    "stripe:setup": "vite-node scripts/stripe-setup.ts",
+    "e2e:accounts": "sh scripts/test-db.sh run node tests/e2e/accounts.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",

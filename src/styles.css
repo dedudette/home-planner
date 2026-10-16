@@ -615,3 +615,36 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 [data-density='compact'] .task { padding: 8px 10px 8px 8px; gap: 8px; }
 [data-density='compact'] .section-title { margin-top: 2px; }
 [data-density='compact'] .chips { gap: 6px; }
+
+/* ───────────── accounts: the signed-out screens and the account panel ───────────── */
+.auth { min-height: 100vh; min-height: 100dvh; display: flex; align-items: flex-start; justify-content: center; padding: max(20px, env(safe-area-inset-top, 0px)) 16px max(24px, var(--safe-b)); background: var(--bg); }
+.auth-card { width: 100%; max-width: 26rem; display: flex; flex-direction: column; gap: 14px; margin-top: clamp(0px, 8vh, 72px); }
+.auth-brand { display: flex; align-items: center; gap: 8px; font-family: var(--font-head); font-weight: 600; color: var(--primary); padding: 0 4px; }
+.auth-title { font-size: clamp(1.5rem, 5vw, 1.9rem); outline: none; }
+.auth-foot { text-align: center; padding: 0 8px; }
+.auth-notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; background: var(--primary-soft); color: var(--ink-2); font-size: 0.92rem; }
+.auth-notice svg { flex: none; margin-top: 2px; color: var(--primary); }
+.auth-notice.error { background: var(--clay-soft); color: var(--clay-ink); }
+.auth-notice.error svg { color: var(--clay-ink); }
+.auth-notice p + button { margin-top: 6px; }
+.link-btn { background: none; border: 0; padding: 8px 4px; min-height: 44px; color: var(--primary); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: inherit; }
+.link-btn.center { align-self: center; }
+.link-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.center { text-align: center; }
+.pw-row { position: relative; display: flex; }
+.pw-row .input { padding-right: 5.2rem; }
+.pw-toggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-height: 40px; min-width: 56px; padding: 0 12px; border: 0; background: transparent; color: var(--primary); font-weight: 600; border-radius: 10px; }
+.field-error { color: var(--clay-ink); font-weight: 600; }
+.input[aria-invalid='true'] { border-color: var(--clay-ink); }
+.pw-ok { color: var(--good); font-weight: 600; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.check-row input { width: 22px; height: 22px; flex: none; margin-top: 2px; accent-color: var(--primary); }
+.delete-box { padding: 14px; border-radius: 14px; background: var(--clay-soft); }
+.delete-box .small { color: var(--clay-ink); }
+@media (max-width: 360px) { .auth { padding-left: 12px; padding-right: 12px; } }
+
+.auth-flash { position: fixed; top: max(12px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 10px; max-width: min(92vw, 28rem); padding: 10px 8px 10px 16px; border-radius: 14px; background: var(--ink); color: var(--bg); box-shadow: var(--shadow-2); font-size: 0.94rem; }
+.auth-flash button { min-width: 40px; min-height: 40px; border: 0; border-radius: 10px; background: transparent; color: inherit; font-size: 1.3rem; line-height: 1; }
+
+.signed-in-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; padding: max(10px, env(safe-area-inset-top, 0px)) 16px 0; color: var(--ink-2); }
+.signed-in-bar .link-btn { padding: 4px; }
