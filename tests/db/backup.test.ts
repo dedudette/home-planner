@@ -22,6 +22,11 @@ describe.skipIf(!haveDb)('optional cloud backup (real PostgreSQL)', () => {
   let n = 0;
   const user = async (trial = true): Promise<Client> => { const c = rig.client(); await c.register(rig, `bk${++n}@example.test`); if (trial) await c.post('/api/account/trial', {}); return c; };
   const stored = async (c: Client) => { const r = await c.get('/api/account/backup'); return r.json; };
+  /** The snapshot text as the database holds it, for this person only (other tests' rows are not this test's business). */
+  const rawOf = async (c: Client): Promise<string> => {
+    const id = (await c.get('/api/account')).json.account.user.id as string;
+    return (await rig.t.admin.query('select snapshot::text as s from user_backups where user_id = $1', [id])).rows.map((r) => r.s as string).join('');
+  };
   beforeAll(async () => { rig = await makeRig(); }, 60_000);
   afterAll(async () => { await rig?.close(); });
 
@@ -89,6 +94,79 @@ describe.skipIf(!haveDb)('optional cloud backup (real PostgreSQL)', () => {
     expect((await b.call('PUT', '/api/account/backup', { baseRevision: 1, includes: [], data: data() })).status).toBe(409);    // B never saw revision 1
     expect((await a.call('DELETE', '/api/account/backup')).status).toBe(200);
     expect((await a.get('/api/account/backup')).json.backup).toBeNull();
+  });
+
+  it('two first uploads at once: exactly one is accepted, the other is told the cloud copy changed', async () => {
+    const c = await user();
+    const rs = await Promise.all([1, 2, 3, 4, 5, 6].map(() => c.call('PUT', '/api/account/backup', { baseRevision: null, includes: [], data: data() })));
+    expect(rs.map((r) => r.status).sort()).toEqual([200, 409, 409, 409, 409, 409]);
+    expect((await stored(c)).backup.revision).toBe(1);
+  });
+
+  it('a revision number is never reused after the cloud copy is deleted, so a device that saw the old copy cannot overwrite a new one', async () => {
+    const c = await user();
+    expect((await c.call('PUT', '/api/account/backup', { baseRevision: null, includes: [], data: data() })).json.backup.revision).toBe(1);
+    expect((await c.call('DELETE', '/api/account/backup')).status).toBe(200);
+    expect((await stored(c)).backup).toBeNull();
+    // A device that still believes revision 1 is current is refused: there is nothing there to replace, and it must say so.
+    const stale = await c.call('PUT', '/api/account/backup', { baseRevision: 1, includes: [], data: data() });
+    expect(stale.status).toBe(409);
+    expect(stale.json.error).toMatchObject({ code: 'conflict', current: null });
+    // A fresh first backup goes through, and carries on counting rather than starting again at 1.
+    const fresh = await c.call('PUT', '/api/account/backup', { baseRevision: null, includes: [], data: data() });
+    expect(fresh.status).toBe(200);
+    expect(fresh.json.backup.revision).toBe(2);
+    // The old device (which saw revision 1) is now refused too: what is in the cloud is not what it saw.
+    expect((await c.call('PUT', '/api/account/backup', { baseRevision: 1, includes: [], data: data() })).status).toBe(409);
+    expect((await stored(c)).backup.revision).toBe(2);
+  });
+
+  it('deleting removes the content for good: nothing of the snapshot stays in the database, and the account export lists no backup', async () => {
+    const c = await user();
+    await c.call('PUT', '/api/account/backup', { baseRevision: null, includes: ['journal', 'health'], data: data() });
+    expect((await c.call('DELETE', '/api/account/backup')).status).toBe(200);
+    const raw = await rawOf(c);
+    expect(raw).not.toContain('Private words only I should read');
+    expect(raw).not.toContain('4321');
+    expect(raw).not.toContain('a private note about my day');
+    expect((await c.get('/api/account/export')).json.cloudBackup).toBeNull();
+    expect((await c.get('/api/account/backup?meta=1')).json.backup).toBeNull();
+  });
+
+  it('the exclusions hold for every combination of choices, whatever the sender claims', async () => {
+    const cases: { includes: unknown; journal: boolean; health: boolean }[] = [
+      { includes: [], journal: false, health: false },
+      { includes: ['journal'], journal: true, health: false },
+      { includes: ['health'], journal: false, health: true },
+      { includes: ['journal', 'health'], journal: true, health: true },
+      { includes: ['Journal', 'everything', 7, null, { journal: true }], journal: false, health: false },    // anything the server does not know is ignored, never trusted
+      { includes: 'journal', journal: false, health: false },                                                  // not a list: nothing is included
+    ];
+    for (const k of cases) {
+      const c = await user();
+      const put = await c.call('PUT', '/api/account/backup', { baseRevision: null, includes: k.includes, data: data() });
+      expect(put.status).toBe(200);
+      const back = (await stored(c)).data as AppData;
+      expect(back.wellbeing.journal.length).toBe(k.journal ? 1 : 0);
+      expect(back.wellbeing.checkins[0].note).toBe(k.journal ? 'a private note about my day' : '');
+      expect(Object.keys(back.health.daily).length).toBe(k.health ? 1 : 0);
+      expect(back.health.lastSync === null).toBe(!k.health);
+      expect(back.health.prefs.enabled).toBe(true);                         // the person's own on/off choice is a setting, not imported data
+      expect(put.json.backup.includes).toEqual([...(k.journal ? ['journal'] : []), ...(k.health ? ['health'] : [])]);
+    }
+  });
+
+  it('the private parts are removed even when they sit where a screen might forget them (many entries, workouts, notes)', async () => {
+    const c = await user();
+    let d = data();
+    for (let i = 0; i < 30; i++) {
+      d = reducer(d, { type: 'JOURNAL_SAVE', entry: { id: `jx${i}`, date: TODAY, at: `${TODAY}T21:0${i % 10}:00.000Z`, title: `secret title ${i}`, text: `secret words ${i}` } });
+      d = reducer(d, { type: 'CHECKIN_SAVE', checkin: { id: `cx${i}`, date: TODAY, at: `${TODAY}T20:0${i % 10}:00.000Z`, energy: 'ok', mood: 3, note: `secret note ${i}` } });
+    }
+    expect((await c.call('PUT', '/api/account/backup', { baseRevision: null, includes: [], data: d })).status).toBe(200);
+    const raw = await rawOf(c);
+    expect(raw).not.toMatch(/secret (title|words|note)/);
+    expect(((await stored(c)).data as AppData).wellbeing.checkins.length).toBeGreaterThanOrEqual(30);    // the check-ins themselves (mood, energy, date) are ordinary plan data and stay
   });
 
   it('after the trial ends the backup can still be read and deleted, but not written', async () => {

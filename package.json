@@ -23,7 +23,8 @@
     "e2e:standalone": "node tests/e2e/standalone.mjs",
     "e2e:plans": "sh scripts/test-db.sh run node tests/e2e/plans.mjs",
     "e2e:accounts": "sh scripts/test-db.sh run node tests/e2e/accounts.mjs",
-    "e2e:subscription": "sh scripts/test-db.sh run node tests/e2e/subscription.mjs"
+    "e2e:subscription": "sh scripts/test-db.sh run node tests/e2e/subscription.mjs",
+    "e2e:backup": "sh scripts/test-db.sh run node tests/e2e/backup.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",

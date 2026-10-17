@@ -10,6 +10,7 @@ import { markLegacyNoticeSeen, shouldShowLegacyNotice } from './legacy';
 import { readAuthLink, stripAuthParams, type AuthLink } from './links';
 import { switchNamespace } from './scope';
 import { isStandalone } from './config';
+import { navigate } from '../ui/router';
 
 /**
  * Whether this app is running with accounts, and if so who is signed in. Three situations:
@@ -164,7 +165,11 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
     case 'signed-out': body = <AuthFlow key="auth" start={state.start} legal={value.legal} mailDelivers={value.mailDelivers} onSignedIn={() => void load()} />; break;
     case 'signed-in':
       body = state.legacyNotice
-        ? <LegacyNoticeScreen userId={state.user.id} onContinue={() => { markLegacyNoticeSeen(state.user.id); setState({ ...state, legacyNotice: false }); }} />
+        ? <LegacyNoticeScreen
+            userId={state.user.id}
+            onContinue={() => { markLegacyNoticeSeen(state.user.id); setState({ ...state, legacyNotice: false }); }}
+            onReview={() => { markLegacyNoticeSeen(state.user.id); navigate('account/data'); setState({ ...state, legacyNotice: false }); }}
+          />
         : children(scope);
       break;
   }

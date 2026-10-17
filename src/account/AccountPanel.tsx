@@ -13,8 +13,8 @@ import { Notice } from './Screens';
 import { checkCurrentPassword, checkNewPassword, passwordHint } from './validation';
 
 /**
- * Settings → Account (only when the server has accounts): who is signed in, change password, sign out, the download of data saved before
- * accounts, and account deletion. Nothing here touches subscriptions, cloud backup or any other feature.
+ * Settings → Account (only when the server has accounts): who is signed in, change password, sign out, the data saved before
+ * accounts (with a way into the Data & backup screen) and account deletion. Nothing here touches subscriptions or sends any data.
  */
 export const AccountPanel = () => {
   const { mode, user, signOut } = useAccount();
@@ -27,7 +27,7 @@ export const AccountPanel = () => {
         <p className="small"><span className="muted">Signed in as</span> <b>{user.email}</b> <span className="tag green">{user.emailVerified ? 'Email confirmed' : 'Email not confirmed'}</span></p>
         <p className="small muted">Your plan and history live on this device, under this account. Signing in on another device starts an empty plan there.</p>
       </div>
-      <div><a className="btn sm secondary" href="#/account">Trial &amp; plans</a></div>
+      <div className="row wrap"><a className="btn sm secondary" href="#/account">Trial &amp; plans</a><a className="btn sm secondary" href="#/account/data">Data &amp; backup</a></div>
       <ChangePassword />
       <SignOutRow onSignOut={signOut} />
       <LegacyDownload today={stamp().today} />
@@ -98,8 +98,11 @@ const LegacyDownload = ({ today }: { today: string }) => {
   return (
     <div className="stack">
       <h3 className="h3">Data from before accounts</h3>
-      <p className="small muted">This device still holds a plan saved before accounts: {legacy.entries} logged action{legacy.entries === 1 ? '' : 's'} across {legacy.days} day{legacy.days === 1 ? '' : 's'}. It is untouched and was never uploaded. Moving it into an account is not available yet; you can download a copy.</p>
-      <div><Button variant="secondary" size="sm" onClick={() => downloadText(`cleanflow-before-accounts-${today}.json`, exportJSON(legacy.data))}>Download my earlier data</Button></div>
+      <p className="small muted">This device still holds a plan saved before accounts: {legacy.entries} logged action{legacy.entries === 1 ? '' : 's'} across {legacy.days} day{legacy.days === 1 ? '' : 's'}. It is untouched and was never uploaded. You can look at it and copy it into this account, with a restore point kept first, or download a copy.</p>
+      <div className="row wrap">
+        <a className="btn sm secondary" href="#/account/data">Review and copy into my account</a>
+        <Button variant="secondary" size="sm" onClick={() => downloadText(`cleanflow-before-accounts-${today}.json`, exportJSON(legacy.data))}>Download my earlier data</Button>
+      </div>
     </div>
   );
 };

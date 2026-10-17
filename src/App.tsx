@@ -40,12 +40,13 @@ import { DishFormSheet } from './features/meals/DishForm';
 import { RecipeDetailSheet } from './features/meals/RecipeDetail';
 import { ShopGenSheet, ShopItemSheet, ShopReviewSheet } from './features/meals/ShoppingTab';
 import { PRIMARY, SETTINGS_ITEM, sectionsFor } from './features/nav';
+import { DataBackup } from './account/DataBackup';
 import { TrialPlans } from './account/TrialPlans';
 import { useApp } from './state/store';
 import { I } from './ui/icons';
 import { navigate, useRoute } from './ui/router';
 
-const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', patterns: 'Your patterns', home: 'Home', supplies: 'Supplies', settings: 'Settings', account: 'Trial & plans', more: 'More', movement: 'Movement', meals: 'Meals & shopping', learning: 'Learning & hobbies', wellbeing: 'Wellbeing' };
+const TITLES: Record<string, string> = { today: 'Today', plan: 'Plan', schedule: 'Schedule', progress: 'Progress', patterns: 'Your patterns', home: 'Home', supplies: 'Supplies', settings: 'Settings', account: 'Trial & plans', 'account/data': 'Your data and backup', more: 'More', movement: 'Movement', meals: 'Meals & shopping', learning: 'Learning & hobbies', wellbeing: 'Wellbeing' };
 
 /** A section the person switched off. The page says so and how to bring it back; their data in it is untouched. */
 const SectionOff = ({ path }: { path: string }) => (
@@ -143,7 +144,7 @@ export const App = () => {
   const sections = sectionsFor(data);
 
   useEffect(() => {
-    const p = route.path.split('/')[0];
+    const p = route.path === 'account/data' ? route.path : route.path.split('/')[0];
     document.title = `${TITLES[p] ?? 'CleanFlow'} · CleanFlow`;
     window.scrollTo({ top: 0 });
   }, [route.path]);
@@ -154,6 +155,7 @@ export const App = () => {
 
   // Trial & plans is an account screen, reachable before and after the first plan is made.
   if (route.path === 'account') return <TrialPlans />;
+  if (route.path === 'account/data') return <DataBackup />;
 
   if (!data.onboardingComplete) {
     return route.path === 'onboarding'

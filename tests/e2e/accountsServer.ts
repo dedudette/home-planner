@@ -9,6 +9,8 @@ import { createCaptureMailer } from '../../server/mail/mailer';
 import { handleNodeRequest } from '../../server/nodeAdapter';
 import { resolveStatic } from '../../server/static';
 import { startFakeStripe, type FakeStripe } from '../support/fakeStripe';
+import { appDataForDemo, DEMO_PROFILES } from '../../src/domain/demo';
+import { reducer } from '../../src/state/reducer';
 
 /**
  * A throwaway server for the browser checks of the account screens: the built app (dist/), the real API (real Better Auth, real
@@ -22,6 +24,10 @@ import { startFakeStripe, type FakeStripe } from '../support/fakeStripe';
  *                            portal-annual, dispute-open, dispute-won, refund, canceled, renew, requires-action&session=…), each followed by the signed
  *                            webhook the provider would send. GET /__test/advance?days=N moves the SERVER's clock on. GET /__test/use?email=…&n=N spends
  *                            N AI requests through the real ledger. GET /__test/state?email=… reports what the mock provider holds.
+ *
+ *   GET /__test/seed?name=…&demo=N   (any mode) a complete, valid plan as JSON text, for a test to put in browser storage: demo profile N with history,
+ *                            named `name`, plus two private journal entries, one check-in note and three days of imported health readings that all
+ *                            carry the name, so a test can tell whose data it is looking at and whether anything private went anywhere.
  *
  * Needs TEST_DATABASE_URL for accounts mode (scripts/test-db.sh sets it) and `npm run build` first. Test use only: the /__test routes exist
  * nowhere else.
@@ -74,6 +80,20 @@ const main = async () => {
     if (u.pathname === '/__test/complete' && fake) {
       const sid = u.searchParams.get('session') ?? '';
       try { fake.completeCheckout(sid, 'paid'); res.end('{"ok":true}'); } catch (e) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: String(e) })); }
+      return;
+    }
+    if (u.pathname === '/__test/seed') {
+      const name = u.searchParams.get('name') ?? 'Seed';
+      const day = (back: number) => new Date(Date.now() - back * DAY_MS).toISOString().slice(0, 10);
+      const today = day(0);
+      let d = appDataForDemo(DEMO_PROFILES[Number(u.searchParams.get('demo') ?? '0') % DEMO_PROFILES.length].id, { today, withHistory: true });
+      d = { ...d, user: { ...d.user, name } };
+      for (const [i, text] of ['one', 'two'].entries()) d = reducer(d, { type: 'JOURNAL_SAVE', entry: { id: `j${i}-${name}`, date: today, at: `${today}T2${i}:00:00.000Z`, title: `Title ${name} ${text}`, text: `PRIVATE JOURNAL ${name} ${text}` } });
+      d = reducer(d, { type: 'CHECKIN_SAVE', checkin: { id: `c0-${name}`, date: today, at: `${today}T20:30:00.000Z`, energy: 'ok', mood: 3, note: `PRIVATE NOTE ${name}` } });
+      d = reducer(d, { type: 'HEALTH_PREFS', enabled: true, read: { steps: true } });
+      d = reducer(d, { type: 'HEALTH_MERGE', daily: Object.fromEntries([0, 1, 2].map((b) => [day(b), { steps: 4000 + b, platform: 'healthkit' as const, at: `${day(b)}T10:00:00.000Z` }])), today, at: `${today}T10:00:00.000Z` });
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ...d, _rev: 1 }));
       return;
     }
     if (u.pathname === '/__test/advance') { clockOffset += Number(u.searchParams.get('days') ?? '0') * DAY_MS; res.end(JSON.stringify({ ok: true, now: new Date(Date.now() + clockOffset).toISOString() })); return; }
