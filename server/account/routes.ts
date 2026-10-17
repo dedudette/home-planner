@@ -93,7 +93,7 @@ export const createAccountRoutes = (deps: AccountDeps) => {
           const subs = await c.query('select provider, provider_subscription_id, plan, status, started_at, current_period_start, current_period_end, cancel_at_period_end, canceled_at, amount_cents, currency from subscriptions where user_id = $1 order by id', [user.id]);
           const usage = await c.query('select window_key, window_end, used from ai_usage_counters where user_id = $1 order by window_end', [user.id]);
           const notes = await c.query('select kind, status, created_at, sent_at from notifications where user_id = $1 order by id', [user.id]);
-          const backup = await c.query('select revision, includes, size_bytes, updated_at from user_backups where user_id = $1', [user.id]);
+          const backup = await c.query('select revision, includes, size_bytes, updated_at from user_backups where user_id = $1 and deleted_at is null', [user.id]);
           return { profile: u.rows[0], trial: trial.rows[0] ?? null, subscriptions: subs.rows, aiUsage: usage.rows, notifications: notes.rows, cloudBackup: backup.rows[0] ?? null };
         });
         const body = JSON.stringify({ app: 'cleanflow-account', exportVersion: 1, exportedAt: deps.now().toISOString(), note: 'This is what the server holds about your account. Your plan, history and journal live on your device and are exported from the app (Settings → Back up your data), unless you chose cloud backup.', ...data }, null, 2);

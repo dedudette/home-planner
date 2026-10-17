@@ -6,6 +6,7 @@ import * as api from './api';
 import { useAccount } from './AccountProvider';
 import { describeAuthError, type Described } from './errors';
 import { Field } from './Field';
+import { forgetAccountOnDevice } from './link';
 import { Notice } from './Screens';
 import { checkCurrentPassword } from './validation';
 
@@ -15,7 +16,7 @@ import { checkCurrentPassword } from './validation';
  * ticks the box. It works whatever the state of the trial or subscription: an ended plan never blocks it.
  */
 export const DeleteAccountBox = ({ warning }: { warning?: string }) => {
-  const { accountDeleted } = useAccount();
+  const { accountDeleted, user } = useAccount();
   const { repo } = useApp();
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
@@ -37,6 +38,7 @@ export const DeleteAccountBox = ({ warning }: { warning?: string }) => {
         await repo.clear();
         try { for (const k of ['cleanflow:onb-step', 'cleanflow:timer', 'cleanflow:workout', 'cleanflow:scheduled', 'cleanflow:legacy-seen']) window.localStorage.removeItem(nsKey(k)); } catch { /* ignore */ }
       }
+      if (user) forgetAccountOnDevice(user.id, erase);
       accountDeleted();
     } catch (er) { setFail(describeAuthError(er, 'delete')); setBusy(false); }
   };

@@ -2,6 +2,7 @@ import { compactHistory, describeRetention, HARD_CHARS, serializedSize } from '.
 import { useMemo, useRef, useState } from 'react';
 import { DEMO_PROFILES, appDataForDemo } from '../../domain/demo';
 import { nsKey } from '../../storage/namespace';
+import { BACKUP_REASON } from '../../storage/backupReasons';
 import { exportJSON, importJSON } from '../../storage/repository';
 import { hasUserData, summarize } from '../../storage/schema';
 import { useApp } from '../../state/store';
@@ -17,7 +18,7 @@ import { SectionsSettings } from './Sections';
 import { OwlTipCard } from '../../ui/OwlTip';
 
 const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); };
-const REASON: Record<string, string> = { demo: 'before loading a demo', import: 'before restoring a file', restore: 'before restoring a backup', unreadable: 'unreadable data', repaired: 'before repairing', migrated: 'before upgrading', newer: 'newer version', 'before-restore': 'before a restore' };
+const REASON = BACKUP_REASON;
 
 export const Settings = () => {
   const { data, dispatch, stamp, view, toast, repo, replaceAll, confirm, storage, offerCompaction } = useApp();

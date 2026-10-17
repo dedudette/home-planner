@@ -147,6 +147,7 @@ export const YourDataCard = ({ account }: { account: AccountView }) => {
     <section className="card stack" aria-labelledby="data-h">
       <h2 id="data-h" className="h3">Your data and your account</h2>
       <p className="small">Downloading your data, billing and deleting your account are always available, including after your trial or subscription has ended. Your plan and history live on this device and are exported from Settings → Your data.</p>
+      <p className="small">Copying data from before accounts into this account, and the optional cloud backup, are on the <a href="#/account/data">Data &amp; backup</a> screen.</p>
       <div className="stack">
         <div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void exportIt()}>{busy ? 'Preparing…' : 'Download my account data'}</Button></div>
         <div role="status" aria-live="polite">{done && <Notice kind="good">Your account data was downloaded.</Notice>}</div>

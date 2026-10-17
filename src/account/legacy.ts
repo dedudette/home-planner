@@ -6,7 +6,7 @@ import { hasUserData, summarize } from '../storage/schema';
  * Data this browser saved before accounts existed lives under the original storage key. With accounts on, each account works in its own
  * namespaced copy (see storage/namespace.ts), so that original copy is never read, written or erased by account code. These helpers only
  * LOOK at it, so a person who finds an empty app after their first sign-in can be told it is safe and can download it.
- * Moving it into an account (with a preview and a backup) is a separate feature and is not built here.
+ * Copying it into an account (with a preview and a restore point first) is a separate, explicit step: see link.ts and the Data & backup screen.
  */
 export interface LegacyData { data: AppData; entries: number; days: number; name: string | null }
 

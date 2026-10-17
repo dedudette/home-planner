@@ -5,7 +5,8 @@ import { ApiError } from './api';
  * turned into a calm sentence that says what happened and what to do next. Nothing here reveals whether an email address has an account:
  * a wrong password and an unknown email give the same sentence, which is also what the server does.
  */
-export type AuthContext = 'sign-in' | 'sign-up' | 'forgot' | 'reset' | 'resend' | 'change-password' | 'delete' | 'sign-out' | 'load' | 'start-trial' | 'checkout' | 'sync' | 'portal' | 'cancel' | 'resume' | 'export';
+export type AuthContext = 'sign-in' | 'sign-up' | 'forgot' | 'reset' | 'resend' | 'change-password' | 'delete' | 'sign-out' | 'load' | 'start-trial' | 'checkout' | 'sync' | 'portal' | 'cancel' | 'resume' | 'export'
+  | 'backup-load' | 'backup-save' | 'backup-restore' | 'backup-delete';
 
 export interface Described {
   message: string;
@@ -19,7 +20,39 @@ const nothing = (ctx: AuthContext): string => (ctx === 'checkout' ? 'Nothing was
 const OFFLINE = (ctx: AuthContext): string => `The server could not be reached. Check your connection and try again. ${nothing(ctx)}`;
 const GENERIC = (ctx: AuthContext): string => `Something went wrong on our side. ${nothing(ctx)} Try again in a moment.`;
 
+/**
+ * Cloud backup failures. What matters here is two facts, stated every time: what happened to the data on this device (nothing: the app
+ * only ever COPIES to and from the cloud, and keeps a restore point before it replaces anything) and what is now true of the cloud copy.
+ * For an upload that failed without an answer the cloud copy may have changed, and the text says so instead of claiming either way.
+ */
+const describeBackup = (e: unknown, ctx: 'backup-load' | 'backup-save' | 'backup-restore' | 'backup-delete'): Described => {
+  const status = e instanceof ApiError ? e.status : -1;
+  const code = e instanceof ApiError ? e.code : '';
+  const ended = 'Your session has ended. Sign in again to continue. Nothing was changed.';
+  if (status === 401) return { message: ended };
+  if (status === 429) return { message: TOO_MANY };
+  if (ctx === 'backup-save') {
+    if (code === 'no-room') return { message: 'There is not enough room on this device to keep a copy of the cloud backup first, so nothing was uploaded and the cloud copy is unchanged. Download your data as a file, or free some space.' };
+    if (status === 402) return { message: 'Backing up needs an active trial or subscription, so nothing was uploaded. Your cloud copy, if there is one, is unchanged, and you can still restore it or delete it.' };
+    if (status === 413) return { message: 'This backup is larger than the 5 MB limit, so nothing was uploaded. Leave out the journal or the health readings, or download your data as a file instead.' };
+    if (status === 422) return { message: 'The server could not accept this data as a CleanFlow backup, so nothing was uploaded. Your data on this device is unchanged.' };
+    if (status === 409 || code === 'conflict') return { message: 'The cloud copy changed since this device last saw it. Nothing was overwritten.' };
+    if (status === 400 || status === 403) return { message: 'The request was refused, so nothing was uploaded. Reload the page and try again. Your data on this device is unchanged.', action: 'retry' };
+    return { message: 'The upload did not finish, so we cannot tell whether the cloud copy was updated. Your data on this device is unchanged. Check the cloud copy below before trying again.', action: 'retry' };
+  }
+  if (ctx === 'backup-restore') {
+    if (code === 'newer-backup') return { message: 'The cloud copy was made by a newer version of CleanFlow than this one, so it was not restored. Update the app, then try again. Your data on this device is unchanged.' };
+    if (code === 'no-room') return { message: 'There is not enough room on this device to keep a restore point of what is here now, so nothing was restored. Download your data as a file first, or free some space.' };
+    if (code === 'not-saved') return { message: 'The restored data could not be saved on this device (storage may be full or blocked), so the previous plan was put back. Nothing was lost.' };
+    if (status === 422 || code === 'unreadable-backup') return { message: 'The cloud copy could not be read as CleanFlow data, so nothing was restored. Your data on this device is unchanged.' };
+    return { message: e instanceof ApiError && e.offline ? 'The server could not be reached, so nothing was restored. Your data on this device is unchanged. Try again when you are online.' : 'The cloud copy could not be fetched, so nothing was restored. Your data on this device is unchanged. Try again in a moment.', action: 'retry' };
+  }
+  if (ctx === 'backup-delete') return { message: e instanceof ApiError && e.offline ? 'The server could not be reached, so the cloud copy was not deleted. It is still there. Try again when you are online.' : 'The cloud copy could not be deleted, so it is still there. Your data on this device is unchanged. Try again in a moment.', action: 'retry' };
+  return { message: e instanceof ApiError && e.offline ? 'The server could not be reached, so your cloud backup could not be checked. Your data on this device is unchanged. Try again when you are online.' : 'Your cloud backup could not be checked just now. Your data on this device is unchanged.', action: 'retry' };
+};
+
 export const describeAuthError = (e: unknown, ctx: AuthContext): Described => {
+  if (ctx === 'backup-load' || ctx === 'backup-save' || ctx === 'backup-restore' || ctx === 'backup-delete') return describeBackup(e, ctx);
   if (!(e instanceof ApiError)) return { message: GENERIC(ctx), action: 'retry' };
   if (e.offline) return { message: OFFLINE(ctx), action: 'retry' };
   if (ctx === 'sync') {

@@ -45,7 +45,7 @@ export const ServerUnreachable = ({ onRetry, failed }: { onRetry: () => void; fa
 );
 
 /** Shown once, right after a person's first sign-in on a device that already holds data from before accounts. */
-export const LegacyNoticeScreen = ({ userId, onContinue }: { userId: string; onContinue: () => void }) => {
+export const LegacyNoticeScreen = ({ userId, onContinue, onReview }: { userId: string; onContinue: () => void; onReview: () => void }) => {
   void userId;
   const legacy = readLegacyData();
   return (
@@ -55,10 +55,11 @@ export const LegacyNoticeScreen = ({ userId, onContinue }: { userId: string; onC
         ? `This device already holds a plan from before accounts${legacy.name ? ` (for ${legacy.name})` : ''}: ${legacy.entries} logged action${legacy.entries === 1 ? '' : 's'} across ${legacy.days} day${legacy.days === 1 ? '' : 's'}. It has not been touched or uploaded anywhere.`
         : 'This device holds data from before accounts. It has not been touched or uploaded anywhere.'}
     >
-      <p className="small">Your account starts with its own, empty plan. Moving your earlier data into it is not available yet. You can download a copy now, and you will find the same download in Settings under Account.</p>
+      <p className="small">Your account starts with its own, empty plan. You can look at your earlier data and copy it into your account, with a restore point kept first and nothing replaced without your say. Or you can start fresh and decide later: the same options are in Settings under Account.</p>
       <div className="stack">
+        {legacy && <Button onClick={onReview}>Review and copy it into my account</Button>}
         {legacy && <Button variant="secondary" onClick={() => downloadText(`cleanflow-before-accounts-${new Date().toISOString().slice(0, 10)}.json`, exportJSON(legacy.data))}>Download my earlier data</Button>}
-        <Button onClick={onContinue}>Continue</Button>
+        <Button variant={legacy ? 'secondary' : 'primary'} onClick={onContinue}>Continue with an empty plan</Button>
       </div>
     </AuthFrame>
   );

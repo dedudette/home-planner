@@ -98,4 +98,35 @@ describe('what the person is told when an account request fails', () => {
     expect(describeAuthError(e(404, 'no-subscription'), 'resume').message).toMatch(/no subscription to resume/);
     expect(describeAuthError(e(400, 'X'), 'export').message).toMatch(/Nothing was changed/);
   });
+
+  it('cloud backup failures say what happened to the data on this device and what is true of the cloud copy', () => {
+    const off = new ApiError(0, 'offline', 'x');
+    expect(describeAuthError(off, 'backup-load').message).toMatch(/on this device is unchanged/i);
+    expect(describeAuthError(off, 'backup-restore').message).toMatch(/nothing was restored/i);
+    expect(describeAuthError(off, 'backup-delete').message).toMatch(/still there/i);
+    // An upload that got no answer must not claim either outcome.
+    const save = describeAuthError(off, 'backup-save');
+    expect(save.message).toMatch(/cannot tell whether the cloud copy was updated/i);
+    expect(save.message).not.toMatch(/nothing was uploaded/i);
+    expect(save.action).toBe('retry');
+    expect(describeAuthError(e(500), 'backup-save').message).toMatch(/cannot tell whether/i);
+    expect(describeAuthError(e(402), 'backup-save').message).toMatch(/needs an active trial or subscription.*nothing was uploaded.*restore it or delete it/is);
+    expect(describeAuthError(e(413), 'backup-save').message).toMatch(/5 MB/);
+    expect(describeAuthError(e(422), 'backup-save').message).toMatch(/nothing was uploaded/i);
+    expect(describeAuthError(e(409, 'conflict'), 'backup-save').message).toMatch(/nothing was overwritten/i);
+    for (const ctx of ['backup-load', 'backup-save', 'backup-restore', 'backup-delete'] as const) {
+      expect(describeAuthError(e(401), ctx).message).toMatch(/sign in again/i);
+      expect(describeAuthError(e(429), ctx).message).toMatch(/too many attempts/i);
+    }
+  });
+  it('restore problems that come from the app itself are told apart, each ending with "nothing was lost" in substance', () => {
+    expect(describeAuthError(e(422, 'newer-backup'), 'backup-restore').message).toMatch(/newer version/i);
+    expect(describeAuthError(e(422, 'unreadable-backup'), 'backup-restore').message).toMatch(/could not be read/i);
+    expect(describeAuthError(e(422, 'no-room'), 'backup-restore').message).toMatch(/restore point/i);
+    expect(describeAuthError(e(422, 'not-saved'), 'backup-restore').message).toMatch(/previous plan was put back/i);
+    expect(describeAuthError(e(422, 'no-room'), 'backup-save').message).toMatch(/nothing was uploaded and the cloud copy is unchanged/i);
+  });
+  it('server text is never shown for backups either', () => {
+    expect(describeAuthError(e(500, 'X', 'SELECT * FROM user_backups'), 'backup-restore').message).not.toMatch(/SELECT/);
+  });
 });
