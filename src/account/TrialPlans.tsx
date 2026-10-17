@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { AccountView } from '../domain/billing/account';
-import { planPriceLine, planTitle, TRIAL_DAYS, type PlanId } from '../domain/billing/plans';
+import { TRIAL_DAYS, type PlanId } from '../domain/billing/plans';
 import { Button, cx } from '../ui/primitives';
 import * as api from './api';
 import { useAccount } from './AccountProvider';
@@ -8,6 +8,7 @@ import { takeBillingReturn, type BillingReturn } from './billingReturn';
 import { describeAuthError, type Described } from './errors';
 import { canSubmitTrial, describeBillingUnavailable, formatDate, pricingOptions, safeCheckoutUrl, trialSummary, TRIAL_PROMISE } from './planView';
 import { AuthFrame, Notice } from './Screens';
+import { AllowanceCard, SubscriptionCard, YourDataCard } from './SubscriptionCards';
 import { useAccountView } from './useAccountView';
 
 /**
@@ -78,7 +79,10 @@ const Signed = ({ billingMode, back }: { billingMode: 'test' | 'live' | null; ba
         <div><Button variant="secondary" size="sm" onClick={() => void confirmPayment(ret.kind === 'success' ? ret.sessionId : null)}>Check payment status again</Button></div>
       )}
       <TrialCard account={account} onStarted={(a) => { set(a); setNote({ kind: 'good', text: `Your ${TRIAL_DAYS}-day free trial has started.` }); }} />
+      <SubscriptionCard account={account} onAccount={set} onRefresh={() => void refresh({ quiet: true })} />
       <PlansCard account={account} billingMode={billingMode} onChanged={() => void refresh({ quiet: true })} />
+      <AllowanceCard account={account} />
+      <YourDataCard account={account} />
     </AuthFrame>
   );
 };
@@ -145,17 +149,11 @@ const PlansCard = ({ account, billingMode, onChanged }: { account: AccountView; 
   const available = account.billing.available;
 
   if (!e.canSubscribe) {
-    const s = account.subscription;
-    return (
+    // A live subscription (or one that needs the person's attention) is described by the Your subscription section above, not here.
+    return account.subscription ? null : (
       <section className="card stack" aria-labelledby="plans-h">
-        <h2 id="plans-h" className="h3">Your subscription</h2>
-        {s ? (
-          <>
-            <p><b>{planTitle(s.plan)}</b> · {planPriceLine(s.plan)} · status: {s.status.replace(/_/g, ' ')}</p>
-            <p className="small">{s.cancelAtPeriodEnd ? 'Ends' : 'Current period ends'} on <b>{formatDate(s.currentPeriodEnd)}</b>.</p>
-          </>
-        ) : <p>You cannot choose a plan right now.</p>}
-        <p className="small muted">Managing payment details and cancelling are not on this screen yet. Nothing here changes your subscription.</p>
+        <h2 id="plans-h" className="h3">Choose a plan</h2>
+        <p>You cannot choose a plan right now.</p>
       </section>
     );
   }

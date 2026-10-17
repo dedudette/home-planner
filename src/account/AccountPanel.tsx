@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { exportJSON } from '../storage/repository';
-import { nsKey } from '../storage/namespace';
 import { useApp } from '../state/store';
 import { downloadText } from '../ui/download';
 import { Button } from '../ui/primitives';
 import * as api from './api';
 import { useAccount } from './AccountProvider';
+import { DeleteAccountBox } from './DeleteAccount';
 import { describeAuthError, type Described } from './errors';
 import { Field } from './Field';
 import { readLegacyData } from './legacy';
@@ -17,8 +17,8 @@ import { checkCurrentPassword, checkNewPassword, passwordHint } from './validati
  * accounts, and account deletion. Nothing here touches subscriptions, cloud backup or any other feature.
  */
 export const AccountPanel = () => {
-  const { mode, user, signOut, accountDeleted } = useAccount();
-  const { repo, stamp } = useApp();
+  const { mode, user, signOut } = useAccount();
+  const { stamp } = useApp();
   if (mode !== 'accounts' || !user) return null;
   return (
     <section className="card stack-lg" aria-labelledby="s-account">
@@ -31,13 +31,7 @@ export const AccountPanel = () => {
       <ChangePassword />
       <SignOutRow onSignOut={signOut} />
       <LegacyDownload today={stamp().today} />
-      <DeleteAccount onDeleted={async (eraseLocal) => {
-        if (eraseLocal) {
-          await repo.clear();
-          try { for (const k of ['cleanflow:onb-step', 'cleanflow:timer', 'cleanflow:workout', 'cleanflow:scheduled', 'cleanflow:legacy-seen']) window.localStorage.removeItem(nsKey(k)); } catch { /* ignore */ }
-        }
-        accountDeleted();
-      }} />
+      <DeleteAccountBox />
     </section>
   );
 };
@@ -107,41 +101,5 @@ const LegacyDownload = ({ today }: { today: string }) => {
       <p className="small muted">This device still holds a plan saved before accounts: {legacy.entries} logged action{legacy.entries === 1 ? '' : 's'} across {legacy.days} day{legacy.days === 1 ? '' : 's'}. It is untouched and was never uploaded. Moving it into an account is not available yet; you can download a copy.</p>
       <div><Button variant="secondary" size="sm" onClick={() => downloadText(`cleanflow-before-accounts-${today}.json`, exportJSON(legacy.data))}>Download my earlier data</Button></div>
     </div>
-  );
-};
-
-const DeleteAccount = ({ onDeleted }: { onDeleted: (eraseLocal: boolean) => Promise<void> }) => {
-  const [open, setOpen] = useState(false);
-  const [password, setPassword] = useState('');
-  const [erase, setErase] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [fail, setFail] = useState<Described | null>(null);
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
-    const cp = checkCurrentPassword(password);
-    setErr(cp.ok ? null : cp.message); setFail(null);
-    if (!cp.ok) return;
-    setBusy(true);
-    try { await api.deleteAccount(cp.value); await onDeleted(erase); }
-    catch (er) { setFail(describeAuthError(er, 'delete')); setBusy(false); }
-  };
-  if (!open) return <div><Button variant="danger" size="sm" onClick={() => setOpen(true)}>Delete my account…</Button></div>;
-  return (
-    <form className="stack delete-box" onSubmit={(e) => void submit(e)} noValidate aria-busy={busy} aria-label="Delete account">
-      <h3 className="h3">Delete my account</h3>
-      <p className="small">This permanently deletes your sign-in and everything the server holds for your account. It cannot be undone. Download a backup of your plan first (Settings → Your data) if you want a copy.</p>
-      <Field label="Your password, to confirm" type="password" name="current-password" autoComplete="current-password" value={password} onChange={setPassword} error={err} autoFocus />
-      <label className="check-row small">
-        <input type="checkbox" checked={erase} onChange={(e) => setErase(e.target.checked)} />
-        <span>Also erase this account's plan and history from this device. If you leave this unticked it stays in this browser's storage but can no longer be opened from the app.</span>
-      </label>
-      {fail && <Notice kind="error">{fail.message}</Notice>}
-      <div className="row wrap">
-        <Button type="submit" size="sm" variant="danger" disabled={busy}>{busy ? 'Deleting…' : 'Delete my account'}</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => { setOpen(false); setPassword(''); setErr(null); setFail(null); }}>Cancel</Button>
-      </div>
-    </form>
   );
 };

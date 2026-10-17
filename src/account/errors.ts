@@ -5,7 +5,7 @@ import { ApiError } from './api';
  * turned into a calm sentence that says what happened and what to do next. Nothing here reveals whether an email address has an account:
  * a wrong password and an unknown email give the same sentence, which is also what the server does.
  */
-export type AuthContext = 'sign-in' | 'sign-up' | 'forgot' | 'reset' | 'resend' | 'change-password' | 'delete' | 'sign-out' | 'load' | 'start-trial' | 'checkout' | 'sync';
+export type AuthContext = 'sign-in' | 'sign-up' | 'forgot' | 'reset' | 'resend' | 'change-password' | 'delete' | 'sign-out' | 'load' | 'start-trial' | 'checkout' | 'sync' | 'portal' | 'cancel' | 'resume' | 'export';
 
 export interface Described {
   message: string;
@@ -15,7 +15,7 @@ export interface Described {
 
 const TOO_MANY = 'Too many attempts. Wait a minute, then try again.';
 // Money screens say what matters: that nothing was charged.
-const nothing = (ctx: AuthContext): string => (ctx === 'checkout' ? 'Nothing was charged.' : 'Nothing was changed.');
+const nothing = (ctx: AuthContext): string => (ctx === 'checkout' ? 'Nothing was charged.' : ctx === 'portal' || ctx === 'cancel' || ctx === 'resume' ? 'Your subscription was not changed.' : 'Nothing was changed.');
 const OFFLINE = (ctx: AuthContext): string => `The server could not be reached. Check your connection and try again. ${nothing(ctx)}`;
 const GENERIC = (ctx: AuthContext): string => `Something went wrong on our side. ${nothing(ctx)} Try again in a moment.`;
 
@@ -27,7 +27,13 @@ export const describeAuthError = (e: unknown, ctx: AuthContext): Described => {
     return { message: 'We could not check your payment with the payment provider. Nothing is assumed: your plan changes only when the provider confirms it. Try again in a moment.', action: 'retry' };
   }
   if (e.status === 429) return { message: TOO_MANY };
-  if (ctx === 'checkout' && (e.code === 'billing-unavailable' || e.code === 'billing-not-configured')) return { message: 'Subscriptions are not available just now. Nothing was charged.' };
+  if (e.code === 'billing-unavailable' || e.code === 'billing-not-configured') {
+    // The server answers 503 with this code when the payment provider cannot be reached or is not set up. It says what is true for each action.
+    if (ctx === 'checkout') return { message: 'Subscriptions are not available just now. Nothing was charged.' };
+    if (ctx === 'portal') return { message: 'Billing management is not available just now. Your subscription was not changed.', action: 'retry' };
+    if (ctx === 'cancel') return { message: 'The payment provider is not available just now, so the cancellation was not made. Your subscription is unchanged. Try again in a moment.', action: 'retry' };
+    if (ctx === 'resume') return { message: 'The payment provider is not available just now, so nothing was resumed. Your subscription is unchanged. Try again in a moment.', action: 'retry' };
+  }
   if (e.status >= 500) return { message: GENERIC(ctx), action: 'retry' };
   const code = e.code;
   switch (ctx) {
@@ -68,6 +74,21 @@ export const describeAuthError = (e: unknown, ctx: AuthContext): Described => {
       if (code === 'already-subscribed') return { message: 'You already have a subscription. Nothing was charged.' };
       if (e.status === 401) return { message: 'Your session has ended. Sign in again to continue.' };
       return { message: 'Payment could not be started, so nothing was charged. Try again in a moment.', action: 'retry' };
+    case 'portal':
+      if (e.status === 401) return { message: 'Your session has ended. Sign in again to continue.' };
+      if (code === 'no-billing-account') return { message: 'There is no billing account yet, so there is nothing to manage. Choose a plan first.' };
+      return { message: 'The billing page could not be opened. Your subscription was not changed.', action: 'retry' };
+    case 'cancel':
+      if (e.status === 401) return { message: 'Your session has ended. Sign in again to continue.' };
+      if (code === 'no-subscription') return { message: 'There is no active subscription to cancel. Reload to see where things stand.' };
+      return { message: 'The cancellation could not be completed, so your subscription is unchanged. Try again in a moment.', action: 'retry' };
+    case 'resume':
+      if (e.status === 401) return { message: 'Your session has ended. Sign in again to continue.' };
+      if (code === 'no-subscription') return { message: 'There is no subscription to resume. Reload to see where things stand.' };
+      return { message: 'The subscription could not be resumed, so it is unchanged. Try again in a moment.', action: 'retry' };
+    case 'export':
+      if (e.status === 401) return { message: 'Your session has ended. Sign in again to continue.' };
+      return { message: 'Your data could not be prepared for download. Nothing was changed. Try again in a moment.', action: 'retry' };
     case 'load':
       return { message: e.status === 401 ? 'Your session has ended. Sign in again.' : GENERIC(ctx), action: 'retry' };
   }
