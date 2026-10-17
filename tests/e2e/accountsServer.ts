@@ -18,6 +18,10 @@ import { startFakeStripe, type FakeStripe } from '../support/fakeStripe';
  *   MODE=local               no accounts at all: the original single-device app
  *   E2E_BILLING=fake         accounts mode with billing wired to tests/support/fakeStripe.ts: a MOCK payment provider (the real Stripe SDK talks
  *                            to a local stand-in). Proves this app's behaviour, not Stripe's. GET /__test/complete?session=cs_… "pays" a checkout.
+ *                            GET /__test/provider?email=…&op=… plays what the provider would do (past_due, unpaid, active, portal-cancel, portal-resume,
+ *                            portal-annual, dispute-open, dispute-won, refund, canceled, renew, requires-action&session=…), each followed by the signed
+ *                            webhook the provider would send. GET /__test/advance?days=N moves the SERVER's clock on. GET /__test/use?email=…&n=N spends
+ *                            N AI requests through the real ledger. GET /__test/state?email=… reports what the mock provider holds.
  *
  * Needs TEST_DATABASE_URL for accounts mode (scripts/test-db.sh sets it) and `npm run build` first. Test use only: the /__test routes exist
  * nowhere else.
@@ -26,6 +30,8 @@ const PORT = Number(process.env.E2E_PORT ?? 18123);
 const MODE = process.env.MODE === 'local' ? 'local' : 'accounts';
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const root = resolve('dist');
+const DAY_MS = 86_400_000;
+let clockOffset = 0;                      // test-only: how far the SERVER's clock has been moved on
 
 const main = async () => {
   const mailer = createCaptureMailer();
@@ -53,7 +59,7 @@ const main = async () => {
     await migrate(admin, { appRole: 'cleanflow_app' });
     db = createDb(url('cleanflow_app'));
   }
-  const app = createApp(env, { ...(db ? { db } : {}), mailer, log: () => undefined });
+  const app = createApp(env, { ...(db ? { db } : {}), mailer, log: () => undefined, now: () => new Date(Date.now() + clockOffset) });
   if (app.problems.length) throw new Error(app.problems.join(' '));
   if (fake) for (let i = 0; i < 100 && !app.runtime?.billing?.status().available; i++) await new Promise((r) => setTimeout(r, 50));
   const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
@@ -68,6 +74,55 @@ const main = async () => {
     if (u.pathname === '/__test/complete' && fake) {
       const sid = u.searchParams.get('session') ?? '';
       try { fake.completeCheckout(sid, 'paid'); res.end('{"ok":true}'); } catch (e) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: String(e) })); }
+      return;
+    }
+    if (u.pathname === '/__test/advance') { clockOffset += Number(u.searchParams.get('days') ?? '0') * DAY_MS; res.end(JSON.stringify({ ok: true, now: new Date(Date.now() + clockOffset).toISOString() })); return; }
+    if (u.pathname === '/__test/use' && app.runtime) {
+      const email = (u.searchParams.get('email') ?? '').toLowerCase();
+      void (async () => {
+        const rt = app.runtime!;
+        const row = (await admin!.query('select id from "user" where email = $1', [email])).rows[0];
+        const view = row ? await rt.entitlements.get(row.id, rt.now()) : null;
+        if (!view?.window) { res.statusCode = 409; res.end('{"ok":false,"error":"no allowance window"}'); return; }
+        let spent = 0;
+        for (let i = 0; i < Number(u.searchParams.get('n') ?? '1'); i++) { const r = await rt.ledger.reserve(row.id, view.window, 'coach'); if (r.ok) { await rt.ledger.commit(row.id, r.reservation.requestId); spent++; } }
+        res.end(JSON.stringify({ ok: true, spent }));
+      })().catch(() => { res.statusCode = 500; res.end(); });
+      return;
+    }
+    if ((u.pathname === '/__test/provider' || u.pathname === '/__test/state') && fake) {
+      const email = (u.searchParams.get('email') ?? '').toLowerCase();
+      const customer = [...fake.customers.values()].find((c) => c.email === email);
+      const sub = customer ? [...fake.subs.values()].filter((s) => s.customer === customer.id).pop() : undefined;
+      if (u.pathname === '/__test/state') {
+        res.end(JSON.stringify({ customer: customer?.id ?? null, sub: sub ? { id: sub.id, status: sub.status, cancel_at_period_end: sub.cancel_at_period_end, price: sub.items.data[0].price.id } : null, portalSessions: fake.portalSessions.filter((p) => p.customer === customer?.id).length, requests: fake.requests.filter((r) => r.method === 'POST').map((r) => `${r.path} ${JSON.stringify(r.form)}`).slice(-12) }));
+        return;
+      }
+      const op = u.searchParams.get('op') ?? '';
+      const nowSec = Math.floor((Date.now() + clockOffset) / 1000);
+      const send = async (type: string, obj: unknown) => {
+        const e = fake!.event(type, obj);
+        const r = await app.handler(new Request(`${ORIGIN}/api/billing/webhook`, { method: 'POST', headers: { 'stripe-signature': e.header, 'content-type': 'application/json', 'x-coach-client': '54.0.0.1' }, body: e.payload }));
+        return r?.status ?? 0;
+      };
+      void (async () => {
+        let status = 200;
+        const sid = u.searchParams.get('session') ?? '';
+        if (op === 'requires-action') status = await send('customer.subscription.created', fake!.completeCheckout(sid, 'requires-action'));
+        else if (!sub || !customer) { res.statusCode = 404; res.end('{"ok":false,"error":"no subscription"}'); return; }
+        else if (op === 'past_due') { fake!.patchSub(sub.id, { status: 'past_due' }, { current_period_start: nowSec, current_period_end: nowSec + 30 * 86400 }); status = await send('invoice.payment_failed', { id: `in_${nowSec}`, parent: { subscription_details: { subscription: sub.id } } }); }
+        else if (op === 'unpaid') { fake!.patchSub(sub.id, { status: 'unpaid' }); status = await send('customer.subscription.updated', sub); }
+        else if (op === 'active') { fake!.patchSub(sub.id, { status: 'active' }); status = await send('invoice.paid', { id: `in_ok_${nowSec}`, parent: { subscription_details: { subscription: sub.id } } }); }
+        else if (op === 'portal-cancel') { fake!.patchSub(sub.id, { cancel_at_period_end: true, canceled_at: nowSec }); status = await send('customer.subscription.updated', sub); }
+        else if (op === 'portal-resume') { fake!.patchSub(sub.id, { cancel_at_period_end: false, canceled_at: null }); status = await send('customer.subscription.updated', sub); }
+        else if (op === 'portal-annual') { fake!.changePlan(sub.id, 'price_annual'); status = await send('customer.subscription.updated', sub); }
+        else if (op === 'canceled') { fake!.patchSub(sub.id, { status: 'canceled', canceled_at: nowSec }); status = await send('customer.subscription.deleted', sub); }
+        else if (op === 'renew') { fake!.renew(sub.id); status = await send('invoice.paid', { id: `in_r_${nowSec}`, parent: { subscription_details: { subscription: sub.id } } }); }
+        else if (op === 'dispute-open' || op === 'dispute-won') { const ch = fake!.addCharge(customer.id, { amount: 2500 }); status = await send('charge.dispute.created', fake!.addDispute(ch.id, op === 'dispute-open' ? 'needs_response' : 'won')); }
+        else if (op === 'refund') status = await send('charge.refunded', fake!.addCharge(customer.id, { amount: 2500, refunded: true }));
+        else { res.statusCode = 400; res.end('{"ok":false,"error":"unknown op"}'); return; }
+        res.end(JSON.stringify({ ok: status === 200, webhook: status }));
+      })().catch((e) => { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: String(e) })); });
       return;
     }
     handleNodeRequest(app.handler, req, res, { trustProxy: true }).then((handled) => {

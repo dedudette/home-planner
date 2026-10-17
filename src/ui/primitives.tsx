@@ -104,8 +104,8 @@ export const Sheet = ({ title, onClose, children, footer, full, label }: { title
 };
 
 // ───────────── Charts (SVG, no deps) ─────────────
-export const ProgressBar = ({ value, label }: { value: number; label?: string }) => (
-  <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)} aria-label={label}>
+export const ProgressBar = ({ value, label, valueText }: { value: number; label?: string; valueText?: string }) => (
+  <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)} aria-label={label} aria-valuetext={valueText}>
     <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
   </div>
 );

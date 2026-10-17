@@ -39,7 +39,7 @@ describe('what the person is told when an account request fails', () => {
   });
   it('server text is never shown as it is', () => {
     const secret = 'select * from "user" where id = 42 -- internal detail';
-    for (const ctx of ['sign-in', 'sign-up', 'forgot', 'reset', 'resend', 'change-password', 'delete', 'sign-out', 'load', 'start-trial', 'checkout', 'sync'] as const) {
+    for (const ctx of ['sign-in', 'sign-up', 'forgot', 'reset', 'resend', 'change-password', 'delete', 'sign-out', 'load', 'start-trial', 'checkout', 'sync', 'portal', 'cancel', 'resume', 'export'] as const) {
       for (const status of [400, 401, 403, 404, 409, 422, 500]) expect(describeAuthError(e(status, 'WHATEVER', secret), ctx).message).not.toContain('internal detail');
     }
   });
@@ -78,5 +78,24 @@ describe('what the person is told when an account request fails', () => {
   });
   it('a session that ended asks to sign in again', () => {
     expect(describeAuthError(e(401), 'load').message).toMatch(/sign in again/i);
+  });
+  it('subscription actions: a provider that is down is said to be down, and each action says what did not happen', () => {
+    const down = (ctx: 'portal' | 'cancel' | 'resume' | 'checkout') => describeAuthError(e(503, 'billing-unavailable'), ctx);
+    expect(down('cancel').message).toMatch(/cancellation was not made/);
+    expect(down('cancel').message).toMatch(/unchanged/);
+    expect(down('resume').message).toMatch(/nothing was resumed/);
+    expect(down('portal').message).toMatch(/not changed/);
+    expect(down('checkout').message).toMatch(/Nothing was charged/);
+    for (const ctx of ['portal', 'cancel', 'resume'] as const) expect(down(ctx).action).toBe('retry');
+    // Any other server fault is generic, and still says the subscription was not changed.
+    for (const ctx of ['portal', 'cancel', 'resume'] as const) expect(describeAuthError(e(500, 'X'), ctx).message).toMatch(/not changed/);
+    expect(describeAuthError(new ApiError(0, 'offline', 'x'), 'cancel').message).toMatch(/could not be reached.*not changed/);
+  });
+  it('subscription actions: an ended session asks to sign in again, and missing things are said plainly', () => {
+    for (const ctx of ['portal', 'cancel', 'resume', 'export'] as const) expect(describeAuthError(e(401), ctx).message).toMatch(/Sign in again/);
+    expect(describeAuthError(e(404, 'no-billing-account'), 'portal').message).toMatch(/no billing account/);
+    expect(describeAuthError(e(404, 'no-subscription'), 'cancel').message).toMatch(/no active subscription/);
+    expect(describeAuthError(e(404, 'no-subscription'), 'resume').message).toMatch(/no subscription to resume/);
+    expect(describeAuthError(e(400, 'X'), 'export').message).toMatch(/Nothing was changed/);
   });
 });

@@ -88,6 +88,28 @@ Recommendation: keep Haiku 5.5 with the defaults (50 trial, 300 monthly). If a l
 - **Refunds and disputes** (a policy this repository chose; confirm it with whoever owns refunds): a **full refund** of a charge ends access and cancels the subscription; a **partial** refund changes nothing; an **open dispute** pauses access (`suspended`) until decided; a dispute **won or closed as an inquiry** restores access; a dispute **lost** ends access and cancels. Decisions use the dispute's current status fetched from Stripe, so events arriving in any order give the same answer.
 - **Duplicate subscriptions**: prevented by a check before checkout, one open checkout per person, and a unique index (one live subscription per account across providers). If one still arrives (e.g. created by hand in the dashboard) it is not recorded, is cancelled at Stripe (proration credit, no invoice), and the money already taken has to be refunded by hand.
 
+## What the account screen shows in each state (issue #5)
+
+`#/account` ("Trial & plans") is reachable whatever the state, before and after a plan exists, so billing, export and deletion are never behind a subscription. It shows only what the server answers (`GET /api/account`); no stored flag, return address or device clock decides anything. Words and offered actions come from `src/account/subscriptionView.ts`, pinned by `tests/accountSubscriptionView.test.ts` and, on real server answers, `tests/db/subscriptionContract.test.ts`.
+
+| State | Headline | Actions offered | AI allowance shown |
+|---|---|---|---|
+| paid, active | "Monthly/Annual plan is active", renewal date and amount (€25 every month, or €255 once a year) | Manage billing and invoices, Cancel at period end | yes: used / left / reset date |
+| cancellation scheduled | "Your plan ends on <date>" (full access until then, no further charge) | Resume, Manage billing | yes, until the end |
+| payment action required | "Your payment needs one more step" (nothing active, nothing assumed) | Continue to the payment page (the same open checkout), Check status | no: paused, with the reason |
+| past due, inside the grace | "Your last payment did not go through", access continues until the stated date | Manage billing (update the card), Check status | yes |
+| past due, after the grace; or an "active" record whose renewal was not confirmed | stated plainly, what is paused and what keeps working | Manage billing, Check status | no |
+| unpaid | "Payments stopped, so your subscription is paused" | Manage billing (pay the open invoice), Check status | no |
+| dispute open | "Access is paused while a payment dispute is open" (the app cannot resolve it) | Manage billing | no |
+| ended (cancelled, refunded, period over) | "Your subscription has ended", data kept | plans offered again; Manage billing for invoices | no |
+| trial / eligible / trial expired | the trial card and the plans (issue #4) | start the trial, choose a plan | trial: its own allowance for the whole trial; otherwise paused |
+
+Always shown: **Download my account data** and **Delete my account** (password required; says so when a subscription is live and that the rest of the paid period is not refunded). If the payment provider is not configured on the server, a subscription is still described, nothing changeable is offered, and the screen says why.
+
+The AI allowance numbers are the server's configured ones (`AI_TRIAL_ALLOWANCE`, `AI_MONTHLY_ALLOWANCE`), never constants in the app. The monthly and annual plans show the same number with the same words, and an annual subscriber's allowance still resets monthly. The screen never says "unlimited".
+
+What these tests prove and do not: the interface and the server logic are tested against real PostgreSQL, real Better Auth and the real Stripe SDK talking to a **mock** provider (`tests/support/fakeStripe.ts`). Stripe's own behaviour (the hosted payment and portal pages, 3-D Secure, retries, proration, disputes) is **not** verified here; the checklist in `docs/billing-sandbox.md` is the procedure for that.
+
 ## Webhooks
 
 `POST /api/billing/webhook`: signature verified over the **raw bytes** (`stripe-signature`, 5-minute tolerance); the event id is stored before anything is done; the event is acted on by fetching the **current** subscription from Stripe, so retried, duplicated or out-of-order events cannot move a record backwards; failures answer 500 so Stripe retries; concurrent duplicates are told to come back. Handled: `checkout.session.completed/expired`, `customer.subscription.created/updated/deleted`, `invoice.paid/payment_failed/payment_action_required`, `charge.refunded`, `charge.dispute.created/updated/closed`. Anything else is acknowledged and ignored. Only ids and outcomes are stored, never payloads.
