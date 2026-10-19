@@ -376,26 +376,126 @@ for (const [hour, expectNow, expectCollapsed, label] of [[8, 'Morning', 'evening
 }
 
 // ───────────── 10. one budget: Today, Tomorrow and the week all stay inside it ─────────────
+// The week tab lists the Monday-anchored calendar week. Days that have not happened yet are planned; days that have are HISTORY: the planner
+// only plans forward and never rebuilds a past day from today's settings, so they say "No saved plan" (or show the plan that was saved while
+// they were open), never "Free" or "Rest day". The date is controlled (a fixed browser clock) so the number of planned days is a fact derived
+// from the weekday, not luck: Monday has 7 planned days, Tuesday 6 ... Sunday 1.
 const parseMin = (s) => { const m = s.match(/(?:(\d+) h )?(\d+) min/); return m ? Number(m[1] ?? 0) * 60 + Number(m[2]) : NaN; };
-for (const [label, focus, mins] of [['home + habits, 10 min', "['home','discipline','morning','evening']", 10], ['home only, 5 min', "['home']", 5], ['habits only, 15 min', "['discipline','study','evening']", 15], ['home + habits, 90 min', "['home','active','study','phone']", 90]]) {
+const WEEKDAY_NAME = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const PLANNED_HEAD = /^\d+ · (.+?) of (\d+) min$/;
+const PAST_HEAD = /^(No saved plan|\d+ planned then · .+|Nothing was planned|A rest day then)$/;
+/** What the week tab shows, card by card: whether it is today, its header, and whether it has a progress bar. */
+const weekCards = (page) => page.locator('.weekgrid > div').evaluateAll((els) => els.map((e) => ({ today: !!e.querySelector('.daycard.today'), title: e.querySelector('h2')?.textContent ?? '', head: e.querySelector('.row.between .small')?.textContent ?? '', bar: !!e.querySelector('.progress-track') })));
+const openWeek = async (page, tab = 'This week') => { await page.evaluate(() => (location.hash = '#/schedule')); await page.waitForSelector('[role=tablist]'); await page.getByRole('tab', { name: tab }).click(); await page.waitForSelector('.weekgrid .daycard'); };
+/** Checks a week against the weekday it is looked at on: `idx` 0 = Monday … 6 = Sunday. */
+const checkWeek = (cards, idx, label) => {
+  check(`${label}: seven days are listed`, cards.length === 7, String(cards.length));
+  check(`${label}: today is the ${WEEKDAY_NAME[idx]} card`, cards.findIndex((c) => c.today) === idx, JSON.stringify(cards.map((c) => c.today)));
+  cards.slice(0, idx).forEach((c, i) => {
+    check(`${label}: ${WEEKDAY_NAME[i]} (past) is history, not "Free" or "Rest day": "${c.head}"`, PAST_HEAD.test(c.head) && !/^(Free|Rest day)$/.test(c.head), c.head);
+  });
+  const planned = cards.slice(idx).filter((c) => PLANNED_HEAD.test(c.head));
+  check(`${label}: every remaining day (${7 - idx}) shows its count and its promise`, planned.length === 7 - idx, cards.slice(idx).map((c) => c.head).join(' | '));
+  for (const c of planned) { const m = c.head.match(PLANNED_HEAD); check(`${label}: "${c.head}" is within its promise`, parseMin(m[1]) <= Number(m[2]), c.head); }
+};
+for (const [label, focus, mins, weekdays] of [
+  ['home + habits, 10 min', "['home','discipline','morning','evening']", 10, [0, 1, 2, 3, 4, 5, 6]],     // every weekday, weekends included
+  ['home only, 5 min', "['home']", 5, [2, 5]],
+  ['habits only, 15 min', "['discipline','study','evening']", 15, [6]],
+  ['home + habits, 90 min', "['home','active','study','phone']", 90, [0, 4]],
+]) {
+  for (const idx of weekdays) {
+    const { ctx, page } = await mk();
+    await page.clock.setFixedTime(new Date(2026, 9, 12 + idx, 10, 0));        // Monday 12 October 2026 is index 0
+    await loadDemo(page, DEMOS.student);
+    await step(`${label}, on a ${WEEKDAY_NAME[idx]}: Today, Tomorrow and the week never plan more than the promise, and the past is history`, async () => {
+      await patchStore(page, `d.preferences.focus=${focus}; d.preferences.sessionMinutes=${mins}; d.preferences.daysPerWeek=7; d.exposures=[];`);
+      await page.reload(); await page.waitForSelector('.hero-card');
+      const hero = await page.locator('.hero-card').innerText();
+      const goal = Number((hero.match(/(?:daily|session) goal (\d+) min/) ?? [])[1] ?? mins);
+      const planned = parseMin(hero.match(/about [^\n]*/)?.[0] ?? '');
+      if (!Number.isNaN(planned)) check(`Today: planned ${planned} <= goal ${goal}`, planned <= goal, hero.slice(0, 160));
+      await page.evaluate(() => (location.hash = '#/schedule')); await page.waitForSelector('[role=tablist]');
+      await page.getByRole('tab', { name: 'Tomorrow' }).click();
+      const tomorrow = await page.getByTestId('day-total').innerText().catch(() => '');
+      if (tomorrow) { const [, p, b] = tomorrow.match(/(.+?) planned, out of your (\d+) min/) ?? []; check(`Tomorrow: ${p} within ${b}`, parseMin(p) <= Number(b), tomorrow); }
+      await openWeek(page);
+      const cards = await weekCards(page);
+      checkWeek(cards, idx, `${WEEKDAY_NAME[idx]}`);
+      check(`${WEEKDAY_NAME[idx]}: with no saved plans, every past day says exactly "No saved plan" and shows no bar`, cards.slice(0, idx).every((c) => c.head === 'No saved plan' && !c.bar), JSON.stringify(cards.slice(0, idx)));
+      await openWeek(page, 'Next week');
+      const next = await weekCards(page);
+      check(`${WEEKDAY_NAME[idx]}: next week is entirely ahead: seven planned days, none marked today`, next.length === 7 && next.every((c) => PLANNED_HEAD.test(c.head) && !c.today), next.map((c) => c.head).join(' | '));
+    }, page);
+    await ctx.close();
+  }
+}
+{
+  // A day with a saved plan shows that plan, as saved; it is not rebuilt from the settings the person has now.
   const { ctx, page } = await mk();
+  await page.clock.setFixedTime(new Date(2026, 9, 17, 10, 0));                    // a Saturday
   await loadDemo(page, DEMOS.student);
-  await step(`${label}: Today, Tomorrow and the week never plan more than the promise`, async () => {
-    await patchStore(page, `d.preferences.focus=${focus}; d.preferences.sessionMinutes=${mins}; d.preferences.daysPerWeek=7;`);
+  await step('a past day with a saved plan shows it as saved, and changing settings afterwards does not change it', async () => {
+    const rec = "{date:'2026-10-12',contract:2,recordedAt:'2026-10-12T08:00:00.000Z',planVersion:'pv',activeDay:true,energy:'ok',tzOffsetMin:0,budgetMinutes:5,items:[{taskId:'a',templateId:null,domain:'home',minutes:3,difficulty:'easy',kind:'focus'},{taskId:'b',templateId:null,domain:'home',minutes:2,difficulty:'easy',kind:'life'}]}";
+    await patchStore(page, `d.preferences.focus=['home']; d.preferences.sessionMinutes=5; d.preferences.daysPerWeek=7; d.exposures=[${rec}];`);
     await page.reload(); await page.waitForSelector('.hero-card');
-    const hero = await page.locator('.hero-card').innerText();
-    const goal = Number((hero.match(/(?:daily|session) goal (\d+) min/) ?? [])[1] ?? mins);
-    const planned = parseMin(hero.match(/about [^\n]*/)?.[0] ?? '');
-    if (!Number.isNaN(planned)) check(`Today: planned ${planned} <= goal ${goal}`, planned <= goal, hero.slice(0, 160));
-    await page.evaluate(() => (location.hash = '#/schedule')); await page.waitForSelector('[role=tablist]');
-    await page.getByRole('tab', { name: 'Tomorrow' }).click();
-    const tomorrow = await page.getByTestId('day-total').innerText().catch(() => '');
-    if (tomorrow) { const [, p, b] = tomorrow.match(/(.+?) planned, out of your (\d+) min/) ?? []; check(`Tomorrow: ${p} within ${b}`, parseMin(p) <= Number(b), tomorrow); }
-    await page.getByRole('tab', { name: 'This week' }).click();
-    const heads = await page.locator('.daycard .row.between .small').allInnerTexts();
-    let seen = 0;
-    for (const h of heads) { const m = h.match(/^\d+ · (.+?) of (\d+) min$/); if (m) { seen++; check(`week day "${h}" within its promise`, parseMin(m[1]) <= Number(m[2]), h); } }
-    check('the week shows its promise for each planned day', seen >= 3, heads.join(' | '));
+    await openWeek(page);
+    let cards = await weekCards(page);
+    check('Monday shows what was saved: 2 tasks, 5 of 5 min', cards[0].head === '2 planned then · 5 min of 5 min' && cards[0].bar, cards[0].head);
+    check('and the days around it, which have no saved plan, say so', cards.slice(1, 5).every((c) => c.head === 'No saved plan'), cards.slice(1, 5).map((c) => c.head).join(' | '));
+    await patchStore(page, "d.preferences.sessionMinutes=60; d.preferences.daysPerWeek=3;");
+    await page.reload(); await page.waitForSelector('.app');
+    await openWeek(page);
+    cards = await weekCards(page);
+    check('after changing the settings the saved Monday is exactly as it was', cards[0].head === '2 planned then · 5 min of 5 min', cards[0].head);
+    check('Saturday (today) is worded from the new settings: planned, or a rest day under them', cards[5].today && (PLANNED_HEAD.test(cards[5].head) || cards[5].head === 'Rest day'), cards.slice(5).map((c) => c.head).join(' | '));
+    const detail = await page.locator('.weekgrid .daycard').first().innerText();
+    check('the saved day says it is as saved then', /as it was saved then/.test(detail), detail);
+  }, page);
+  await ctx.close();
+}
+// The day boundary is the person's own (their time zone), not UTC's: the same instant is a different day in different places, the week
+// turns over at local midnight, and a clock change inside the week does not lose or repeat a day.
+const mkIn = async (timezoneId) => { const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, locale: 'en-US', timezoneId }); const page = await ctx.newPage(); watch(page, errors, ''); return { ctx, page }; };
+for (const [zone, instant, idx, what] of [
+  ['Pacific/Auckland', '2026-10-18T11:30:00Z', 0, 'Monday 00:30 in Auckland: a new week has begun'],
+  ['UTC', '2026-10-18T11:30:00Z', 6, 'the very same instant in UTC is still Sunday'],
+  ['America/Los_Angeles', '2026-10-19T06:30:00Z', 6, 'Sunday 23:30 in Los Angeles'],
+  ['Europe/London', '2026-10-24T22:30:00Z', 5, 'Saturday 23:30 in London, the night before the clocks go back'],
+  ['Europe/London', '2026-10-25T12:00:00Z', 6, 'Sunday noon in London, after the clocks went back (a 25-hour day)'],
+]) {
+  const { ctx, page } = await mkIn(zone);
+  await page.clock.setFixedTime(new Date(instant));
+  await loadDemo(page, DEMOS.student);
+  await step(`${zone}, ${what}: the week knows which day it is`, async () => {
+    await patchStore(page, "d.preferences.focus=['home','discipline','morning','evening']; d.preferences.sessionMinutes=10; d.preferences.daysPerWeek=7; d.exposures=[];");
+    await page.reload(); await page.waitForSelector('.hero-card');
+    await openWeek(page);
+    const cards = await weekCards(page);
+    checkWeek(cards, idx, `${zone} ${instant}`);
+    check(`${zone}: the seven cards are seven different days`, new Set(cards.map((c) => c.title)).size === 7, cards.map((c) => c.title).join(' | '));
+    const foot = await page.locator('.page').innerText();
+    check(`${zone}: the footer names today’s weekday`, new RegExp(`Week starts Monday · ${WEEKDAY_NAME[idx].slice(0, 3)} today`).test(foot), foot.slice(-80));
+  }, page);
+  await ctx.close();
+}
+{
+  // The week turns over by itself at local midnight, with the page open.
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, locale: 'en-US', timezoneId: 'America/Los_Angeles' });
+  const page = await ctx.newPage(); watch(page, errors, '');
+  await page.clock.install({ time: new Date('2026-10-19T06:50:00Z') });         // Sunday 23:50 in Los Angeles
+  await page.goto(BASE); await page.clock.resume();
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+  await loadDemo(page, DEMOS.student);
+  await step('Los Angeles: with the page open across local midnight the schedule moves from Sunday to Monday by itself', async () => {
+    await patchStore(page, "d.preferences.focus=['home','discipline','morning','evening']; d.preferences.sessionMinutes=10; d.preferences.daysPerWeek=7; d.exposures=[];");
+    await page.reload(); await page.waitForSelector('.hero-card');
+    await openWeek(page);
+    checkWeek(await weekCards(page), 6, 'Sunday 23:50');
+    await page.clock.fastForward('00:20:00');                                   // 00:10 on Monday, local time
+    await page.waitForFunction(() => document.querySelector('.weekgrid .daycard.today')?.closest('.weekgrid')?.children[0]?.querySelector('.daycard.today') !== null, null, { timeout: 7000 });
+    checkWeek(await weekCards(page), 0, 'Monday 00:10 after midnight');
+    check('and the footer follows', /Mon today/.test(await page.locator('.page').innerText()));
   }, page);
   await ctx.close();
 }

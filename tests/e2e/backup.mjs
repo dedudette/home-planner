@@ -73,6 +73,14 @@ const planOf = async (page) => {
 const pointsOf = async (page) => { const t = await ls(page, `cleanflow:v1@${await idOf(page)}:backups`); return t ? JSON.parse(t) : []; };
 const welcomeVisible = (p) => p.getByRole('heading', { name: 'One calm plan for your home, your body and your day' }).waitFor();
 const legacyNotice = (p) => p.getByRole('heading', { name: 'Your earlier data is safe' }).waitFor();
+/** A new account has no trial yet, so the planner is closed: its first screen is Trial & plans in its paused form (Data & backup is open all the same). */
+const pausedVisible = (p) => p.getByTestId('planner-paused').waitFor();
+const startTrialUi = async (p) => {
+  await pausedVisible(p);
+  await p.getByRole('checkbox').check();
+  await p.getByRole('button', { name: /^Start my 14-day trial$/ }).click();
+  await welcomeVisible(p);
+};
 const btn = (page, name) => page.getByRole('button', { name, exact: true });
 const region = (page, name) => page.getByRole('region', { name });
 const text = (page) => page.locator('main').innerText();
@@ -86,7 +94,7 @@ const newAccount = async (page, base, email, after = 'welcome') => {
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();
   const m = await waitMail(base, email);
   await page.goto(m.text.match(/https?:\/\/\S+/)[0]);
-  await (after === 'legacy' ? legacyNotice(page) : welcomeVisible(page));
+  await (after === 'legacy' ? legacyNotice(page) : pausedVisible(page));
 };
 const signIn = async (page, base, email) => {
   await page.goto(base);
@@ -223,8 +231,11 @@ if (want('link')) {
     await card.getByText(/Done\. This account now has your earlier data/).waitFor();
     check('copied again', (await planOf(page)).user.name === 'Legacy One');
   }, page);
-  await step('the copied plan is what the app shows, it survives a reload, and the screen then says the account holds exactly this data', async () => {
+  await step('the copied plan is what the app shows once the trial is started, it survives a reload, and the screen then says the account holds exactly this data', async () => {
     await page.goto(`${A}#/today`);
+    await pausedVisible(page);                       // copying needed no trial, and gave no access to the planner either
+    await startTrial(page);
+    await page.reload();
     await page.waitForSelector('.hero-card');
     await page.reload();
     await page.waitForSelector('.hero-card');
@@ -258,13 +269,14 @@ if (want('replace')) {
   await region(page, 'Data from before accounts').getByText(/Done\. This account now has your earlier data/).waitFor();
   const r1Id = await idOf(page);
   let r1Plan = '';
+  await startTrial(page);
   await signOutApi(page);
 
   await step('a second account on the same device is told the data already went into another account, and has to say it understands', async () => {
     await newAccount(page, A, 'rep.two@example.test', 'legacy');
     r1Plan = await ls(page, `cleanflow:v1@${r1Id}`);                    // account one's final state: its app has written everything and been closed
     await page.getByRole('button', { name: 'Continue with an empty plan' }).click();
-    await welcomeVisible(page);
+    await startTrialUi(page);
     await page.getByText('Beginner: discipline & fitness').first().click();
     await page.waitForSelector('text=Habits & routine');
     id = await idOf(page);
@@ -349,7 +361,9 @@ if (want('failures')) {
     // Undo the copy so there is an account plan to protect, then make the main save fail while restore points still work.
     await card().getByRole('button', { name: 'Undo this copy' }).click();
     await card().getByText(/Undone\./).waitFor();
+    await startTrial(page);
     await page.goto(`${A}#/`);
+    await page.reload();
     await welcomeVisible(page);
     await page.getByText('Beginner: discipline & fitness').first().click();
     await page.waitForSelector('text=Habits & routine');

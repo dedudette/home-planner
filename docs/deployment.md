@@ -52,5 +52,10 @@ Generate secrets with `openssl rand -base64 48`. Put them in your host's secret 
 - Billing misconfigured (bad key, price mismatch, tax unset): the app still runs; checkout is off and says why; nothing is charged.
 - A tick every minute releases stale AI reservations and runs the notification queue. It is safe to run on several instances at once.
 
+## What the browser does with the server's answers
+- When `/api/config` or `/api/account` cannot be read at start, the app shows a "try again" screen ("Cannot reach the server", or "Something went wrong" when the server answered badly) and touches nothing. It never falls back to local mode. A deployment with no server at all must be built with `VITE_CLEANFLOW_STANDALONE=1`.
+- The planner is shown only while `/api/account` says `entitlement.access` is `full`. The browser asks again every 5 minutes, when the tab returns, when the connection returns and when the confirmed access is due to end, so a reverse proxy or CDN must **not cache `/api/account`** (the app sends `cache: 'no-store'`).
+- It is an interface rule; the paid parts are enforced by the server (`docs/billing.md`).
+
 ## Not included
 No admin UI, no Apple/Google billing, no deployment automation, no monitoring or alerting. Rate limits for sign-in and email endpoints are stored in the database (shared by instances); the AI cooldown is per instance, and the AI allowance is in the database.

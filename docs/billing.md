@@ -55,8 +55,26 @@ An "active" record whose period ended more than 24 hours ago with no renewal rec
 ### Which checks are enforced by the server, and which are only the interface
 
 - **Server-enforced** (cannot be bypassed by editing the browser): every AI endpoint (`/api/coach`, `/api/assist`, and any future Paolo AI endpoint, because they all call the same `AiGate`), checkout, portal, cancel/resume, the account export and cloud backup endpoints, deletion.
-- **Interface only**: hiding the planner when an account is not entitled. The planner's data and logic live in the browser (`localStorage`); a person who edits the page could keep using the local features without a subscription. This is stated here deliberately: the product's server-side value (AI, backup, accounts) is protected; offline local features are not and are not claimed to be.
-- **Offline policy** (`offlineEntitlementOk`): the app may keep honouring the last server-confirmed "full" access while offline for at most **72 hours** from the last confirmation, never past the confirmed end of the trial or paid period, and never if the device clock moved backwards. After that it asks to reconnect. It is per account (a cache from one account is never used for another).
+- **Interface only**: hiding the planner when an account is not entitled (the gate, below). The planner's data and logic live in the browser (`localStorage`); a person who edits the page could keep using the local features without a subscription. This is stated here deliberately: the product's server-side value (AI, backup, accounts) is protected; offline local features are not and are not claimed to be. The browser suite makes the point itself: it feeds the page a forged "full access" answer, the planner opens, and the server still answers 402 to the AI coach and to a cloud backup upload.
+- **Offline policy** (`offlineEntitlementOk`, used by the gate): see "When the server cannot be reached" below.
+
+### The planner gate (accounts mode only)
+
+`src/account/access.ts` (pure, unit-tested for every state in the table above) turns the server's answer into a screen; `AccessGate.tsx`, `App.tsx` and `AccountProvider.tsx` apply it. The decision is the server's `entitlement.access`; the app never works it out from a device clock, a cookie or storage.
+
+| Server says | The app shows |
+|---|---|
+| `access: 'full'` (a running trial, `paid-active`, `cancellation-scheduled` until the exact end of the paid period, `past-due` inside the grace) | the planner |
+| `access: 'account-only'` (no trial yet, `trial-expired`, `payment-action-required`, `past-due` after the grace, `unpaid`, `suspended`, `expired`) | **Trial & plans in its "paused" form** on every planner address, with the reason in words, the trial offer (tick, then press) or the plans, the subscription section for the state, export and deletion, change password and sign-out; **Data & backup** stays open too (download your plan, restore or delete a cloud backup, copy earlier data in) |
+| no answer yet | "Checking your plan…" |
+| no answer and the allowance below is over | "We cannot confirm your plan right now": try again, or download your data. Never local mode |
+
+- **Starting the trial** is the only way a first trial begins: the box and the button. Opening addresses, reloading, signing out and in, or the paused screen itself never start it. The server records the dates (14 days of its own clock).
+- **Direct addresses**: `#/today`, `#/plan`, `#/settings`, `#/onboarding` and every other planner address show the paused screen while access is closed, and the planner at that same address as soon as it opens. Only `#/account` and `#/account/data` are reachable.
+- **While the app is open** the answer is refreshed every 5 minutes, when the tab comes back (at most once a minute), when the connection returns, at the moment the confirmed access is due to end (counted from the server's own time in its answer plus time elapsed on this device, so changing the device's date extends nothing), and straight after any screen that changes the plan (start trial, cancel, resume, confirming a payment). When it closes, **what the app holds is written out first** and the app's state is never unmounted, so nothing pending is lost and the planner returns where it was when access returns. Reminders already handed to the device are cancelled while it is closed and planned again from the plan when it opens (written in the source and unit-tested at the sync layer; **not run on a phone**). Text typed into a form in a sheet and not yet saved is not kept when the planner closes.
+- **Cancel at the end of the period** keeps the planner open to the exact end of the paid period, then the server says `expired` and the gate closes.
+- **When the server cannot be reached** during a session (offline, a server fault) the last answer is relied on under the policy above: at most 72 hours from the last confirmation, never past the confirmed end, never if the device clock went backwards, and only if that answer was "full". A "no" stays a "no". The planner shows a note with the time it will need a connection. **A page opened with the server unreachable cannot start at all** ("Cannot reach the server"); the answer is not cached across page loads, so there is no offline start, and an unreachable server never becomes local mode.
+- **Not covered by the gate** (and not claimed): AI features and cloud backup uploads are decided by the server; a notification the operating system already holds is cancelled by the app only when the app runs.
 
 ## AI included in the subscription
 

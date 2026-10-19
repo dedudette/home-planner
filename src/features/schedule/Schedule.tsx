@@ -3,6 +3,7 @@ import {
   WEEKDAY_SHORT, addDays, formatDay, formatLong, formatMinutes, fromISO, startOfMonth, startOfWeek, weekday,
 } from '../../domain/dates';
 import { needsFreshStart } from '../../domain/learning';
+import { dayAriaLabel, dayEmptyNote, dayFill, dayHeadline } from '../../domain/dayLabels';
 import { dayPlan, monthPlan, overdueItems, weekPlan, type DayPlan } from '../../domain/view';
 import type { ISODate } from '../../domain/types';
 import { useApp } from '../../state/store';
@@ -14,17 +15,17 @@ type Range = 'today' | 'tomorrow' | 'week' | 'next' | 'month';
 
 const DayList = ({ day, showHeader }: { day: DayPlan; showHeader?: boolean }) => {
   const { today, plan } = useApp();
-  const rest = !plan.activeDays.includes(weekday(day.date)) && day.tasks.every((t) => !t.habit);
+  const rest = !day.past && !plan.activeDays.includes(weekday(day.date)) && day.tasks.every((t) => !t.habit);
   return (
     <div className={`daycard ${day.date === today ? 'today' : ''}`}>
       {showHeader && (
         <div className="row between" style={{ marginBottom: 8 }}>
           <div><h2 className="h3">{formatDay(day.date, today)}</h2></div>
-          <span className="small muted">{day.tasks.length ? `${day.tasks.length} · ${formatMinutes(day.minutes)}${day.budget ? ` of ${day.budget} min` : ''}` : rest ? 'Rest day' : 'Free'}</span>
+          <span className="small muted">{dayHeadline(day, rest)}</span>
         </div>
       )}
       {!showHeader && day.tasks.length > 0 && day.budget > 0 && <p className="small muted" data-testid="day-total">{formatMinutes(day.minutes)} planned, out of your {day.budget} min</p>}
-      {day.tasks.length === 0 && day.done.length === 0 && <p className="small muted">{rest ? 'A rest day, with nothing planned.' : 'Nothing planned.'}</p>}
+      {day.tasks.length === 0 && (day.past || day.done.length === 0) && <p className="small muted">{dayEmptyNote(day, rest)}</p>}
       <div className="tasklist">
         {day.tasks.map((t) => <TaskCard key={t.id} task={t} compact hideTimer={day.date !== today} />)}
       </div>
@@ -62,10 +63,10 @@ const Month = () => {
         {Array.from({ length: lead }, (_, i) => <div key={`l${i}`} className="mday out" />)}
         {m.days.map((d) => (
           <button key={d.date} className={`mday ${d.date === today ? 'today' : ''} ${d.date === sel ? 'sel' : ''}`} onClick={() => setSel(d.date)}
-            aria-label={`${formatLong(d.date)}: ${d.tasks.length} tasks, ${d.minutes} minutes`} aria-pressed={d.date === sel}>
+            aria-label={dayAriaLabel(d)} aria-pressed={d.date === sel}>
             <span>{Number(d.date.slice(8))}</span>
-            {d.minutes > 0 ? <span className="bar" style={{ width: `${Math.max(20, (d.minutes / max) * 80)}%` }} /> : <span style={{ height: 5 }} />}
-            <span className="n">{d.tasks.length || ''}</span>
+            {(d.past ? d.recorded?.minutes ?? 0 : d.minutes) > 0 ? <span className="bar" style={{ width: `${Math.max(20, ((d.past ? d.recorded?.minutes ?? 0 : d.minutes) / max) * 80)}%` }} /> : <span style={{ height: 5 }} />}
+            <span className="n">{(d.past ? d.recorded?.planned : d.tasks.length) || ''}</span>
           </button>
         ))}
       </div>
@@ -114,7 +115,7 @@ export const Schedule = () => {
           {weekPlan(view, range === 'week' ? weekStart : addDays(weekStart, 7)).map((d) => (
             <div key={d.date}>
               <DayList day={d} showHeader />
-              <div className="progress-track" style={{ margin: '6px 4px 0' }} aria-hidden><div className="progress-fill" style={{ width: `${Math.min(100, (d.minutes / Math.max(1, d.budget)) * 100)}%`, background: d.overBy > 0 ? 'var(--clay)' : undefined }} /></div>
+              {dayFill(d) !== null && <div className="progress-track" style={{ margin: '6px 4px 0' }} aria-hidden><div className="progress-fill" style={{ width: `${(dayFill(d) ?? 0) * 100}%`, background: d.overBy > 0 ? 'var(--clay)' : undefined }} /></div>}
             </div>
           ))}
         </div>

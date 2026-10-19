@@ -6,6 +6,8 @@ at all") the same address says that nothing leaves the device, offers no control
 
 Nothing on the screen starts a trial, changes a subscription, or sends anything without a button press on a preview.
 
+**It stays open when the planner is closed** (no trial yet, trial or subscription ended, a payment problem): copying earlier data in, restoring and deleting a cloud backup, and **Download my plan and history** (a file made on the device, no server, always available) all work without any entitlement. Only *Back up now* needs one, and the server decides that (402). Settings and the planner are behind the gate (`docs/billing.md`), so restore points are listed here but restored from Settings once the planner is open.
+
 ## Where data lives
 
 | | On this device | In the cloud backup |

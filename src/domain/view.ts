@@ -251,7 +251,16 @@ export interface DayPlan {
   /** Due that day but not planned, each with the reason. */
   deferred: { task: Task; reason: DeferReason }[];
   done: SessionEntry[];
+  /**
+   * True for a day before today. The planner only plans forward, so nothing is worked out for a past day (no tasks, no budget, no "free"):
+   * what the app knows about it is `done` (what was logged) and `recorded` (what the planner chose when the day was open, if it was).
+   */
+  past: boolean;
+  recorded: RecordedDay | null;
 }
+
+/** What the planner chose on a day, as it was saved then (`exposures`). It is never recomputed from today's settings. */
+export interface RecordedDay { planned: number; minutes: number; budget: number; activeDay: boolean }
 
 /** Tasks due on `date`, before the day's minutes are applied. */
 const dueOn = (v: PlanView, date: ISODate): Task[] => {
@@ -279,14 +288,21 @@ export const tasksOnDate = (v: PlanView, date: ISODate): Task[] =>
  */
 export const dayPlan = (v: PlanView, date: ISODate): DayPlan => {
   const done = entriesOn(v.data, date).filter((e) => e.outcome === 'completed');
+  if (date < v.today) {
+    // A past day is history. The only plan it has is the one saved while it was open; nothing is rebuilt from today's settings and called then's plan.
+    const rec = v.data.exposures.find((e) => e.date === date);
+    const items = rec ? rec.items.filter((i) => i.kind !== 'extra') : [];
+    const recorded = rec ? { planned: items.length, minutes: items.reduce((s, i) => s + i.minutes, 0), budget: rec.budgetMinutes, activeDay: rec.activeDay } : null;
+    return { date, tasks: [], conflicts: [], minutes: 0, budget: 0, overBy: 0, deferred: [], done, past: true, recorded };
+  }
   if (date === v.today) {
     const t = todayPlan(v);
     const tasks = [...t.focus, ...t.catchUp, ...t.life].map((f) => f.task);
-    return { date, tasks, conflicts: t.conflicts, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: t.totalBudget, overBy: t.overBy, deferred: t.deferred.map((d) => ({ task: d.item.task, reason: d.reason })), done };
+    return { date, tasks, conflicts: t.conflicts, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: t.totalBudget, overBy: t.overBy, deferred: t.deferred.map((d) => ({ task: d.item.task, reason: d.reason })), done, past: false, recorded: null };
   }
   const { budget, fit, conflicts } = assembleDay(v, date, dueOn(v, date).map((t) => asDue(t, date)), 'ok');
   const tasks = fit.planned.sort((a, b) => a.domain.localeCompare(b.domain) || a.order - b.order).map((c) => c.item.task);
-  return { date, tasks, conflicts, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: budget.total, overBy: fit.overBy, deferred: fit.deferred.map((d) => ({ task: d.item.item.task, reason: d.reason })), done };
+  return { date, tasks, conflicts, minutes: tasks.reduce((s, x) => s + x.minutes, 0), budget: budget.total, overBy: fit.overBy, deferred: fit.deferred.map((d) => ({ task: d.item.item.task, reason: d.reason })), done, past: false, recorded: null };
 };
 
 export const weekPlan = (v: PlanView, from: ISODate): DayPlan[] =>

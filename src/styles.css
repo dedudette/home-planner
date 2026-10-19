@@ -653,11 +653,11 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* ───────────── accounts: trial and plans ───────────── */
 .auth-card.wide { max-width: 40rem; }
 .plan-opts { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
-.plan-opt { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card, transparent); cursor: pointer; min-height: 44px; }
+.plan-opt { min-width: 0; display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card, transparent); cursor: pointer; min-height: 44px; }
 .plan-opt.on { border-color: var(--primary); background: var(--primary-soft); }
 .plan-opt input { width: 24px; height: 24px; flex: none; margin-top: 2px; accent-color: var(--primary); }
 .plan-opt:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
-.plan-opt-body { display: grid; gap: 2px; }
+.plan-opt-body { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .plan-opt-title { font-weight: 700; }
 .plan-opt-price { font-family: var(--font-head); font-size: 1.15rem; }
 a.link-btn { display: inline-flex; align-items: center; }
@@ -671,8 +671,22 @@ a.link-btn { display: inline-flex; align-items: center; }
 .compare { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 560px) { .compare { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .compare > div { border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 6px; align-content: start; }
-.compare h4 { margin: 0; font-size: 0.95rem; }
+.compare h3, .compare h4 { margin: 0; font-size: 0.95rem; }
 .data-dl { margin: 0; display: grid; gap: 10px; }
 .data-dl dt { font-weight: 700; }
 .data-dl dd { margin: 2px 0 0; color: var(--ink-2); }
 .choice-opts { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+
+/* ───────────── the access gate ───────────── */
+.access-note { position: sticky; top: 0; z-index: 80; padding: 8px 16px; background: var(--primary-soft); color: var(--ink-2); font-size: 0.9rem; text-align: center; border-bottom: 1px solid var(--line); }
+.card.paused { border-left: 4px solid var(--primary); }
+
+/* Long words and addresses wrap instead of pushing a narrow screen sideways (an email address, a long plan name, text at 200%). */
+.auth-card p, .auth-card b, .auth-card span, .auth-card label, .auth-card li, .auth-card dd, .auth-card h1, .auth-card h2, .auth-card h3, .auth-card h4, .signed-in-bar { overflow-wrap: anywhere; }
+.auth-card .btn { white-space: normal; text-align: center; }
+
+/* At very large text on a narrow screen these must wrap, not run off the side. */
+.demo-card { min-width: 0; max-width: 100%; }
+.demo-card > span { min-width: 0; overflow-wrap: anywhere; }
+.tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+b, strong { overflow-wrap: anywhere; }

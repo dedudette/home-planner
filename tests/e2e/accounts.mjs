@@ -66,6 +66,14 @@ const confirmFromMail = async (p, email) => {
 };
 const signIn = async (p, email, pw = PW) => { await field(p, 'Email').fill(email); await field(p, 'Password').fill(pw); await btn(p, 'Sign in').click(); };
 const welcomeVisible = (p) => p.getByRole('heading', { name: 'One calm plan for your home, your body and your day' }).waitFor();
+/** A new account has no trial yet, so the planner is closed: the first thing it sees is the paused screen. Starting the trial is a deliberate act (tick, then press). */
+const pausedVisible = (p) => p.getByTestId('planner-paused').waitFor();
+const startTrialUi = async (p) => {
+  await pausedVisible(p);
+  await p.getByRole('checkbox').check();
+  await p.getByRole('button', { name: /^Start my 14-day trial$/ }).click();
+  await welcomeVisible(p);                                   // the planner opens by itself the moment the server says the trial is running
+};
 const goSettings = async (p) => { await p.evaluate(() => { location.hash = '#/settings'; }); await p.getByRole('heading', { name: 'Settings', exact: true }).waitFor(); };
 
 const A = 'ana.one@example.test';
@@ -142,13 +150,21 @@ let legacyRaw = '';
   }, page);
   await step('the emailed link confirms the address, signs the person in, and the code is taken out of the address bar', async () => {
     await confirmFromMail(page, A);
-    await welcomeVisible(page);
-    check('the app is showing', true);
+    await pausedVisible(page);
+    check('a new account lands on the paused screen, not the planner, and it offers the trial', /Start your free trial/.test(await page.getByTestId('planner-paused').innerText()) && (await page.locator('nav').count()) === 0);
     check('the address bar holds no code', new URL(page.url()).search === '', page.url());
     await page.getByText('Email confirmed. You are signed in.').waitFor();
     const r = await page.evaluate(async () => (await fetch('/api/account')).json());
     aId = r.account.user.id;
     check('the account is confirmed', r.account.user.emailVerified === true);
+    check('and has no trial: nothing started it', r.account.entitlement.state === 'eligible-not-started' && r.account.trial === null);
+  }, page);
+  await step('the trial starts only when the person ticks and presses; then the planner opens', async () => {
+    const start = page.getByRole('button', { name: /^Start my 14-day trial$/ });
+    check('the button is disabled until the box is ticked', await start.isDisabled());
+    await startTrialUi(page);
+    const r = await page.evaluate(async () => (await fetch('/api/account')).json());
+    check('the server now records a trial', r.account.entitlement.state === 'trial-active' && r.account.trial !== null);
   }, page);
   await step('the plan is kept under this account and nowhere else', async () => {
     await page.getByText('Student: study, focus & less phone').first().click();
@@ -274,7 +290,7 @@ let legacyRaw = '';
     const text = readFileSync(await file.path(), 'utf8');
     check('the download is a CleanFlow backup of the earlier plan', JSON.parse(text).app === 'cleanflow' && JSON.parse(text).data.onboardingComplete === true);
     await page.getByRole('button', { name: 'Continue' }).click();
-    await welcomeVisible(page);
+    await startTrialUi(page);
     check('the new account starts empty (no demo plan from the old data)', (await page.getByText('Habits & routine').count()) === 0);
     const bId = (await page.evaluate(async () => (await fetch('/api/account')).json())).account.user.id;
     const ks = await keys(page);
@@ -375,7 +391,7 @@ let legacyRaw = '';
     await page.getByRole('heading', { name: 'Check your email' }).waitFor();
     await page.clock.resume();
     await confirmFromMail(page, C);
-    await welcomeVisible(page);
+    await startTrialUi(page);
     await ctx.clearCookies();                                   // the session is gone (expired, or ended elsewhere)
     await page.clock.fastForward('06:00');
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -430,13 +446,14 @@ let legacyRaw = '';
     await page.getByRole('heading', { name: 'Check your email' }).waitFor();
     await page.clock.resume();
     await confirmFromMail(page, D);
-    await welcomeVisible(page);
+    await startTrialUi(page);
     const stored = () => page.evaluate(() => { const k = Object.keys(localStorage).find((x) => /^cleanflow:v1@[^:]+$/.test(x)); return k ? (localStorage.getItem(k) ?? '') : ''; });
     const before = await stored();
-    await page.clock.pauseAt(new Date(Date.now() + 6 * 3600 * 1000));      // past the re-check interval; from here no timer fires
     let release;
     const gate = new Promise((r) => { release = r; });
     await page.route('**/api/account', async (route) => { await gate; await route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"code":"unauthenticated","message":"Sign in to continue."}}' }); });
+    // Jump past the re-check interval: the app's periodic check fires once, as it would after a long sleep, and its answer is held. From here no other timer fires.
+    await page.clock.pauseAt(new Date(Date.now() + 6 * 3600 * 1000));
     await page.getByText('Student: study, focus & less phone').first().click();    // the edit
     await page.waitForSelector('text=Habits & routine');
     check('the edit is in the app but not yet in storage: a save is pending', (await stored()) === before, 'storage changed before the session ended');

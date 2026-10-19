@@ -36,7 +36,7 @@ export const AccountPanel = () => {
   );
 };
 
-const ChangePassword = () => {
+export const ChangePassword = () => {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -77,7 +77,7 @@ const ChangePassword = () => {
   );
 };
 
-const SignOutRow = ({ onSignOut }: { onSignOut: () => Promise<void> }) => {
+export const SignOutRow = ({ onSignOut }: { onSignOut: () => Promise<void> }) => {
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState<Described | null>(null);
   const run = async () => {

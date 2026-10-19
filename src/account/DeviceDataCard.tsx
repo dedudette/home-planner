@@ -21,7 +21,7 @@ const FAIL_TEXT: Record<LinkFailure, string> = {
 };
 
 export const DeviceDataCard = () => {
-  const { user } = useAccount();
+  const { user, access } = useAccount();
   const app = useApp();
   const accountId = user?.id ?? '';
   const [tick, setTick] = useState(0);
@@ -95,7 +95,7 @@ export const DeviceDataCard = () => {
           <Notice kind="good">Done. This account now has your earlier data{result.keptPrevious ? ', and the plan it had before is kept as a restore point' : ''}. Your earlier data is still on this device, untouched, with its own restore point. Nothing was uploaded and nothing about your trial or subscription changed.</Notice>
           <div className="row wrap">
             <Button size="sm" variant="secondary" onClick={undo}>Undo this copy</Button>
-            <a className="btn sm ghost" href="#/settings">Restore points in Settings</a>
+            {access.status.kind === 'allowed' && <a className="btn sm ghost" href="#/settings">Restore points in Settings</a>}
           </div>
         </div>
       )}

@@ -51,6 +51,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const mail = async (base, to) => (await fetch(`${base}__test/mail?to=${encodeURIComponent(to.toLowerCase())}`)).json();
 const waitMail = async (base, to) => { for (let i = 0; i < 40; i++) { const ms = (await mail(base, to)).filter((x) => /confirm your email/i.test(x.subject)); if (ms.length) return ms[ms.length - 1]; await sleep(100); } throw new Error(`no mail for ${to}`); };
 const welcomeVisible = (p) => p.getByRole('heading', { name: 'One calm plan for your home, your body and your day' }).waitFor();
+/** A new account has no trial yet, so the planner is closed and the first screen is Trial & plans in its paused form. */
+const pausedVisible = (p) => p.getByTestId('planner-paused').waitFor();
 const newAccount = async (page, base, email) => {
   await page.goto(base);
   await page.getByRole('button', { name: 'Create an account' }).click();
@@ -60,7 +62,7 @@ const newAccount = async (page, base, email) => {
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();
   const m = await waitMail(base, email);
   await page.goto(m.text.match(/https?:\/\/\S+/)[0]);
-  await welcomeVisible(page);
+  await pausedVisible(page);
 };
 const openPlans = async (page, base = A) => {
   await page.goto(`${base}?r=${Date.now()}#/account`);                    // a new address, so the screen always loads the server's current answer

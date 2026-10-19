@@ -13,6 +13,11 @@ const browser = await launch();
 const click = (page, t, o) => page.getByRole('button', { name: t, ...o }).first().click();
 const saved = (page) => page.waitForTimeout(700);
 const text = (page) => page.evaluate(() => document.querySelector('main')?.innerText ?? '');
+/** The Progress tab is on screen: the app finished loading its data, the route is the movement page, and the tab's own "This week" card has rendered. */
+const progressLoaded = async (page) => {
+  await page.getByRole('heading', { name: 'This week', level: 2 }).waitFor();
+  await page.getByRole('heading', { name: 'Minutes per week', level: 2 }).waitFor();
+};
 const pad = (n) => String(n).padStart(2, '0');
 const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const TODAY = localToday();
@@ -163,12 +168,14 @@ const seed = (page, patch) => page.evaluate((p) => {
   }, page);
   await step('B progress shows what you did, and a week with nothing is not a zero', async () => {
     await page.goto(BASE + '#/movement?tab=progress');
+    await progressLoaded(page);
     const t = await text(page);
     check('this week counts the one session', /1 session on 1 day/.test(t), t.slice(0, 300));
     check('the log lists it', (await page.locator('[data-testid="log-row"]').count()) === 1 && /Quick stretch/.test(t));
     await seed(page, { sessions: [] , movement: { ...(await stored(page)).movement, log: [] } });
     await page.reload();
     await page.goto(BASE + '#/movement?tab=progress');
+    await progressLoaded(page);                                // the page has loaded its data and is showing the Progress tab, not a blank page mid-load
     const empty = await text(page);
     check('an empty week says nothing was logged, not zero', /Nothing logged yet this week/.test(empty) && !/0 sessions|0 minutes/.test(empty), empty.slice(0, 200));
   }, page);

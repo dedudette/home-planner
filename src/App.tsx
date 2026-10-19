@@ -40,6 +40,8 @@ import { DishFormSheet } from './features/meals/DishForm';
 import { RecipeDetailSheet } from './features/meals/RecipeDetail';
 import { ShopGenSheet, ShopItemSheet, ShopReviewSheet } from './features/meals/ShoppingTab';
 import { PRIMARY, SETTINGS_ITEM, sectionsFor } from './features/nav';
+import { routeStaysOpen } from './account/access';
+import { useAccount } from './account/AccountProvider';
 import { DataBackup } from './account/DataBackup';
 import { TrialPlans } from './account/TrialPlans';
 import { useApp } from './state/store';
@@ -140,21 +142,25 @@ const Banners = () => {
 export const App = () => {
   const { ready, data, openSheet, recovery, startFresh, repo } = useApp();
   const route = useRoute();
+  // With accounts, the server may say the account has no access right now (no trial yet, trial or subscription ended, payment problem).
+  // Then the planner is replaced by Trial & plans in its paused form; Trial & plans and Data & backup stay open. See account/AccessGate.tsx.
+  const { mode, user, access } = useAccount();
+  const paused = mode === 'accounts' && !!user && access.status.kind === 'blocked' && !routeStaysOpen(route.path);
   const homeOn = data.preferences.focus.includes('home');
   const sections = sectionsFor(data);
 
   useEffect(() => {
     const p = route.path === 'account/data' ? route.path : route.path.split('/')[0];
-    document.title = `${TITLES[p] ?? 'CleanFlow'} · CleanFlow`;
+    document.title = paused ? 'Your planner is paused · CleanFlow' : `${TITLES[p] ?? 'CleanFlow'} · CleanFlow`;
     window.scrollTo({ top: 0 });
-  }, [route.path]);
+  }, [route.path, paused]);
 
   if (!ready) return <div className="onb" role="status" aria-label="Loading"><div className="onb-body center" style={{ justifyContent: 'center' }}><p className="muted">Loading CleanFlow…</p></div></div>;
 
   if (recovery) return <RecoveryScreen mode="unreadable" repo={repo} raw={recovery.raw} reason={recovery.reason} onStartFresh={startFresh} />;
 
   // Trial & plans is an account screen, reachable before and after the first plan is made.
-  if (route.path === 'account') return <TrialPlans />;
+  if (route.path === 'account' || paused) return <TrialPlans />;
   if (route.path === 'account/data') return <DataBackup />;
 
   if (!data.onboardingComplete) {

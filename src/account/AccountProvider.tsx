@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { PublicConfig } from '../domain/billing/account';
+import type { AccountView, PublicConfig } from '../domain/billing/account';
 import { LocalStorageRepository, STORAGE_KEY, type Repository } from '../storage/repository';
 import { getNamespace, nsKey } from '../storage/namespace';
 import { defaultRepo } from '../state/store';
@@ -11,6 +11,7 @@ import { readAuthLink, stripAuthParams, type AuthLink } from './links';
 import { switchNamespace } from './scope';
 import { isStandalone } from './config';
 import { navigate } from '../ui/router';
+import { decideAccess, MAX_TIMER_MS, msUntilAccessEnds, RECHECK_EVERY_MS, serverNowMs, type AccessSnapshot, type AccessStatus } from './access';
 
 /**
  * Whether this app is running with accounts, and if so who is signed in. Three situations:
@@ -24,9 +25,23 @@ import { navigate } from '../ui/router';
  * local mode: the app shows "try again" and does not touch the scope or any stored data.
  *
  * Who is signed in is whatever the server says (`GET /api/account` with the session cookie); nothing about it is kept in the browser.
- * This file does not look at subscriptions or entitlements.
+ *
+ * It also holds the server's latest answer about what the account may do (the entitlement in that same view) and turns it into `access`:
+ * whether the planner is open (see access.ts). The answer is refreshed on a timer, when the tab comes back, when the connection returns,
+ * and at the moment the confirmed access is due to end; the screens that change it (start the trial, cancel, resume) hand the new view in.
+ * Whatever the app is holding is written out before the planner is closed, and the planner is never unmounted, so nothing pending is lost.
  */
 export interface AccountUser { id: string; email: string; name: string; emailVerified: boolean }
+
+export interface AccessApi {
+  status: AccessStatus;
+  /** The server's latest account view, or null without accounts. */
+  view: AccountView | null;
+  /** Take a fresh view from a screen that just got one (it came from the server, so it is as good as a refresh). */
+  accept(view: AccountView): void;
+  /** Ask the server again now. */
+  recheck(): Promise<void>;
+}
 
 export interface AccountContextValue {
   mode: 'local' | 'accounts';
@@ -41,10 +56,17 @@ export interface AccountContextValue {
   accountDeleted(): void;
   /** A one-time message to show once the app is on screen (for example "Email confirmed"). */
   takeFlash(): string | null;
+  /** Show a one-time message now, on whatever screen comes next (for example "Your trial has started" as the planner opens). */
+  announce(message: string): void;
+  announced: string | null;
+  clearAnnounced(): void;
+  access: AccessApi;
 }
 
 const NO_LEGAL = { privacy: null, terms: null, billing: null, company: null };
-const Ctx = createContext<AccountContextValue>({ mode: 'local', user: null, legal: NO_LEGAL, mailDelivers: true, billingMode: null, signOut: async () => undefined, accountDeleted: () => undefined, takeFlash: () => null });
+/** Without accounts nothing is gated: the planner is always open. */
+const OPEN_ACCESS: AccessApi = { status: { kind: 'allowed', offlineUntil: null }, view: null, accept: () => undefined, recheck: async () => undefined };
+const Ctx = createContext<AccountContextValue>({ mode: 'local', user: null, legal: NO_LEGAL, mailDelivers: true, billingMode: null, signOut: async () => undefined, accountDeleted: () => undefined, takeFlash: () => null, announce: () => undefined, announced: null, clearAnnounced: () => undefined, access: OPEN_ACCESS });
 export const useAccount = (): AccountContextValue => useContext(Ctx);
 
 type State =
@@ -53,9 +75,11 @@ type State =
   | { s: 'unreachable' }
   | { s: 'failed' }
   | { s: 'signed-out'; start: FlowStart }
-  | { s: 'signed-in'; user: AccountUser; legacyNotice: boolean };
+  | { s: 'signed-in'; user: AccountUser; legacyNotice: boolean; snap: AccessSnapshot };
 
-const SESSION_RECHECK_MS = 5 * 60 * 1000;
+/** Coming back to the tab asks again at most this often. */
+const VISIBLE_RECHECK_MS = 60 * 1000;
+const fresh = (view: AccountView): AccessSnapshot => ({ view, verifiedAt: Date.now(), reachable: true });
 
 export const AccountProvider = ({ children }: { children: (scope: { repo: Repository; scopeKey: string }) => ReactNode }) => {
   const [state, setState] = useState<State>({ s: 'loading' });
@@ -63,17 +87,23 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
   const initialLink = useRef<AuthLink>(typeof window === 'undefined' ? { kind: 'none' } : readAuthLink(window.location.search));
   const flash = useRef<string | null>(null);
   const lastCheck = useRef(0);
+  const inflight = useRef(false);
+  const userRef = useRef<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const [announced, setAnnounced] = useState<string | null>(null);
 
   const accounts = config?.mode === 'accounts' ? config.accounts : undefined;
 
-  const enter = useCallback((user: AccountUser) => {
+  const enter = useCallback((view: AccountView) => {
     // The namespace is set BEFORE the app mounts, so everything it reads on its first render is this account's.
-    switchNamespace(user.id);
-    setState({ s: 'signed-in', user, legacyNotice: shouldShowLegacyNotice(user.id) });
+    switchNamespace(view.user.id);
+    userRef.current = view.user.id;
+    setState({ s: 'signed-in', user: view.user, legacyNotice: shouldShowLegacyNotice(view.user.id), snap: fresh(view) });
   }, []);
 
   const leave = useCallback((start: FlowStart) => {
     switchNamespace(null);
+    userRef.current = null;
     setState({ s: 'signed-out', start });
   }, []);
 
@@ -98,8 +128,8 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
       const link = initialLink.current;
       if (link.kind === 'verified' && !flash.current) flash.current = 'Email confirmed. You are signed in.';
       initialLink.current = { kind: 'none' };
-      if (getNamespace() === a.user.id) { setState((s) => (s.s === 'signed-in' ? s : { s: 'signed-in', user: a.user, legacyNotice: false })); return; }
-      enter(a.user);
+      if (getNamespace() === a.user.id) { userRef.current = a.user.id; setState((s) => (s.s === 'signed-in' ? { ...s, snap: fresh(a) } : { s: 'signed-in', user: a.user, legacyNotice: false, snap: fresh(a) })); return; }
+      enter(a);
     } catch (e) {
       if (e instanceof api.ApiError && e.status === 401) {
         if (opts.quiet) { leave({ view: 'sign-in', notice: 'Your session has ended. Sign in again to continue.', noticeKind: 'info' }); return; }
@@ -121,18 +151,55 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
     return () => { cancelled = true; };
   }, [load]);
 
-  // A session can end while the app is open (expiry, a password reset elsewhere, a sign-out on another device). Look again when the person
-  // comes back to the tab, at most every few minutes. Being offline is not an end of the session.
+  /**
+   * Ask the server again: is the session still good, and what may this account do now? A 401 ends the session (the sign-in screen, after the
+   * app has written out what it holds). No answer (offline, a server fault) is not an answer: the last one stays, and it is relied on only for
+   * as long as access.ts allows. Someone else being signed in now (another tab) starts over.
+   */
+  const recheck = useCallback(async () => {
+    if (inflight.current || !userRef.current) return;
+    inflight.current = true;
+    try {
+      const a = await api.getAccount();
+      lastCheck.current = Date.now();
+      if (a.user.id !== userRef.current) { void load(); return; }
+      setState((s) => (s.s === 'signed-in' ? { ...s, snap: fresh(a) } : s));
+    } catch (e) {
+      if (e instanceof api.ApiError && e.status === 401) leave({ view: 'sign-in', notice: 'Your session has ended. Sign in again to continue.', noticeKind: 'info' });
+      else setState((s) => (s.s === 'signed-in' && s.snap.reachable ? { ...s, snap: { ...s.snap, reachable: false } } : s));
+    } finally { inflight.current = false; }
+  }, [leave, load]);
+
+  const accept = useCallback((view: AccountView) => {
+    setState((s) => (s.s === 'signed-in' && s.user.id === view.user.id ? { ...s, snap: fresh(view) } : s));
+  }, []);
+
+  // A session can end, or the plan can change, while the app is open (expiry, a payment, a cancellation, a sign-out on another device).
+  // Look again on a timer, when the tab comes back, and when the connection returns. Being offline is not an end of the session.
   useEffect(() => {
     if (state.s !== 'signed-in') return;
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible' || Date.now() - lastCheck.current < SESSION_RECHECK_MS) return;
-      lastCheck.current = Date.now();
-      void load({ quiet: true });
-    };
+    const onVisible = () => { if (document.visibilityState === 'visible' && Date.now() - lastCheck.current >= VISIBLE_RECHECK_MS) void recheck(); };
+    const every = window.setInterval(() => { if (document.visibilityState === 'visible') void recheck(); }, RECHECK_EVERY_MS);
+    const onOnline = () => void recheck();
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [state.s, load]);
+    window.addEventListener('online', onOnline);
+    return () => { window.clearInterval(every); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onOnline); };
+  }, [state.s, recheck]);
+
+  const snap = state.s === 'signed-in' ? state.snap : null;
+  const status = useMemo<AccessStatus>(() => (snap ? decideAccess(snap, Date.now()) : { kind: 'allowed', offlineUntil: null }), [snap, tick]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // At the moment confirmed access is due to end (or the offline allowance is), look again; the server decides what happens next.
+  useEffect(() => {
+    if (!snap || status.kind !== 'allowed') return;
+    const now = Date.now();
+    const wait = status.offlineUntil !== null ? Math.max(1000, status.offlineUntil - serverNowMs(snap, now) + 1000) : msUntilAccessEnds(snap, now);
+    if (wait === null) return;
+    const t = window.setTimeout(() => { setTick((n) => n + 1); void recheck(); }, Math.min(wait, MAX_TIMER_MS));
+    return () => window.clearTimeout(t);
+  }, [snap, status, recheck]);
+  // Confirmed access that has run out by the server's clock is not trusted while the question is open: ask now.
+  useEffect(() => { if (status.kind === 'reconfirm') void recheck(); }, [status.kind, recheck]);
 
   const signOut = useCallback(async () => {
     // Let the app write what it is holding first: the same path the browser uses when the page closes.
@@ -151,7 +218,9 @@ export const AccountProvider = ({ children }: { children: (scope: { repo: Reposi
     billingMode: accounts?.billing.mode ?? null,
     signOut, accountDeleted,
     takeFlash: () => { const f = flash.current; flash.current = null; return f; },
-  }), [state, accounts, signOut, accountDeleted]);
+    announce: setAnnounced, announced, clearAnnounced: () => setAnnounced(null),
+    access: snap ? { status, view: snap.view, accept, recheck } : OPEN_ACCESS,
+  }), [state, accounts, signOut, accountDeleted, snap, status, accept, recheck, announced]);
 
   const userId = state.s === 'signed-in' ? state.user.id : null;
   const scope = useMemo(() => ({ repo: userId ? new LocalStorageRepository(nsKey(STORAGE_KEY)) : defaultRepo, scopeKey: userId ?? 'local' }), [userId]);
