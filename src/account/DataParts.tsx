@@ -17,9 +17,13 @@ export const PrivateLines = ({ counts }: { counts: DataCounts }) => (
   </ul>
 );
 
-export const Side = ({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) => (
-  <div data-testid={testId}>
-    <h4>{title}</h4>
-    {children}
-  </div>
-);
+/** One side of a comparison. Its title is a heading one level below the section it sits in (`level` 3 under a card’s h2, 4 under a panel’s h3). */
+export const Side = ({ title, children, testId, level = 3 }: { title: string; children: ReactNode; testId?: string; level?: 3 | 4 }) => {
+  const H = level === 3 ? 'h3' : 'h4';
+  return (
+    <div data-testid={testId}>
+      <H>{title}</H>
+      {children}
+    </div>
+  );
+};

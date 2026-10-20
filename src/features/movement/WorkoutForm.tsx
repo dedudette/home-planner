@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { EXERCISES } from '../../domain/movement/exercises';
 import { workoutMinutes } from '../../domain/movement/planner';
@@ -15,11 +16,11 @@ const blank = (): Row => ({ exerciseId: '', name: '', sets: '2', mode: 'reps', a
 export const WorkoutFormSheet = ({ editId }: { editId?: string }) => {
   const { data, closeSheet, dispatch, toast } = useApp();
   const existing = data.movement.custom.find((w) => w.id === editId);
-  const [name, setName] = useState(existing?.name ?? '');
-  const [type, setType] = useState<MoveType>(existing?.type ?? 'strength');
-  const [level, setLevel] = useState<MoveLevel>(existing?.level ?? 'beginner');
-  const [blurb, setBlurb] = useState(existing?.blurb ?? '');
-  const [rows, setRows] = useState<Row[]>(existing?.blocks.map((b) => ({ exerciseId: b.exerciseId ?? '', name: b.name ?? '', sets: String(b.sets), mode: b.seconds !== undefined ? 'seconds' as const : 'reps' as const, amount: String(b.seconds ?? b.reps ?? 10), rest: String(b.restSeconds) })) ?? [blank(), blank()]);
+  const [name, setName] = useDraftState('name', existing?.name ?? '', 'text');
+  const [type, setType] = useDraftState<MoveType>('type', existing?.type ?? 'strength');
+  const [level, setLevel] = useDraftState<MoveLevel>('level', existing?.level ?? 'beginner');
+  const [blurb, setBlurb] = useDraftState('blurb', existing?.blurb ?? '', 'text');
+  const [rows, setRows] = useDraftState<Row[]>('rows', existing?.blocks.map((b) => ({ exerciseId: b.exerciseId ?? '', name: b.name ?? '', sets: String(b.sets), mode: b.seconds !== undefined ? 'seconds' as const : 'reps' as const, amount: String(b.seconds ?? b.reps ?? 10), rest: String(b.restSeconds) })) ?? [blank(), blank()], (r) => r.some((x) => x.name.trim() !== ''));
   const [touched, setTouched] = useState(false);
 
   const toBlock = (r: Row): WorkoutBlock | null => {

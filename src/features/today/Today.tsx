@@ -269,7 +269,7 @@ export const Today = () => {
           </section>
         )}
 
-        <div className="card soft row between">
+        <div className="card soft row between wrap">
           <div><p className="strong">Tomorrow</p><p className="small muted">{tomorrow.tasks.length ? `${tomorrow.tasks.length} task${tomorrow.tasks.length === 1 ? '' : 's'} · about ${formatMinutes(tomorrow.minutes)}` : 'A free day.'}</p></div>
           <a className="btn ghost sm" href="#/schedule">See schedule</a>
         </div>

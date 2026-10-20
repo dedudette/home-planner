@@ -48,6 +48,8 @@ const mail = async (base, to) => (await fetch(`${base}__test/mail?to=${encodeURI
 const waitMail = async (base, to) => { for (let i = 0; i < 40; i++) { const ms = (await mail(base, to)).filter((x) => /confirm your email/i.test(x.subject)); if (ms.length) return ms[ms.length - 1]; await new Promise((r) => setTimeout(r, 100)); } throw new Error(`no mail for ${to}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const welcomeVisible = (p) => p.getByRole('heading', { name: 'One calm plan for your home, your body and your day' }).waitFor();
+/** A new account has no trial yet, so the planner is closed and the first screen is Trial & plans in its paused form. */
+const pausedVisible = (p) => p.getByTestId('planner-paused').waitFor();
 
 /** A confirmed, signed-in account on `base`. */
 const newAccount = async (page, base, email) => {
@@ -59,7 +61,7 @@ const newAccount = async (page, base, email) => {
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();
   const m = await waitMail(base, email);
   await page.goto(m.text.match(/https?:\/\/\S+/)[0]);
-  await welcomeVisible(page);
+  await pausedVisible(page);
 };
 const openPlans = async (page) => { await page.evaluate(() => { location.hash = '#/account'; }); await page.getByRole('heading', { name: 'Trial & plans', level: 1 }).waitFor(); await page.locator('main h2').first().waitFor(); };
 const api = (page, path, init) => page.evaluate(async ([p, i]) => { const r = await fetch(p, i); return { status: r.status, json: await r.json().catch(() => null) }; }, [path, init]);
@@ -73,7 +75,7 @@ const DAYMS = 86400000;
   await newAccount(page, A, 'tia.one@example.test');
   await step('opening Trial & plans never starts the trial; the server holds no trial yet', async () => {
     await openPlans(page);
-    await page.getByRole('heading', { name: 'Free trial' }).waitFor();
+    await page.getByRole('heading', { name: 'Free trial', exact: true }).waitFor();
     const a = await api(page, '/api/account');
     check('no trial recorded after the page loaded', a.json.account.trial === null && a.json.account.entitlement.state === 'eligible-not-started');
     check('the start button exists but is disabled until the box is ticked', await trialBtn(page).isDisabled());
@@ -128,15 +130,12 @@ const DAYMS = 86400000;
 }
 {
   const { ctx, page } = await open({ label: 'expired-style' });
-  await step('the signed-in bar on the welcome page links to Trial & plans, and Back returns', async () => {
+  await step('a new account lands on Trial & plans in its paused form: no planner, the trial on offer, and nothing charged', async () => {
     await newAccount(page, A, 'tia.two@example.test');
-    check('link on the welcome page', (await page.getByRole('link', { name: 'Trial & plans' }).count()) === 1);
-    await page.getByRole('link', { name: 'Trial & plans' }).click();
-    await page.getByRole('heading', { name: 'Trial & plans', level: 1 }).waitFor();
-    await page.locator('main h2').first().waitFor();
+    check('this is the Trial & plans screen', (await page.getByRole('heading', { name: 'Trial & plans', level: 1 }).count()) === 1);
+    check('it says the planner is paused and the trial is on offer', /Start your free trial/.test(await page.getByTestId('planner-paused').innerText()));
     check('a new account is offered the trial, not a charge', (await trialBtn(page).count()) === 1);
-    await page.getByRole('link', { name: 'Back to the app' }).click();
-    await welcomeVisible(page);
+    check('there is no planner to go back to', (await page.getByRole('link', { name: 'Back to the app' }).count()) === 0 && (await page.locator('nav').count()) === 0);
   }, page);
   await ctx.close();
 }

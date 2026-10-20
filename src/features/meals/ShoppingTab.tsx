@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { addDays, formatDay, formatShort, startOfWeek } from '../../domain/dates';
 import { identify } from '../../domain/meals/ingredients';
@@ -20,10 +21,10 @@ const manualItem = (name: string, qty: number | null, unit: Unit | null): Shoppi
 // ───────────── make a list from the meals in a date range ─────────────
 export const ShopGenSheet = () => {
   const { data, today, closeSheet, dispatch, toast } = useApp();
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(addDays(startOfWeek(today), 6) < today ? addDays(today, 6) : addDays(startOfWeek(today), 6));
-  const [off, setOff] = useState<string[]>([]);
-  const [name, setName] = useState('');
+  const [from, setFrom] = useDraftState('from', today, 'text');
+  const [to, setTo] = useDraftState('to', addDays(startOfWeek(today), 6) < today ? addDays(today, 6) : addDays(startOfWeek(today), 6), 'text');
+  const [off, setOff] = useDraftState<string[]>('off', []);
+  const [name, setName] = useDraftState('name', '', 'text');
   const inRange = shoppableEntries(data.meals.plan, from, to);
   const chosen = inRange.filter((e) => !off.includes(e.id));
   const parts = chosen.flatMap((entry) => { const recipe = recipeOf(data, entry.ref); return recipe ? [{ entry, recipe }] : []; });
@@ -104,11 +105,11 @@ export const ShopItemSheet = ({ listId, itemId }: { listId: string; itemId?: str
   const { data, closeSheet, dispatch, toast } = useApp();
   const list = data.shopping.lists.find((l) => l.id === listId);
   const item = list?.items.find((i) => i.id === itemId);
-  const [name, setName] = useState(item?.name ?? '');
-  const [qty, setQty] = useState(item?.qty === null || item?.qty === undefined ? '' : String(item.qty));
-  const [unit, setUnit] = useState<Unit | ''>(item?.unit ?? '');
-  const [category, setCategory] = useState(item?.category ?? 'other');
-  const [note, setNote] = useState(item?.note ?? '');
+  const [name, setName] = useDraftState('name', item?.name ?? '', 'text');
+  const [qty, setQty] = useDraftState('qty', item?.qty === null || item?.qty === undefined ? '' : String(item.qty), 'text');
+  const [unit, setUnit] = useDraftState<Unit | ''>('unit', item?.unit ?? '');
+  const [category, setCategory] = useDraftState('category', item?.category ?? 'other');
+  const [note, setNote] = useDraftState('note', item?.note ?? '', 'text');
   if (!list) return <Sheet title="Item" onClose={closeSheet}><p>This list is gone.</p></Sheet>;
   const pantry = item ? data.shopping.pantry.includes(item.key) : false;
   const save = () => {

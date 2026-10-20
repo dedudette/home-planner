@@ -7,6 +7,9 @@ import { useAccount } from './AccountProvider';
 import { takeBillingReturn, type BillingReturn } from './billingReturn';
 import { describeAuthError, type Described } from './errors';
 import { canSubmitTrial, describeBillingUnavailable, formatDate, pricingOptions, safeCheckoutUrl, trialSummary, TRIAL_PROMISE } from './planView';
+import { gateCopy } from './access';
+import { GateAccountCard } from './GateAccountCard';
+import { DraftsNote } from './Drafts';
 import { AuthFrame, Notice } from './Screens';
 import { AllowanceCard, SubscriptionCard, YourDataCard } from './SubscriptionCards';
 import { useAccountView } from './useAccountView';
@@ -17,8 +20,10 @@ import { useAccountView } from './useAccountView';
  * coming back from the payment page as a payment: the plan changes only when the server reports it.
  */
 export const TrialPlans = () => {
-  const { mode, user, billingMode } = useAccount();
-  const back = <a href="#/">Back to the app</a>;
+  const { mode, user, billingMode, access, announce } = useAccount();
+  // When the server says the account has no access, this is the screen the planner is replaced by: the same sections, framed as "paused".
+  const paused = access.status.kind === 'blocked';
+  const back = paused ? <a href="#/account/data">Data &amp; backup</a> : <a href="#/">Back to the app</a>;
   if (mode !== 'accounts' || !user) {
     return (
       <AuthFrame title="Trial & plans" lead="This setup has no accounts, so there is no trial and nothing to buy. The app works fully on this device." footer={back}>
@@ -26,10 +31,10 @@ export const TrialPlans = () => {
       </AuthFrame>
     );
   }
-  return <Signed billingMode={billingMode} back={back} />;
+  return <Signed billingMode={billingMode} back={back} paused={paused} announce={announce} />;
 };
 
-const Signed = ({ billingMode, back }: { billingMode: 'test' | 'live' | null; back: JSX.Element }) => {
+const Signed = ({ billingMode, back, paused, announce }: { billingMode: 'test' | 'live' | null; back: JSX.Element; paused: boolean; announce: (m: string) => void }) => {
   const { state, refresh, set } = useAccountView();
   const [ret] = useState<BillingReturn>(() => takeBillingReturn());
   const [note, setNote] = useState<{ kind: 'info' | 'good' | 'error'; text: string } | null>(
@@ -71,18 +76,27 @@ const Signed = ({ billingMode, back }: { billingMode: 'test' | 'live' | null; ba
     );
   }
   const account = state.account;
+  const copy = paused ? gateCopy(account) : null;
   return (
     <AuthFrame title="Trial & plans" lead="Your free trial and your subscription. Nothing here is charged unless you choose a plan and pay on the secure payment page." footer={back} wide>
+      {copy && (
+        <section className="card stack paused" aria-labelledby="paused-h" data-testid="planner-paused">
+          <h2 id="paused-h" className="h3">{copy.title}</h2>
+          <p>{copy.lead}</p>
+        </section>
+      )}
+      {paused && <DraftsNote />}
       {billingMode === 'test' && <Notice>This server is connected to the payment provider's test mode. No real money is taken, and test card numbers are used.</Notice>}
       {note && <Notice kind={note.kind}>{note.text}</Notice>}
       {(ret.kind === 'success' || ret.kind === 'returned') && !checking && note?.kind !== 'good' && (
         <div><Button variant="secondary" size="sm" onClick={() => void confirmPayment(ret.kind === 'success' ? ret.sessionId : null)}>Check payment status again</Button></div>
       )}
-      <TrialCard account={account} onStarted={(a) => { set(a); setNote({ kind: 'good', text: `Your ${TRIAL_DAYS}-day free trial has started.` }); }} />
+      <TrialCard account={account} onStarted={(a) => { set(a); setNote({ kind: 'good', text: `Your ${TRIAL_DAYS}-day free trial has started.` }); if (paused) announce(`Your ${TRIAL_DAYS}-day free trial has started. The planner is open.`); }} />
       <SubscriptionCard account={account} onAccount={set} onRefresh={() => void refresh({ quiet: true })} />
       <PlansCard account={account} billingMode={billingMode} onChanged={() => void refresh({ quiet: true })} />
       <AllowanceCard account={account} />
       <YourDataCard account={account} />
+      {paused && <GateAccountCard />}
     </AuthFrame>
   );
 };

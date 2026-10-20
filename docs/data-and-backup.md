@@ -6,6 +6,8 @@ at all") the same address says that nothing leaves the device, offers no control
 
 Nothing on the screen starts a trial, changes a subscription, or sends anything without a button press on a preview.
 
+**It stays open when the planner is closed** (no trial yet, trial or subscription ended, a payment problem): copying earlier data in, restoring and deleting a cloud backup, and **Download my plan and history** (a file made on the device, no server, always available) all work without any entitlement. Only *Back up now* needs one, and the server decides that (402). Settings and the planner are behind the gate (`docs/billing.md`), so restore points are listed here but restored from Settings once the planner is open.
+
 ## Where data lives
 
 | | On this device | In the cloud backup |
@@ -14,6 +16,7 @@ Nothing on the screen starts a trial, changes a subscription, or sends anything 
 | Private journal and the **text** of check-in notes | always | **only if ticked** (its own choice, unticked every time the panel opens) |
 | Health readings imported from Apple Health / Health Connect | always | **only if ticked** (its own choice) |
 | A running timer or workout, this device's reminder schedule | always | never |
+| **Unsent text** kept because the person left (the planner closed, the session ended, they signed out, or the account changed under an open form; see `docs/billing.md`, "Unsent text when the person leaves") | on this device only, under the account's own key `cleanflow:drafts@<id>`, until finished, discarded, 30 days, or the account is deleted | **never** (not in a backup upload, the downloaded plan file or the account export) |
 
 A backup is a **copy, not sync**: later changes are not sent until the next backup, and another device gets it only when its owner restores it
 there. It is stored as readable JSON text in the server's database, protected by the account sign-in. It is **not end-to-end encrypted**, and

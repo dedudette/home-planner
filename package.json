@@ -24,7 +24,10 @@
     "e2e:plans": "sh scripts/test-db.sh run node tests/e2e/plans.mjs",
     "e2e:accounts": "sh scripts/test-db.sh run node tests/e2e/accounts.mjs",
     "e2e:subscription": "sh scripts/test-db.sh run node tests/e2e/subscription.mjs",
-    "e2e:backup": "sh scripts/test-db.sh run node tests/e2e/backup.mjs"
+    "e2e:backup": "sh scripts/test-db.sh run node tests/e2e/backup.mjs",
+    "e2e:gate": "sh scripts/test-db.sh run node tests/e2e/gate.mjs",
+    "e2e:a11y": "sh scripts/test-db.sh run node tests/e2e/a11y.mjs",
+    "e2e:drafts": "sh scripts/test-db.sh run node tests/e2e/drafts.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
@@ -47,6 +50,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "axe-core": "4.14.0",
     "playwright-core": "^1.63.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",

@@ -19,7 +19,8 @@ const verdict = (label, a) => {
   check(label, problems.length === 0, problems.join('; '));
 };
 
-for (const size of WIDTHS) {
+// E2E_ONLY=large runs just the large-text sweep at the end.
+for (const size of (process.env.E2E_ONLY === 'large' ? [] : WIDTHS)) {
   const label = `${size.w}px`;
   // ── a household with habits (cleaning + habits) ──
   {
@@ -149,6 +150,86 @@ for (const size of WIDTHS) {
     }, page);
     await ctx.close();
   }
+}
+
+// ───────────── Large text: 200% text on the phone widths, light and dark ─────────────
+// A person who has set a large text size gets the same planner at half the room. Nothing may spill past the screen or out of its own box,
+// the five bottom-navigation labels must stay whole and apart (the navigation wraps onto a second row instead of overlapping), the last
+// thing on a page must clear the navigation, and a chart that has to scroll must be reachable by keyboard. The text size is set the way a
+// browser's own large-text setting does: the root font size doubles (every rem follows); no px sizes are touched.
+const LARGE_ROUTES = ['today', 'plan', 'plan?tab=rooms', 'plan?tab=deep', 'schedule', 'progress', 'patterns', 'home', 'supplies', 'settings', 'more',
+  'movement', 'movement?tab=progress', 'meals', 'wellbeing?tab=checkin', 'wellbeing?tab=water', 'wellbeing?tab=journal', 'learning'];
+const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+const largeAudit = () => {
+  const out = {};
+  // 1. every label is whole and inside its own item, and no two labels overlap
+  const items = [...document.querySelectorAll('.bottomnav a')];
+  const labels = items.map((a) => { const r = document.createRange(); r.selectNodeContents([...a.childNodes].filter((n) => n.nodeType === 3 || (n.nodeType === 1 && n.tagName !== 'svg')).pop() ?? a); const t = r.getBoundingClientRect(); const b = a.getBoundingClientRect(); return { text: a.textContent.trim(), t, b }; });
+  out.navLabelsOutside = labels.filter((l) => l.t.left < l.b.left - 0.5 || l.t.right > l.b.right + 0.5).map((l) => l.text);
+  out.navLabelsOverlap = [];
+  for (let i = 0; i < labels.length; i++) for (let j = i + 1; j < labels.length; j++) {
+    const a = labels[i].t; const b = labels[j].t;
+    if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) out.navLabelsOverlap.push(labels[i].text + '/' + labels[j].text);
+  }
+  out.navItemsOnScreen = items.every((a) => { const b = a.getBoundingClientRect(); return b.left >= -0.5 && b.right <= document.documentElement.clientWidth + 0.5; });
+  out.navRows = new Set(items.map((a) => Math.round(a.getBoundingClientRect().top))).size;
+  // 2. the last thing on the page clears the navigation
+  window.scrollTo(0, document.documentElement.scrollHeight);
+  const nav = document.querySelector('.bottomnav'); const main = document.querySelector('.main');
+  if (nav && main) {
+    const lowest = Math.max(...[...main.querySelectorAll('*')].map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.bottom));
+    out.clearBy = Math.round(nav.getBoundingClientRect().top - lowest);
+  }
+  window.scrollTo(0, 0);
+  // 3. a chart that scrolls is a tab stop; one that does not is not
+  out.chartsBad = [...document.querySelectorAll('.bars')].filter((c) => (c.scrollWidth > c.clientWidth + 1) !== (c.getAttribute('tabindex') === '0')).length;
+  out.charts = document.querySelectorAll('.bars').length;
+  out.chartsScrolling = [...document.querySelectorAll('.bars')].filter((c) => c.scrollWidth > c.clientWidth + 1).length;
+  return out;
+};
+const allSectionsOn = (page) => page.evaluate(() => {
+  window.dispatchEvent(new Event('pagehide'));
+  const d = JSON.parse(localStorage.getItem('cleanflow:v1'));
+  d.modules.enabled = { ...d.modules.enabled, movement: true, meals: true, learning: true, water: true, wellbeing: true };
+  d._rev = (d._rev ?? 0) + 100;
+  localStorage.setItem('cleanflow:v1', JSON.stringify(d));
+});
+const largeText = () => { const add = () => { const st = document.createElement('style'); st.textContent = 'html { font-size: 200% !important; }'; document.head.appendChild(st); }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add(); };
+{
+  let sawScrollingChart = false;
+  for (const dark of [false, true]) for (const size of WIDTHS.filter((w) => w.mobile)) for (const [demoName, demo] of [['family', DEMOS.family], ['student', DEMOS.student]]) {
+    const label = `200% text · ${size.w}px · ${dark ? 'dark' : 'light'} · ${demoName}`;
+    const ctx = await browser.newContext({ viewport: { width: size.w, height: size.h }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, colorScheme: dark ? 'dark' : 'light', locale: 'en-US', timezoneId: 'UTC' });
+    await ctx.addInitScript(largeText);
+    const page = await ctx.newPage(); watch(page, errors, label);
+    await page.clock.setFixedTime(new Date(2026, 9, 5, 8, 15));
+    await loadDemo(page, demo, '.app');
+    await allSectionsOn(page);
+    await page.reload(); await page.waitForSelector('.app');
+    await step(label, async () => {
+      for (const r of LARGE_ROUTES) {
+        await page.evaluate((x) => (location.hash = '#/' + x), r);
+        await page.waitForSelector('.app .page, .app .empty');
+        await page.evaluate(frames);
+        const a = await page.evaluate(auditPage);
+        const l = await page.evaluate(largeAudit);
+        const problems = [];
+        if (a.docOverflow > 0) problems.push(`the page is ${a.docOverflow}px wider than the screen`);
+        if (a.wide.length) problems.push(`wider than the screen: ${a.wide.join(', ')}`);
+        if (l.navLabelsOutside.length) problems.push(`nav labels spill out of their item: ${l.navLabelsOutside.join(', ')}`);
+        if (l.navLabelsOverlap.length) problems.push(`nav labels overlap: ${l.navLabelsOverlap.join(', ')}`);
+        if (!l.navItemsOnScreen) problems.push('a nav item is off the screen');
+        if (l.clearBy !== undefined && l.clearBy < -1) problems.push(`the last thing on the page is ${-l.clearBy}px under the navigation`);
+        if (l.chartsBad) problems.push('a chart that scrolls is not a tab stop, or one that does not scroll is');
+        if (l.chartsScrolling) sawScrollingChart = true;
+        check(`${label} · #/${r}: nothing spills, the nav is whole, the page clears it`, problems.length === 0, problems.join('; '));
+      }
+      const nav = await page.evaluate(() => ({ items: document.querySelectorAll('.bottomnav a').length, rows: new Set([...document.querySelectorAll('.bottomnav a')].map((x) => Math.round(x.getBoundingClientRect().top))).size }));
+      check(`${label} · all five navigation items are there (in ${nav.rows} row${nav.rows === 1 ? '' : 's'})`, nav.items === 5 && nav.rows >= 1 && nav.rows <= 3, JSON.stringify(nav));
+    }, page);
+    await ctx.close();
+  }
+  check('at least one chart really did scroll at 200% text, so the keyboard rule above was exercised', sawScrollingChart);
 }
 done(errors);
 await browser.close();

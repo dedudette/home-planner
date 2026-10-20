@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { FREQ_LABEL } from '../../domain/schedule';
 import { DOMAIN_LABEL } from '../../domain/options';
@@ -14,14 +15,14 @@ const PRIO_LABEL: Record<Priority, string> = { URGENT: 'Urgent', HIGH: 'High', M
 export const TaskFormSheet = ({ editId }: { editId?: string }) => {
   const { data, plan, today, closeSheet, dispatch, toast } = useApp();
   const existing = data.customTasks.find((c) => c.id === editId);
-  const [name, setName] = useState(existing?.name ?? '');
-  const [domain, setDomain] = useState<Domain>(existing?.domain ?? (data.preferences.focus.includes('home') ? 'home' : 'mind'));
-  const [roomId, setRoomId] = useState(existing?.roomId ?? 'other');
-  const [frequency, setFrequency] = useState<Frequency>(existing?.frequency ?? 'once');
-  const [minutes, setMinutes] = useState(String(existing?.minutes ?? 10));
-  const [priority, setPriority] = useState<Priority>(existing?.priority ?? 'MEDIUM');
-  const [notes, setNotes] = useState(existing?.notes ?? '');
-  const [startDate, setStartDate] = useState(existing?.startDate ?? today);
+  const [name, setName] = useDraftState('name', existing?.name ?? '', 'text');
+  const [domain, setDomain] = useDraftState<Domain>('domain', existing?.domain ?? (data.preferences.focus.includes('home') ? 'home' : 'mind'));
+  const [roomId, setRoomId] = useDraftState('roomId', existing?.roomId ?? 'other');
+  const [frequency, setFrequency] = useDraftState<Frequency>('frequency', existing?.frequency ?? 'once');
+  const [minutes, setMinutes] = useDraftState('minutes', String(existing?.minutes ?? 10), 'text');
+  const [priority, setPriority] = useDraftState<Priority>('priority', existing?.priority ?? 'MEDIUM');
+  const [notes, setNotes] = useDraftState('notes', existing?.notes ?? '', 'text');
+  const [startDate, setStartDate] = useDraftState('startDate', existing?.startDate ?? today, 'text');
   const [touched, setTouched] = useState(false);
 
   const mins = Number(minutes);

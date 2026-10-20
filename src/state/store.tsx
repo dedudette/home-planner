@@ -24,6 +24,7 @@ import { hasUserData } from '../storage/schema';
 import { reducer, type Action, type Stamp } from './reducer';
 import { playChime } from './chime';
 import { takeLegacyTheme, useAppearanceEffect } from './appearanceEnv';
+import { useDrafts } from './draftsContext';
 
 export type EditSection = 'type' | 'size' | 'rooms' | 'people' | 'pets' | 'state' | 'style' | 'energy' | 'goals' | 'focus';
 
@@ -420,8 +421,17 @@ export const AppProvider = ({ children, repo = defaultRepo }: { children: ReactN
   const [sheets, setSheets] = useState<Sheet[]>([]);
   sheetsRef.current = sheets;
   const openSheet = useCallback((s: Sheet) => setSheets((x) => [...x, s]), []);
-  const closeSheet = useCallback(() => setSheets((x) => x.slice(0, -1)), []);
-  const closeAllSheets = useCallback(() => setSheets([]), []);
+  // Leaving a sheet on purpose (saved, cancelled, closed) ends the text typed into it. The planner closing does not touch the stack, so a draft survives that.
+  const drafts = useDrafts();
+  const closeSheet = useCallback(() => {
+    const top = sheetsRef.current[sheetsRef.current.length - 1];
+    if (top) drafts?.dropSheet(top);
+    setSheets((x) => x.slice(0, -1));
+  }, [drafts]);
+  const closeAllSheets = useCallback(() => {
+    for (const s of sheetsRef.current) drafts?.dropSheet(s);
+    setSheets([]);
+  }, [drafts]);
   const confirm = useCallback((o: ConfirmOptions) => setSheets((x) => [...x, { kind: 'confirm', ...o }]), []);
 
   // ── destructive replacement: always backed up, always undoable ──

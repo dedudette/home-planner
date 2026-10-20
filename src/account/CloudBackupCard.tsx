@@ -59,7 +59,7 @@ const useCloudCopy = (active: boolean, revision: number | null): [CloudCopy, () 
 };
 
 const Counts = ({ counts, title, testId }: { counts: DataCounts; title: string; testId?: string }) => (
-  <Side title={title} testId={testId}><PlanLines counts={counts} /><PrivateLines counts={counts} /></Side>
+  <Side title={title} testId={testId} level={4}><PlanLines counts={counts} /><PrivateLines counts={counts} /></Side>
 );
 
 export const CloudBackupCard = () => {
@@ -222,7 +222,7 @@ export const CloudBackupCard = () => {
           <h4 className="h3">{conflict === 'unseen' ? 'There is already a cloud copy this device has never seen' : conflict === 'deleted' ? 'The cloud copy this device last saw has been deleted' : 'The cloud copy changed since this device last saw it'}</h4>
           <p className="small">{conflict === 'unseen' ? 'It may come from another device. Nothing is overwritten until you choose.' : conflict === 'deleted' ? 'There is nothing in the cloud to replace now.' : `This device saw revision ${record?.revision}; the cloud now has revision ${meta?.revision}. Nothing is overwritten until you choose.`}</p>
           <div className="compare">
-            <Side title="In the cloud" testId="conflict-cloud">
+            <Side title="In the cloud" testId="conflict-cloud" level={4}>
               {meta ? (
                 <>
                   <p className="small">Revision {meta.revision}, saved {formatWhen(meta.updatedAt)}, {formatSize(meta.sizeBytes)}</p>
@@ -334,14 +334,16 @@ export const CloudBackupCard = () => {
 /** The restore points this device keeps (they are restored from Settings). */
 const RestorePoints = () => {
   const { repo } = useApp();
+  const { access } = useAccount();
   const list = repo.listBackups();
+  const open = access.status.kind === 'allowed';
   return (
     <div className="stack" data-testid="restore-points">
       <h3 className="h3">Restore points on this device</h3>
       {list.length === 0 ? <p className="small muted">None yet. A restore point is kept automatically before anything on this screen replaces your plan.</p> : (
         <ul className="small data-list">{list.map((b) => <li key={b.id}>{formatWhen(b.at)} · {BACKUP_REASON[b.reason] ?? b.reason} · {b.entries} logged actions</li>)}</ul>
       )}
-      <p className="small muted">They stay on this device only and are restored from <a href="#/settings">Settings</a>.</p>
+      <p className="small muted">They stay on this device only. {open ? <>They are restored from <a href="#/settings">Settings</a>.</> : 'They are restored from Settings once the planner is open again.'}</p>
     </div>
   );
 };

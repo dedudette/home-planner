@@ -11,7 +11,7 @@ export const Welcome = ({ onStart, onDemo }: { onStart: () => void; onDemo: () =
   const { mode } = useAccount();
   const [history, setHistory] = useState(true);
   return (
-    <div className="onb">
+    <main className="onb">
       <SignedInBar />
       <div className="hero">
         <span className="brand"><span className="brand-mark"><I.sparkles size={20} aria-hidden /></span>CleanFlow</span>
@@ -52,6 +52,6 @@ export const Welcome = ({ onStart, onDemo }: { onStart: () => void; onDemo: () =
           ))}
         </div>
       </section>
-    </div>
+    </main>
   );
 };

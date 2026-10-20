@@ -1,6 +1,7 @@
 import type { AppData } from '../domain/types';
 import { countData, sameData, stableText, type DataCounts } from '../storage/backupPlan';
 import { interpret, STORAGE_KEY, type LoadStatus, type Repository, type StorageLike } from '../storage/repository';
+import { draftsKey } from '../state/drafts';
 import { hasUserData } from '../storage/schema';
 import { cloudPendingKey, cloudRecordKey } from './cloudBackup';
 import { deviceStorage, readRecord, removeRecord, writeRecord } from './deviceStore';
@@ -184,6 +185,7 @@ export const undoClaim = (accountId: string, storage?: StorageLike): void => {
 export const forgetAccountOnDevice = (accountId: string, erasedPlan: boolean, storage?: StorageLike): void => {
   removeRecord(cloudRecordKey(accountId), storage);
   removeRecord(cloudPendingKey(accountId), storage);
+  removeRecord(draftsKey(accountId), storage);               // unsent text is never kept for an account that no longer exists, whatever happens to the plan
   if (!erasedPlan) return;
   removeRecord(intentKey(accountId), storage);
   const claim = readClaim(storage);

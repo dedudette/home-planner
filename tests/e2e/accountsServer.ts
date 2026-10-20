@@ -11,6 +11,7 @@ import { resolveStatic } from '../../server/static';
 import { startFakeStripe, type FakeStripe } from '../support/fakeStripe';
 import { appDataForDemo, DEMO_PROFILES } from '../../src/domain/demo';
 import { reducer } from '../../src/state/reducer';
+import { METRIC_IDS, validatePayload } from '../../src/domain/coach/metrics';
 
 /**
  * A throwaway server for the browser checks of the account screens: the built app (dist/), the real API (real Better Auth, real
@@ -25,6 +26,9 @@ import { reducer } from '../../src/state/reducer';
  *                            webhook the provider would send. GET /__test/advance?days=N moves the SERVER's clock on. GET /__test/use?email=…&n=N spends
  *                            N AI requests through the real ledger. GET /__test/state?email=… reports what the mock provider holds.
  *
+ *   E2E_AI_DUMMY=1          the AI endpoints are switched on with a dummy key and an unreachable provider address (see the code): for tests of who is refused
+ *   GET /__test/coach-body   (any mode) a request body the AI coach endpoint accepts as well-formed with enough data, so a test can see the
+ *                            entitlement, not the validation, decide the answer. It is checked with the endpoint's own validator before it is returned.
  *   GET /__test/seed?name=…&demo=N   (any mode) a complete, valid plan as JSON text, for a test to put in browser storage: demo profile N with history,
  *                            named `name`, plus two private journal entries, one check-in note and three days of imported health readings that all
  *                            carry the name, so a test can tell whose data it is looking at and whether anything private went anywhere.
@@ -45,6 +49,9 @@ const main = async () => {
   let dbName = '';
   let admin: Pool | undefined;
   const env: Record<string, string> = MODE === 'local' ? {} : { CLEANFLOW_MODE: 'accounts', APP_ORIGIN: ORIGIN, DATABASE_URL: 'postgres://unused/unused', BETTER_AUTH_SECRET: 'e2e-secret-'.padEnd(40, 'x'), TRIAL_CLAIM_SECRET: 'e2e-claim-'.padEnd(40, 'y'), MAIL_PROVIDER: 'console' };
+  // E2E_AI_DUMMY=1: the AI endpoints exist (so a test can see the entitlement refuse them) but the key is not real and the provider address is a
+  // port nothing listens on: even a bug that let a request through could not reach any provider, and nothing is ever paid for.
+  if (MODE === 'accounts' && process.env.E2E_AI_DUMMY === '1') Object.assign(env, { ANTHROPIC_API_KEY: 'e2e-dummy-not-a-provider-key-000000', COACH_API_BASE_URL: 'http://127.0.0.1:9' });
   let fake: FakeStripe | undefined;
   if (MODE === 'accounts' && process.env.E2E_BILLING === 'fake') {
     fake = await startFakeStripe();
@@ -80,6 +87,16 @@ const main = async () => {
     if (u.pathname === '/__test/complete' && fake) {
       const sid = u.searchParams.get('session') ?? '';
       try { fake.completeCheckout(sid, 'paid'); res.end('{"ok":true}'); } catch (e) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: String(e) })); }
+      return;
+    }
+    if (u.pathname === '/__test/coach-body') {
+      const m = Object.fromEntries(METRIC_IDS.map((id) => [id, 0])) as Record<string, number>;
+      Object.assign(m, { 'days.window': 14, 'days.opened': 10, 'days.notOpened': 4, 'tasks.seen': 30, 'tasks.seenCompleted': 20, 'tasks.seenNoAction': 10, 'area.home.seen': 15, 'area.habits.seen': 15, 'area.home.completed': 10, 'area.habits.completed': 10, 'area.home.noAction': 5, 'area.habits.noAction': 5 });
+      const body = { v: 1, windowDays: 14, metrics: m };
+      const ok = validatePayload(body).ok;
+      res.statusCode = ok ? 200 : 500;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(ok ? body : { error: 'the test body is not accepted by the validator' }));
       return;
     }
     if (u.pathname === '/__test/seed') {

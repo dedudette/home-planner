@@ -34,7 +34,8 @@
   --radius-sm: 14px;
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-head: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-  --nav-h: 68px;
+  --nav-row: 68px;                    /* one row of the bottom navigation */
+  --nav-h: var(--nav-row);            /* its whole height: App.tsx raises this when large text makes the navigation wrap onto more rows */
   --safe-b: env(safe-area-inset-bottom, 0px);
   color-scheme: light;
 }
@@ -151,7 +152,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
 .bottomnav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: flex; flex-wrap: wrap;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(14px);
   border-top: 1px solid var(--line);
@@ -159,8 +160,10 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 }
 .bottomnav a, .bottomnav button.navbtn {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  min-height: var(--nav-h); color: var(--muted); text-decoration: none; font-size: clamp(0.62rem, 2.9vw, 0.72rem); font-weight: 500;
-  background: none; border: 0; position: relative; min-width: 0; padding: 0 2px; white-space: nowrap;
+  /* Equal columns while the labels fit; a label is never squeezed into its neighbour: when five do not fit in a row the items wrap. */
+  flex: 1 1 0; min-width: max-content;
+  min-height: var(--nav-row); color: var(--muted); text-decoration: none; font-size: clamp(0.62rem, 2.9vw, 0.72rem); font-weight: 500;
+  background: none; border: 0; position: relative; padding: 0 6px; white-space: nowrap;
 }
 .bottomnav [aria-current='page'] { color: var(--primary); font-weight: 600; }
 .bottomnav [aria-current='page']::before { content: ''; position: absolute; top: 0; width: 28px; height: 3px; border-radius: 0 0 4px 4px; background: var(--primary); }
@@ -286,7 +289,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .check:hover { border-color: var(--primary); color: var(--primary-line); }
 .check.on { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
 .task-body { min-width: 0; cursor: pointer; padding-top: 2px; text-align: left; background: none; border: 0; }
-.task-name { font-weight: 600; font-size: 1.02rem; line-height: 1.3; }
+.task-name { font-weight: 600; font-size: 1.02rem; line-height: 1.3; overflow-wrap: break-word; }
 .task-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; color: var(--muted); font-size: 0.84rem; align-items: center; }
 .task-meta .m { display: inline-flex; align-items: center; gap: 4px; }
 .task-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
@@ -452,18 +455,18 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .mday.sel .n { color: var(--primary-ink); }
 
 /* ───────────── Profile ───────────── */
-.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-@media (min-width: 640px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(8.5rem, 45%)), 1fr)); gap: 10px; }          /* at most 2 across */
+@media (min-width: 640px) { .stat-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, max(8.5rem, 22%)), 1fr)); } }   /* at most 4 across */
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px; }
 .stat .v { font-family: var(--font-head); font-size: 1.8rem; font-weight: 600; line-height: 1.1; }
 .stat .l { color: var(--muted); font-size: 0.84rem; margin-top: 2px; }
-.profile-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-@media (min-width: 700px) { .profile-grid { grid-template-columns: 1fr 1fr; } }
+.profile-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 700px) { .profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pcard { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-1); }
-.pcard .head { display: flex; align-items: center; gap: 10px; color: var(--muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.pcard .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .pcard .head .ic { color: var(--primary); }
 .pcard .big { font-family: var(--font-head); font-size: 1.45rem; font-weight: 600; line-height: 1.2; }
-.roomtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.roomtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 6.5rem), 1fr)); gap: 8px; }
 .roomtile { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .roomtile .ic { color: var(--primary); }
 .roomtile b { font-size: 1.15rem; font-family: var(--font-head); }
@@ -472,15 +475,19 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .note .ic { width: 36px; height: 36px; border-radius: 11px; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; flex: none; }
 
 /* ───────────── Charts ───────────── */
-.bars { display: flex; align-items: flex-end; gap: 8px; height: 130px; padding-top: 8px; }
-.bars .b { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; min-width: 0; }
+.bars { display: flex; align-items: flex-end; gap: 8px; height: 130px; padding-top: 8px; overflow-x: auto; }
+.bars .b { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; min-width: max-content; }
 .bars .col { width: 100%; max-width: 38px; border-radius: 8px 8px 4px 4px; background: var(--primary); min-height: 4px; transition: height 0.4s; }
 .bars .col.zero { background: var(--bg-deep); }
 .bars .lab { font-size: 0.72rem; color: var(--muted); }
 .bars .val { font-size: 0.72rem; font-weight: 600; color: var(--ink-2); }
 .ring-stat { display: flex; align-items: center; gap: 14px; }
 .ring-stat svg { width: 84px; height: 84px; flex: none; transform: rotate(-90deg); }
-.hbar { display: grid; grid-template-columns: 96px 1fr 36px; align-items: center; gap: 10px; font-size: 0.9rem; }
+/* label, bar, count on one row while they fit (96px / bar / 36px at normal size); the bar and count drop below the label when large text leaves no room */
+.hbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 0.9rem; }
+.hbar > :first-child { flex: 0 0 6rem; min-width: 0; overflow-wrap: anywhere; }
+.hbar > .track { flex: 1 1 4rem; min-width: 4rem; }
+.hbar > :last-child { flex: 0 0 2.25rem; }
 .hbar .track { height: 10px; border-radius: 99px; background: var(--bg-deep); overflow: hidden; }
 .hbar .fill { height: 100%; background: var(--primary); border-radius: 99px; }
 
@@ -653,11 +660,11 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 /* ───────────── accounts: trial and plans ───────────── */
 .auth-card.wide { max-width: 40rem; }
 .plan-opts { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
-.plan-opt { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card, transparent); cursor: pointer; min-height: 44px; }
+.plan-opt { min-width: 0; display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card, transparent); cursor: pointer; min-height: 44px; }
 .plan-opt.on { border-color: var(--primary); background: var(--primary-soft); }
 .plan-opt input { width: 24px; height: 24px; flex: none; margin-top: 2px; accent-color: var(--primary); }
 .plan-opt:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
-.plan-opt-body { display: grid; gap: 2px; }
+.plan-opt-body { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .plan-opt-title { font-weight: 700; }
 .plan-opt-price { font-family: var(--font-head); font-size: 1.15rem; }
 a.link-btn { display: inline-flex; align-items: center; }
@@ -671,8 +678,27 @@ a.link-btn { display: inline-flex; align-items: center; }
 .compare { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 560px) { .compare { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .compare > div { border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 6px; align-content: start; }
-.compare h4 { margin: 0; font-size: 0.95rem; }
+.compare h3, .compare h4 { margin: 0; font-size: 0.95rem; }
 .data-dl { margin: 0; display: grid; gap: 10px; }
 .data-dl dt { font-weight: 700; }
 .data-dl dd { margin: 2px 0 0; color: var(--ink-2); }
 .choice-opts { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+
+/* ───────────── the access gate ───────────── */
+.access-note { position: sticky; top: 0; z-index: 80; padding: 8px 16px; background: var(--primary-soft); color: var(--ink-2); font-size: 0.9rem; text-align: center; border-bottom: 1px solid var(--line); }
+.card.paused { border-left: 4px solid var(--primary); }
+
+/* Long words and addresses wrap instead of pushing a narrow screen sideways (an email address, a long plan name, text at 200%). */
+.auth-card p, .auth-card b, .auth-card span, .auth-card label, .auth-card li, .auth-card dd, .auth-card h1, .auth-card h2, .auth-card h3, .auth-card h4, .signed-in-bar { overflow-wrap: anywhere; }
+.auth-card .btn { white-space: normal; text-align: center; }
+
+/* At very large text on a narrow screen these must wrap, not run off the side. */
+.demo-card { min-width: 0; max-width: 100%; }
+.demo-card > span { min-width: 0; overflow-wrap: anywhere; }
+.tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+b, strong { overflow-wrap: anywhere; }
+
+/* Unsent text kept when the person leaves (state/DraftScope.tsx, account/Drafts.tsx). */
+.drafts-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.drafts-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.drafts-list li > span:first-child { min-width: 0; overflow-wrap: anywhere; }

@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { DraftScope, useDraftState } from '../../state/DraftScope';
+import { pageScope } from '../../state/drafts';
+import { useDrafts } from '../../state/draftsContext';
 import { uid } from '../../domain/appdata';
 import { formatDay } from '../../domain/dates';
 import { dayEnergyOf } from '../../domain/safety';
@@ -11,15 +13,21 @@ import { Button, Chip, Hint } from '../../ui/primitives';
 const ENERGY_LABEL: Record<CheckinEnergy, string> = { low: 'Low', ok: 'Okay', high: 'High' };
 const timeOf = (at: string) => new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
+const NOTE_SCOPE = pageScope('checkin-note', 'wellbeing', 'A check-in note');
+
 /**
  * A self-report. Energy is the same answer Today already asks for, so saying it here adjusts today's list, and the screen says so before
  * you save. Mood is only what you say it is. Nothing is scored, interpreted or compared with anyone, and nothing here is a diagnosis.
+ * The note is private text typed on a page: with a note field it is kept when the person leaves, like the sheets' text (state/drafts.ts).
  */
-export const CheckinForm = ({ compact }: { compact?: boolean }) => {
+export const CheckinForm = ({ compact }: { compact?: boolean }) => (compact ? <CheckinFormBody compact /> : <DraftScope scope={NOTE_SCOPE}><CheckinFormBody /></DraftScope>);
+
+const CheckinFormBody = ({ compact }: { compact?: boolean }) => {
   const { data, today, dispatch, toast, stamp } = useApp();
-  const [energy, setEnergy] = useState<CheckinEnergy | null>(null);
-  const [mood, setMood] = useState<Checkin['mood']>(null);
-  const [note, setNote] = useState('');
+  const drafts = useDrafts();
+  const [energy, setEnergy] = useDraftState<CheckinEnergy | null>('energy', null);
+  const [mood, setMood] = useDraftState<Checkin['mood']>('mood', null);
+  const [note, setNote] = useDraftState('note', '', 'text');
   const current = dayEnergyOf(data, today);
   const nothing = energy === null && mood === null && !note.trim();
   const save = () => {
@@ -30,6 +38,7 @@ export const CheckinForm = ({ compact }: { compact?: boolean }) => {
     if (energy && energy !== current) dispatch({ type: 'DAY_ENERGY', level: energy, stamp: st });
     toast(energy && energy !== current ? 'Check-in saved. Today\'s list was adjusted for your energy.' : 'Check-in saved.', { label: 'Undo', run: () => dispatch({ type: 'CHECKIN_DELETE', id: c.id }) });
     setEnergy(null); setMood(null); setNote('');
+    drafts?.drop(NOTE_SCOPE.id);                                    // saved: the typed text has done its job
   };
   return (
     <div className="stack">

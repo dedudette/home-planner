@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { exportJSON } from '../storage/repository';
+import { useDrafts, useDraftsSnapshot } from '../state/draftsContext';
 import { useApp } from '../state/store';
 import { downloadText } from '../ui/download';
 import { Button } from '../ui/primitives';
@@ -36,7 +37,7 @@ export const AccountPanel = () => {
   );
 };
 
-const ChangePassword = () => {
+export const ChangePassword = () => {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -77,16 +78,27 @@ const ChangePassword = () => {
   );
 };
 
-const SignOutRow = ({ onSignOut }: { onSignOut: () => Promise<void> }) => {
+export const SignOutRow = ({ onSignOut }: { onSignOut: () => Promise<void> }) => {
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState<Described | null>(null);
+  // Text kept because the planner closed stays on this device under this account when signing out (like the plan itself), so signing back in
+  // after a session ended does not cost it. Signing out is the moment to say so, and to delete it instead if the person wants.
+  const drafts = useDrafts();
+  const kept = useDraftsSnapshot().held;
+  const [discard, setDiscard] = useState(false);
   const run = async () => {
     setBusy(true); setFail(null);
-    try { await onSignOut(); } catch (e) { setFail(describeAuthError(e, 'sign-out')); setBusy(false); }
+    try { if (discard) drafts?.discardAll(); await onSignOut(); } catch (e) { setFail(describeAuthError(e, 'sign-out')); setBusy(false); }
   };
   return (
     <div className="stack">
       {fail && <Notice kind="error">{fail.message}</Notice>}
+      {kept > 0 && (
+        <label className="check-row small">
+          <input type="checkbox" checked={discard} onChange={(e) => setDiscard(e.target.checked)} />
+          <span>Also delete the {kept === 1 ? 'draft' : `${kept} drafts`} of text I had not saved. Otherwise {kept === 1 ? 'it stays' : 'they stay'} on this device, under your account, and {kept === 1 ? 'is' : 'are'} offered back when you sign in again.</span>
+        </label>
+      )}
       <div><Button variant="secondary" size="sm" disabled={busy} onClick={() => void run()}>{busy ? 'Signing out…' : 'Sign out'}</Button></div>
     </div>
   );
