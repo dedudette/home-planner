@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { WEEKDAY_SHORT } from '../../domain/dates';
 import { activityTaskId, describeSchedule } from '../../domain/modules/activities';
@@ -24,18 +25,18 @@ export const ActivityFormSheet = ({ editId, defaults }: { editId?: string; defau
   // An activity can belong to a section that is off now (the person switched it off later), so editing it still works.
   const available: ActivityModule[] = existing && !modules.includes(existing.module) ? [existing.module, ...modules] : modules;
   const seed = existing ?? defaults;
-  const [module, setModule] = useState<ActivityModule>(seed?.module && available.includes(seed.module) ? seed.module : (available[0] ?? 'movement'));
-  const [name, setName] = useState(seed?.name ?? '');
-  const [kind, setKind] = useState<ActivityKind>(seed?.kind ?? 'flexible');
-  const [once, setOnce] = useState(seed?.schedule?.kind === 'once');
-  const [weekdays, setWeekdays] = useState<number[]>(seed?.schedule?.kind === 'weekly' ? seed.schedule.weekdays : [1, 3, 5]);
-  const [date, setDate] = useState(seed?.schedule?.kind === 'once' ? seed.schedule.date : today);
-  const [time, setTime] = useState(seed?.time ?? '');
-  const [minutes, setMinutes] = useState(String(seed?.minutes ?? 20));
-  const [intensity, setIntensity] = useState<Intensity>(seed?.intensity ?? 'gentle');
-  const [note, setNote] = useState(seed?.note ?? '');
+  const [module, setModule] = useDraftState<ActivityModule>('module', seed?.module && available.includes(seed.module) ? seed.module : (available[0] ?? 'movement'));
+  const [name, setName] = useDraftState('name', seed?.name ?? '', 'text');
+  const [kind, setKind] = useDraftState<ActivityKind>('kind', seed?.kind ?? 'flexible');
+  const [once, setOnce] = useDraftState('once', seed?.schedule?.kind === 'once');
+  const [weekdays, setWeekdays] = useDraftState<number[]>('weekdays', seed?.schedule?.kind === 'weekly' ? seed.schedule.weekdays : [1, 3, 5]);
+  const [date, setDate] = useDraftState('date', seed?.schedule?.kind === 'once' ? seed.schedule.date : today, 'text');
+  const [time, setTime] = useDraftState('time', seed?.time ?? '', 'text');
+  const [minutes, setMinutes] = useDraftState('minutes', String(seed?.minutes ?? 20), 'text');
+  const [intensity, setIntensity] = useDraftState<Intensity>('intensity', seed?.intensity ?? 'gentle');
+  const [note, setNote] = useDraftState('note', seed?.note ?? '', 'text');
   // 'default' follows the person's reminder settings; 'off' turns this one off; a number is its own lead time in minutes.
-  const [remind, setRemind] = useState<'default' | 'off' | number>(existing?.remind ?? 'default');
+  const [remind, setRemind] = useDraftState<'default' | 'off' | number>('remind', existing?.remind ?? 'default');
   const [touched, setTouched] = useState(false);
 
   const mins = Number(minutes);

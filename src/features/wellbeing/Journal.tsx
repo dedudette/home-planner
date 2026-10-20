@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { formatDay } from '../../domain/dates';
 import { useApp } from '../../state/store';
@@ -8,8 +8,8 @@ import { Button, Empty, Hint, Sheet } from '../../ui/primitives';
 export const JournalSheet = ({ editId }: { editId?: string }) => {
   const { data, today, closeSheet, dispatch, toast, stamp } = useApp();
   const e = data.wellbeing.journal.find((x) => x.id === editId);
-  const [title, setTitle] = useState(e?.title ?? '');
-  const [text, setText] = useState(e?.text ?? '');
+  const [title, setTitle] = useDraftState('title', e?.title ?? '', 'text');
+  const [text, setText] = useDraftState('text', e?.text ?? '', 'text');
   const save = () => {
     if (!text.trim()) return;
     const st = stamp();

@@ -4,7 +4,8 @@
 //  A  no AI set up: the app's own suggestion works, is labelled, is reviewed line by line, and can be undone
 //  B  AI set up: nothing is sent until Send; what is sent has nothing private in it; an invented or unsafe answer never reaches the screen
 //  C  movement and learning
-//  D  reminders: honest status, per-activity choices, coming up, quiet hours, snooze, calendar file
+//  D  reminders: honest status, per-activity choices, coming up, quiet hours, snooze, calendar file (a controlled clock and time zone)
+//  D2 reminders at their time: one outside quiet hours is scheduled and shown, one inside quiet hours is never scheduled or shown
 //  E  health: not available in a browser, and says so
 //  F  layout at every width
 import { auditPage, BASE, entriesOf, launch, newContext, runner, stored, WIDTHS, watch } from './lib.mjs';
@@ -20,6 +21,31 @@ const sheet = async (page) => { await page.waitForSelector('role=dialog'); await
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const dayN = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+
+// Reminders depend on the time of day (the default quiet hours are 22:00 to 07:00), so sections D and D2 do not use the real clock or the
+// machine's time zone: the browser is told it is Wednesday 14 October 2026, 12:00 in America/Chicago (CDT, UTC-5, i.e. 17:00 UTC), and the
+// clock then runs from there. A reminder 'time' is a local wall-clock time, so a walk planned for 15:30 with a 10-minute lead is due at 15:20
+// local, which is 20:20 UTC; reading it as UTC would put it somewhere else, and the test would say so.
+const TZ = 'America/Chicago';
+const NOW0 = new Date('2026-10-14T17:00:00Z');
+const DAY0 = '2026-10-14';
+const mkAt = async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, acceptDownloads: true, locale: 'en-US', timezoneId: TZ });
+  const page = await ctx.newPage();
+  watch(page, errors, 'clock');
+  await page.clock.install({ time: NOW0 });
+  await page.goto(BASE);
+  await page.clock.resume();
+  return { ctx, page };
+};
+const pageNow = (page) => page.evaluate(() => Date.now());
+const scheduledOf = (page) => page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('cleanflow:scheduled') ?? '{}')));
+const seedActivities = (page, acts) => page.evaluate(({ date, acts }) => {
+  const d = JSON.parse(localStorage.getItem('cleanflow:v1'));
+  const mkAct = (id, name, t, extra = {}) => ({ id, module: 'movement', kind: t ? 'fixed' : 'flexible', name, minutes: 30, schedule: { kind: 'once', date }, time: t, startDate: date, endDate: null, ref: null, intensity: 'gentle', difficulty: 1, note: 'Bring water, a hat; and a slash', createdAt: new Date().toISOString(), archived: false, ...extra });
+  d.activities = acts.map(([id, name, t, extra]) => mkAct(id, name, t, extra));
+  d._rev += 3; localStorage.setItem('cleanflow:v1', JSON.stringify(d));
+}, { date: DAY0, acts });
 
 const mk = async (size = { w: 390, h: 844, mobile: true }) => {
   const ctx = await newContext(browser, size);
@@ -272,18 +298,13 @@ const plannedMeals = async (page) => (await stored(page)).meals.plan;
 
 // ───────────── D ─────────────
 {
-  const { ctx, page } = await mk();
+  const { ctx, page } = await mkAt();
   await ctx.grantPermissions([], { origin: BASE });
   await onboard(page, ['Movement']);
-  const at = new Date(); at.setHours(at.getHours() + 3, 30, 0, 0);
-  const hh = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
-  const sameDay = iso(at) === dayN(0);
-  await page.evaluate(({ date, time }) => {
-    const d = JSON.parse(localStorage.getItem('cleanflow:v1'));
-    const mkAct = (id, name, t, extra = {}) => ({ id, module: 'movement', kind: t ? 'fixed' : 'flexible', name, minutes: 30, schedule: { kind: 'once', date }, time: t, startDate: date, endDate: null, ref: null, intensity: 'gentle', difficulty: 1, note: 'Bring water, a hat; and a slash', createdAt: new Date().toISOString(), archived: false, ...extra });
-    d.activities = [mkAct('r1', 'Evening walk', time), mkAct('r2', 'No time planned', null), mkAct('r3', 'Quiet one', '23:30'), mkAct('r4', 'Turned off one', time, { remind: 'off' })];
-    d._rev += 3; localStorage.setItem('cleanflow:v1', JSON.stringify(d));
-  }, { date: iso(at), time: hh });
+  check('the page really is on the controlled clock and zone', (await pageNow(page)) >= NOW0.getTime() && (await pageNow(page)) < NOW0.getTime() + 120_000 && (await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)) === TZ);
+  // Four planned activities today: a walk at 15:30 (its reminder, 10 minutes before, is at 15:20: outside quiet hours), one at 23:30 (23:20: inside
+  // quiet hours), one with no time, and one with its reminder turned off.
+  await seedActivities(page, [['r1', 'Evening walk', '15:30'], ['r2', 'No time planned', null], ['r3', 'Quiet one', '23:30'], ['r4', 'Turned off one', '15:30', { remind: 'off' }]]);
   await page.reload(); await page.waitForSelector('main h1');
 
   await step('D reminders start off, and the screen says what that means', async () => {
@@ -304,11 +325,14 @@ const plannedMeals = async (page) => (await stored(page)).meals.plan;
 
   await step('D coming up: each planned time, and why one is not sent', async () => {
     const items = await page.getByTestId('upcoming').allInnerTexts();
-    const all = items.join('\n');
-    check('the evening walk is listed with a reminder time', !sameDay || /Evening walk/.test(all) && /Reminder at/.test(all), all);
-    check('no time means no reminder, and says so', /No time planned[\s\S]*No time set, so no reminder/.test(all.replace(/\n/g, ' ')) || !sameDay, all);
-    check('quiet hours are named', /Quiet one[\s\S]*Not sent: quiet hours/.test(all.replace(/\n/g, ' ')) || !sameDay, all);
-    check('turned off for one activity', /Turned off one[\s\S]*Reminder turned off for this one/.test(all.replace(/\n/g, ' ')) || !sameDay, all);
+    const all = items.join('\n').replace(/\s+/g, ' ');
+    check('outside quiet hours: the 15:30 walk is listed with its reminder at 15:20 (10 minutes before)', /Evening walk[^|]*?15:30[^|]*?Reminder at 0?3:20\sPM/.test(all), all);
+    check('inside quiet hours: the 23:30 activity is listed as not sent because of quiet hours, with no reminder time', /Quiet one[^|]*?23:30[^|]*?Not sent: quiet hours/.test(all) && !/Quiet one[^|]*?Reminder at/.test(all), all);
+    check('no time means no reminder, and says so', /No time planned[\s\S]*No time set, so no reminder/.test(all), all);
+    check('turned off for one activity', /Turned off one[\s\S]*Reminder turned off for this one/.test(all), all);
+    // This browser has not been given notification permission, and the application hands nothing to the browser's scheduler without it. (With
+    // permission, D2 below checks what is scheduled, at which instant, and what is delivered.)
+    check('without notification permission nothing is handed to the browser\'s scheduler, whatever the list says', (await scheduledOf(page)).length === 0, JSON.stringify(await scheduledOf(page)));
   }, page);
 
   await step('D lead time, quiet hours and snooze are settings that stick, and a bad time is not stored', async () => {
@@ -329,13 +353,16 @@ const plannedMeals = async (page) => (await stored(page)).meals.plan;
   }, page);
 
   await step('D a reminder that has come due is shown inside the app, once, and Snooze moves just that one', async () => {
-    const now = new Date(); const soon = new Date(now.getTime() + 10 * 60_000);
-    await page.evaluate(({ time, date }) => {
+    // Ten minutes after the page's own now, in the page's own zone (the test process's clock and zone are not the page's).
+    await page.evaluate(() => {
+      const soon = new Date(Date.now() + 10 * 60_000);
+      const p = (n) => String(n).padStart(2, '0');
+      const date = `${soon.getFullYear()}-${p(soon.getMonth() + 1)}-${p(soon.getDate())}`; const time = `${p(soon.getHours())}:${p(soon.getMinutes())}`;
       const d = JSON.parse(localStorage.getItem('cleanflow:v1'));
       d.activities.push({ id: 'due1', module: 'movement', kind: 'fixed', name: 'Due now walk', minutes: 20, schedule: { kind: 'once', date }, time, startDate: date, endDate: null, ref: null, intensity: 'gentle', difficulty: 1, note: '', createdAt: new Date().toISOString(), archived: false, remind: 30 });
       d.reminders.prefs.quiet.on = false; d.reminders.prefs.enabled = true;
       d._rev += 3; localStorage.setItem('cleanflow:v1', JSON.stringify(d));
-    }, { time: `${pad(soon.getHours())}:${pad(soon.getMinutes())}`, date: iso(soon) });
+    });
     await page.reload(); await page.waitForSelector('main h1');
     await page.waitForSelector('text=Due now walk', { timeout: 8000 });
     const toast = page.locator('.toasts, [role=status]').filter({ hasText: 'Due now walk' }).first();
@@ -343,7 +370,7 @@ const plannedMeals = async (page) => (await stored(page)).meals.plan;
     check('once: it is recorded as shown', Object.keys((await stored(page)).reminders.shown).some((k) => k.startsWith('due1@')));
     await page.getByRole('button', { name: /Snooze 15 min/ }).click(); await page.waitForTimeout(700);
     const s = (await stored(page)).reminders.snoozed;
-    check('only that occurrence is snoozed, for 15 minutes', Object.keys(s).length === 1 && Object.keys(s)[0].startsWith('due1@') && Math.abs(Date.parse(Object.values(s)[0]) - (Date.now() + 15 * 60_000)) < 60_000, JSON.stringify(s));
+    check('only that occurrence is snoozed, for 15 minutes', Object.keys(s).length === 1 && Object.keys(s)[0].startsWith('due1@') && Math.abs(Date.parse(Object.values(s)[0]) - ((await pageNow(page)) + 15 * 60_000)) < 60_000, JSON.stringify(s));
     await page.reload(); await page.waitForSelector('main h1'); await page.waitForTimeout(1500);
     check('it does not come straight back', (await page.locator('.toasts, [role=status]').filter({ hasText: 'Due now walk' }).count()) === 0);
   }, page);
@@ -389,6 +416,67 @@ const plannedMeals = async (page) => (await stored(page)).meals.plan;
     await dlg(page).getByRole('radio', { name: '60 min before' }).click();
     await dlg(page).getByRole('button', { name: 'Save' }).click(); await page.waitForTimeout(800);
     check('its own lead time', (await stored(page)).activities.find((a) => a.id === 'r1').remind === 60);
+  }, page);
+  await ctx.close();
+}
+
+// ───────────── D2 ─────────────
+// Reminders at their time, on a controlled clock. The default quiet hours are 22:00 to 07:00. Three planned activities today (Wednesday 14 October
+// 2026, 12:00 in America/Chicago): a walk at 15:30 and a stroll at 21:30 (their reminders, 15:20 and 21:20, are outside quiet hours) and one at
+// 23:30 (23:20, inside quiet hours). The application's rule is that a reminder inside quiet hours is not sent at all, not held until morning.
+{
+  const { ctx, page } = await mkAt();
+  await ctx.grantPermissions(['notifications'], { origin: BASE });      // the browser has agreed: now the application schedules
+  await onboard(page, ['Movement']);
+  check('the browser has granted notifications', (await page.evaluate(() => Notification.permission)) === 'granted');
+  await seedActivities(page, [['w1', 'Afternoon walk', '15:30'], ['w2', 'Evening stroll', '21:30'], ['w3', 'Late quiet one', '23:30']]);
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('cleanflow:v1'));
+    d.reminders.prefs.enabled = true;                              // defaults otherwise: 10 minutes before, quiet 22:00 to 07:00
+    d._rev += 3; localStorage.setItem('cleanflow:v1', JSON.stringify(d));
+  });
+  await page.reload(); await page.waitForSelector('main h1');
+  const shownKeys = async () => Object.keys((await stored(page)).reminders.shown).sort();
+  const waitShown = (prefix) => page.waitForFunction((p) => Object.keys(JSON.parse(localStorage.getItem('cleanflow:v1')).reminders.shown).some((k) => k.startsWith(p)), prefix);
+  const prefs = (await stored(page)).reminders.prefs;
+  check('the defaults the test relies on are the application\'s own (10 minutes before, quiet 22:00 to 07:00)', prefs.leadMinutes === 10 && prefs.quiet.on === true && prefs.quiet.from === '22:00' && prefs.quiet.to === '07:00', JSON.stringify(prefs));
+
+  await step('D2 scheduling: the two reminders outside quiet hours are set up at their exact local times, the one inside quiet hours is not', async () => {
+    await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('cleanflow:scheduled') ?? '{}')).length === 2);
+    const sched = (await scheduledOf(page)).sort((a, b) => a.at.localeCompare(b.at));
+    check('the walk at 15:20 local (20:20 UTC) and the stroll at 21:20 local (02:20 UTC the next day)', sched.length === 2 && sched[0].key === 'w1@' + DAY0 && sched[0].at === '2026-10-14T20:20:00.000Z' && sched[1].key === 'w2@' + DAY0 && sched[1].at === '2026-10-15T02:20:00.000Z', JSON.stringify(sched));
+    check('nothing is set up for the 23:30 activity (its reminder, 23:20, is inside quiet hours)', !sched.some((x) => x.key.startsWith('w3@')), JSON.stringify(sched));
+    check('nothing has been shown yet: it is 12:00', (await shownKeys()).length === 0);
+  }, page);
+
+  await step('D2 delivery: at 15:20 the walk is shown in the app, once, and the stroll is not shown early', async () => {
+    await page.clock.fastForward('03:21:00');                       // 15:21 local
+    await waitShown('w1@');
+    check('the walk was shown, and only the walk', JSON.stringify(await shownKeys()) === JSON.stringify(['w1@' + DAY0]), JSON.stringify(await shownKeys()));
+    const toast = page.locator('.toasts').filter({ hasText: 'Afternoon walk' });
+    check('on screen with its planned time and a snooze', (await toast.count()) === 1 && /Afternoon walk, planned for 15:30/.test(await toast.innerText()) && /Snooze 10 min/.test(await toast.innerText()), await page.locator('.toasts').innerText());
+    check('it is no longer scheduled', !(await scheduledOf(page)).some((x) => x.key.startsWith('w1@')), JSON.stringify(await scheduledOf(page)));
+  }, page);
+
+  await step('D2 delivery: at 21:20 the stroll is shown', async () => {
+    await page.clock.fastForward('06:00:00');                       // 21:21 local
+    await waitShown('w2@');
+    check('the walk and the stroll, each once', JSON.stringify(await shownKeys()) === JSON.stringify(['w1@' + DAY0, 'w2@' + DAY0]), JSON.stringify(await shownKeys()));
+  }, page);
+
+  await step('D2 suppression: time passes 23:20 and the quiet-hours reminder is never shown, nor held for the morning', async () => {
+    await page.clock.fastForward('02:05:00');                       // 23:26 local, past the quiet one's 23:20
+    await page.clock.runFor(61_000);                                // the once-a-minute check runs at least once in this window
+    // The runtime's own bookkeeping says it has run at 23:26: it drops what has passed from what it set up on the device. Waiting for that is
+    // the signal that the check happened, so the absence below means something.
+    await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('cleanflow:scheduled') ?? '{}')).length === 0);
+    check('it is 23:26 or a little later in the page, inside quiet hours', await page.evaluate(() => { const n = new Date(); return n.getHours() === 23 && n.getMinutes() >= 26; }));
+    check('only the walk and the stroll were ever shown; the 23:30 activity was not', JSON.stringify(await shownKeys()) === JSON.stringify(['w1@' + DAY0, 'w2@' + DAY0]), JSON.stringify(await shownKeys()));
+    check('no reminder for it is on screen', (await page.locator('.toasts').filter({ hasText: 'Late quiet one' }).count()) === 0);
+    check('and none is set up for it', !(await scheduledOf(page)).some((x) => x.key.startsWith('w3@')));
+    await go(page, 'settings'); await page.waitForSelector('[data-testid=reminders]');
+    const t = (await page.getByTestId('upcoming').allInnerTexts()).join(' ').replace(/\s+/g, ' ');
+    check('the list still says why: not sent, quiet hours (the rule is unchanged)', /Late quiet one[^|]*?Not sent: quiet hours/.test(t), t);
   }, page);
   await ctx.close();
 }

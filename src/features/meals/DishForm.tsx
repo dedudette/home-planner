@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { lookupIngredient } from '../../domain/meals/ingredients';
 import { COOK_EQUIPMENT, MEAL_SLOTS, UNITS, type CookEquip, type Ingredient, type MealSlot, type Recipe, type Unit } from '../../domain/meals/types';
@@ -14,15 +15,15 @@ const blank = (): Row => ({ name: '', qty: '', unit: '', optional: false });
 export const DishFormSheet = ({ editId }: { editId?: string }) => {
   const { data, closeSheet, dispatch, toast } = useApp();
   const existing = data.meals.dishes.find((d) => d.id === editId);
-  const [name, setName] = useState(existing?.name ?? '');
-  const [servings, setServings] = useState(String(existing?.servings ?? 2));
-  const [prep, setPrep] = useState(String(existing?.prepMinutes ?? 10));
-  const [cook, setCook] = useState(String(existing?.cookMinutes ?? 20));
-  const [slots, setSlots] = useState<MealSlot[]>(existing?.slots ?? ['lunch', 'dinner']);
-  const [equipment, setEquipment] = useState<CookEquip[]>(existing?.equipment ?? []);
-  const [rows, setRows] = useState<Row[]>(existing?.ingredients.length ? existing.ingredients.map((i) => ({ name: i.name, qty: i.qty === null ? '' : String(i.qty), unit: i.unit ?? '', optional: !!i.optional })) : [blank(), blank(), blank()]);
-  const [steps, setSteps] = useState(existing?.steps.join('\n') ?? '');
-  const [kcal, setKcal] = useState(existing?.kcalPerServing ? String(existing.kcalPerServing) : '');
+  const [name, setName] = useDraftState('name', existing?.name ?? '', 'text');
+  const [servings, setServings] = useDraftState('servings', String(existing?.servings ?? 2), 'text');
+  const [prep, setPrep] = useDraftState('prep', String(existing?.prepMinutes ?? 10), 'text');
+  const [cook, setCook] = useDraftState('cook', String(existing?.cookMinutes ?? 20), 'text');
+  const [slots, setSlots] = useDraftState<MealSlot[]>('slots', existing?.slots ?? ['lunch', 'dinner']);
+  const [equipment, setEquipment] = useDraftState<CookEquip[]>('equipment', existing?.equipment ?? []);
+  const [rows, setRows] = useDraftState<Row[]>('rows', existing?.ingredients.length ? existing.ingredients.map((i) => ({ name: i.name, qty: i.qty === null ? '' : String(i.qty), unit: i.unit ?? '', optional: !!i.optional })) : [blank(), blank(), blank()], (r) => r.some((x) => x.name.trim() !== '' || x.qty !== ''));
+  const [steps, setSteps] = useDraftState('steps', existing?.steps.join('\n') ?? '', 'text');
+  const [kcal, setKcal] = useDraftState('kcal', existing?.kcalPerServing ? String(existing.kcalPerServing) : '', 'text');
   const [touched, setTouched] = useState(false);
 
   const filled = rows.filter((r) => r.name.trim());

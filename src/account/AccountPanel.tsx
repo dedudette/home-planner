@@ -84,7 +84,7 @@ export const SignOutRow = ({ onSignOut }: { onSignOut: () => Promise<void> }) =>
   // Text kept because the planner closed stays on this device under this account when signing out (like the plan itself), so signing back in
   // after a session ended does not cost it. Signing out is the moment to say so, and to delete it instead if the person wants.
   const drafts = useDrafts();
-  const kept = useDraftsSnapshot().drafts.length;
+  const kept = useDraftsSnapshot().held;
   const [discard, setDiscard] = useState(false);
   const run = async () => {
     setBusy(true); setFail(null);
@@ -96,7 +96,7 @@ export const SignOutRow = ({ onSignOut }: { onSignOut: () => Promise<void> }) =>
       {kept > 0 && (
         <label className="check-row small">
           <input type="checkbox" checked={discard} onChange={(e) => setDiscard(e.target.checked)} />
-          <span>Also delete the {kept === 1 ? 'draft' : `${kept} drafts`} of text I had not saved. Otherwise {kept === 1 ? 'it stays' : 'they stay'} on this device, under your account, and {kept === 1 ? 'is' : 'are'} here when you sign back in.</span>
+          <span>Also delete the {kept === 1 ? 'draft' : `${kept} drafts`} of text I had not saved. Otherwise {kept === 1 ? 'it stays' : 'they stay'} on this device, under your account, and {kept === 1 ? 'is' : 'are'} offered back when you sign in again.</span>
         </label>
       )}
       <div><Button variant="secondary" size="sm" disabled={busy} onClick={() => void run()}>{busy ? 'Signing out…' : 'Sign out'}</Button></div>

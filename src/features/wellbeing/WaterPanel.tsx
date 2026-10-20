@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { formatDay } from '../../domain/dates';
 import { checkAmount, CHECK_DAY_ML, dayTotal, formatVolume, fromMl, GOAL_MAX_ML, GOAL_MIN_ML, QUICK_ML, toMl, UNIT_LABEL, waterHistory } from '../../domain/water/water';
@@ -35,8 +36,8 @@ export const WaterEditSheet = ({ id }: { id: string }) => {
   const { data, closeSheet, dispatch, toast } = useApp();
   const e = data.water.entries.find((x) => x.id === id);
   const unit = data.water.unit;
-  const [amount, setAmount] = useState(e ? String(Math.round(fromMl(e.ml, unit) * 10) / 10) : '');
-  const [time, setTime] = useState(e ? localHM(e.at) : '09:00');
+  const [amount, setAmount] = useDraftState('amount', e ? String(Math.round(fromMl(e.ml, unit) * 10) / 10) : '', 'text');
+  const [time, setTime] = useDraftState('time', e ? localHM(e.at) : '09:00', 'text');
   const [err, setErr] = useState('');
   if (!e) return <Sheet title="Water" onClose={closeSheet}><p>This entry is gone.</p></Sheet>;
   const save = () => {

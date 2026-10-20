@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { CATALOG, CATALOG_BY_ID } from '../../domain/interests/catalog';
 import { recent } from '../../domain/interests/stats';
@@ -17,9 +18,9 @@ export const InterestFormSheet = () => {
   const { data, closeSheet, dispatch, toast, openSheet } = useApp();
   const have = new Set(data.interests.items.map((i) => i.catalogId).filter(Boolean));
   const choices = CATALOG.filter((c) => !have.has(c.id));
-  const [pick, setPick] = useState<string>('');
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState<InterestCategory>('making');
+  const [pick, setPick] = useDraftState<string>('pick', '');
+  const [name, setName] = useDraftState('name', '', 'text');
+  const [category, setCategory] = useDraftState<InterestCategory>('category', 'making');
   const valid = pick !== '' || name.trim().length > 0;
   const save = () => {
     if (!valid) return;
@@ -55,12 +56,12 @@ export const InterestSheet = ({ id }: { id: string }) => {
   const { data, today, closeSheet, openSheet, dispatch, toast, confirm } = useApp();
   const interest = data.interests.items.find((i) => i.id === id);
   const cat = interest?.catalogId ? CATALOG_BY_ID.get(interest.catalogId) : undefined;
-  const [goal, setGoal] = useState(interest?.goal ?? '');
-  const [note, setNote] = useState(interest?.note ?? '');
-  const [weekly, setWeekly] = useState(interest?.weeklyMinutes ? String(interest.weeklyMinutes) : '');
-  const [rTitle, setRTitle] = useState('');
-  const [rUrl, setRUrl] = useState('');
-  const [rNote, setRNote] = useState('');
+  const [goal, setGoal] = useDraftState('goal', interest?.goal ?? '', 'text');
+  const [note, setNote] = useDraftState('note', interest?.note ?? '', 'text');
+  const [weekly, setWeekly] = useDraftState('weekly', interest?.weeklyMinutes ? String(interest.weeklyMinutes) : '', 'text');
+  const [rTitle, setRTitle] = useDraftState('rTitle', '', 'text');
+  const [rUrl, setRUrl] = useDraftState('rUrl', '', 'text');
+  const [rNote, setRNote] = useDraftState('rNote', '', 'text');
   const [rErr, setRErr] = useState('');
   if (!interest) return <Sheet title="Interest" onClose={closeSheet}><p>This interest is no longer in your list.</p></Sheet>;
 
@@ -182,12 +183,12 @@ const BOOK_STATUSES: { value: BookStatus; label: string }[] = [{ value: 'want', 
 export const BookFormSheet = ({ editId }: { editId?: string }) => {
   const { data, closeSheet, dispatch, toast, confirm } = useApp();
   const cur = editId ? data.interests.books.find((b) => b.id === editId) : undefined;
-  const [title, setTitle] = useState(cur?.title ?? '');
-  const [author, setAuthor] = useState(cur?.author ?? '');
-  const [status, setStatus] = useState<BookStatus>(cur?.status ?? 'want');
-  const [total, setTotal] = useState(cur?.pagesTotal != null ? String(cur.pagesTotal) : '');
-  const [read, setRead] = useState(cur?.pagesRead != null ? String(cur.pagesRead) : '');
-  const [note, setNote] = useState(cur?.note ?? '');
+  const [title, setTitle] = useDraftState('title', cur?.title ?? '', 'text');
+  const [author, setAuthor] = useDraftState('author', cur?.author ?? '', 'text');
+  const [status, setStatus] = useDraftState<BookStatus>('status', cur?.status ?? 'want');
+  const [total, setTotal] = useDraftState('total', cur?.pagesTotal != null ? String(cur.pagesTotal) : '', 'text');
+  const [read, setRead] = useDraftState('read', cur?.pagesRead != null ? String(cur.pagesRead) : '', 'text');
+  const [note, setNote] = useDraftState('note', cur?.note ?? '', 'text');
   const num = (v: string): number | null => (v.trim() === '' ? null : Math.round(Number(v)));
   const pt = num(total), pr = num(read);
   const okNum = (n: number | null) => n === null || (Number.isFinite(n) && n >= 0 && n <= 100000);

@@ -11,8 +11,8 @@ const countWords = (n: number) => (n === 1 ? 'one draft' : `${n} drafts`);
 const kinds = (ds: DraftSummary[]) => [...new Set(ds.map((d) => d.label.toLowerCase()))].join(', ');
 
 /**
- * Shown in the planner after the planner has been closed and has opened again (for example after paying and coming back, which is a whole
- * new page load): text typed into a form and not saved is still here, kept on this device only. It says what each draft is (never the text),
+ * Shown in the planner after the person left and came back: the planner closed and opened again (for example after paying, which is a whole
+ * new page load), or they signed in again after signing out or a session that ended. Text typed into a form and not saved is still here, kept on this device only. It says what each draft is (never the text),
  * lets the person open the form again to finish it (the form's own button saves it: nothing is submitted by this), or discard it.
  */
 export const DraftsBanner = () => {
@@ -33,7 +33,7 @@ export const DraftsBanner = () => {
       <I.info size={18} aria-hidden />
       <div className="stack" style={{ gap: 8 }}>
         <p><b>Text you had not saved is still here.</b></p>
-        <p className="small">It was kept on this device, under your account, when your plan paused. It was not saved into your plan and nothing was sent to the server. Open it to finish, or discard it.</p>
+        <p className="small">It was kept on this device, under your account, when your plan paused or you were signed out. It was not saved into your plan and nothing was sent to the server. Open it to finish, or discard it.</p>
         <ul className="drafts-list">
           {items.map((d) => (
             <li key={d.scope}>
@@ -69,7 +69,7 @@ export const DraftsNote = () => {
       {snap.drafts.length > 0 && (
         <>
           <p className="small">
-            {countWords(snap.drafts.length)} ({kinds(snap.drafts)}) {snap.drafts.length === 1 ? 'is' : 'are'} kept so you can finish {snap.drafts.length === 1 ? 'it' : 'them'} when your plan is open again.
+            {countWords(snap.drafts.length)} ({kinds(snap.drafts)}) {snap.drafts.length === 1 ? 'is' : 'are'} kept so you can finish {snap.drafts.length === 1 ? 'it' : 'them'} when you are back in your plan.
             {' '}{snap.drafts.length === 1 ? 'It is' : 'They are'} stored only on this device, under your account: never sent to the server, and not part of a backup or a download.
             {' '}{snap.drafts.length === 1 ? 'It is' : 'They are'} removed after {MAX_AGE_DAYS} days, or sooner if you discard {snap.drafts.length === 1 ? 'it' : 'them'} or delete your account.
           </p>

@@ -1,30 +1,34 @@
 import type { StorageLike } from '../storage/repository';
 
 /**
- * Text a person has typed into a form or sheet and not saved yet ("a draft"), and what happens to it when the planner's access gate closes
- * (account/AccessGate.tsx). The gate replaces the planner with the Trial & plans screen, which unmounts every form; without this the typed
- * text would be gone when access came back, and a full-page trip to the payment provider and back would lose it for certain.
+ * Text a person has typed into a form or sheet and not saved yet ("a draft"), with the form's own structure that gives it meaning (the rows
+ * they added, the options they chose), and what happens to it when they leave: the planner's access gate closes (account/AccessGate.tsx), the
+ * session ends, they sign out, or the account changes. Without this, text typed into a form would be gone when access came back, and a
+ * full-page trip to the payment provider and back would lose it for certain.
  *
  * What is promised, and what is not:
- *  - Text is held in memory, per account, as it is typed (only in accounts mode; local mode has no gate and none of this runs).
- *  - It is written to this browser's storage ONLY when the planner closes ("interrupted"), under that account's own key. Text typed while the
- *    planner is open and never interrupted is never written anywhere, exactly as before.
+ *  - A form keeps its state in this registry as it is typed (only in accounts mode; local mode has no gate and none of this runs). The forms
+ *    do it themselves with useDraftState (state/DraftScope.tsx): the text fields, the options chosen, and rows added with a button. Nothing is
+ *    read back out of the page's DOM.
+ *  - It is written to this browser's storage ONLY when the person leaves: the planner closes, or this account's app goes away (sign-out, the
+ *    session ending, the account changing), under that account's own key. Text typed while the planner is open and never left is not written
+ *    anywhere. Closing the tab, reloading, a crash or the browser discarding the page does NOT write it: those do not run any code that could.
  *  - It is never sent anywhere: this file has no network code, the draft key is not part of the plan, an export or a backup, and the server
  *    never sees it.
- *  - It is never submitted by itself. After access returns the person opens the form again (or presses Resume) and presses its own button.
+ *  - It is never submitted by itself. After access returns, or the person signs back in, they open the form again (or press Resume) and press
+ *    its own button.
  *  - Saving or closing a form on purpose discards its draft (a sheet is dropped when it leaves the sheet stack). A draft is also discarded on
  *    request, when the account is deleted, and after MAX_AGE_DAYS.
- *  - What is captured is text typed into text-like fields (text, search, number, date, time, tel, url, email, textarea) that the form has
- *    at the time it is opened again. Choices made with buttons, chips, selects and checkboxes, and rows a person added with a button
- *    (ingredient or exercise rows) are not captured. Password fields are never captured.
+ *  - A draft exists only while some text in it has been typed (a changed option alone is not worth keeping). Search boxes, quick-add boxes and
+ *    the onboarding steps do not use drafts.
  */
 
-export const DRAFTS_VERSION = 1;
+export const DRAFTS_VERSION = 2;
 export const draftsKey = (accountId: string): string => `cleanflow:drafts@${accountId}`;
 export const MAX_AGE_DAYS = 30;
 export const MAX_AGE_MS = MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 /** Far above any field's own `maxLength` (the journal's is 8,000): these only stop a corrupt or hostile record from filling storage. */
-export const LIMITS = { drafts: 12, fields: 40, fieldChars: 20_000, draftChars: 40_000, totalChars: 150_000 } as const;
+export const LIMITS = { drafts: 12, keys: 60, stringChars: 20_000, draftChars: 40_000, totalChars: 150_000 } as const;
 const PERSIST_DELAY_MS = 250;
 
 /** The sheets that hold typed text and can be reopened from their description alone (no callbacks, no copy of a task). */
@@ -71,20 +75,35 @@ export const scopeOfSheet = (sheet: { kind: string }): ScopeInfo | null => {
 
 export const pageScope = (name: string, route: string, label: string): ScopeInfo => ({ id: `page:${name}`, label, resume: { route }, page: route });
 
-export interface DraftSummary { scope: string; label: string; resume: ResumeTarget; page: string | null; at: number; fieldCount: number }
+export interface DraftSummary { scope: string; label: string; resume: ResumeTarget; page: string | null; at: number }
 export interface DraftsSnapshot {
-  /** Drafts that were kept because the planner closed. Typed text that has not been interrupted is not listed (it is not stored). */
+  /** Drafts that were kept because the person left (the planner closed, or they signed out or the session ended). Text still being typed while the planner is open is not listed: it is not stored. */
   drafts: DraftSummary[];
+  /** Everything that holds typed text right now, kept or not: what a sign-out would leave behind. */
+  held: number;
   /** Writing to this device failed the last time: the drafts live only as long as this page stays open. */
   persistFailed: boolean;
   bannerHidden: boolean;
 }
 
-interface Draft { info: ScopeInfo; fields: Record<string, string>; at: number; interrupted: boolean }
-interface StoredDraft { scope: string; label: string; resume: ResumeTarget; fields: Record<string, string>; at: string }
+/** One piece of a form's state. `text` says it is typed text (a draft exists only while some text in it does); the rest is structure and choices. */
+interface Entry { v: unknown; text: boolean }
+interface Draft { info: ScopeInfo; state: Record<string, Entry>; at: number; interrupted: boolean }
+interface StoredDraft { scope: string; label: string; resume: ResumeTarget; state: Record<string, { v: unknown; t: boolean }>; at: string }
 
-const clip = (s: string): string => (s.length > LIMITS.fieldChars ? s.slice(0, LIMITS.fieldChars) : s);
-const charsOf = (f: Record<string, string>): number => Object.values(f).reduce((n, v) => n + v.length, 0);
+const isDraft = (d: Draft): boolean => Object.values(d.state).some((e) => e.text);
+const sizeOf = (state: Record<string, Entry>): number => JSON.stringify(state).length;
+const KEY = /^[A-Za-z0-9_.-]{1,60}$/;
+
+/** A value a form can hold in a draft: plain data only (strings, numbers, booleans, null, arrays and objects of them), bounded. */
+const plainValue = (v: unknown, depth = 0): boolean => {
+  if (v === null || typeof v === 'boolean' || typeof v === 'number') return typeof v !== 'number' || Number.isFinite(v);
+  if (typeof v === 'string') return v.length <= LIMITS.stringChars;
+  if (depth > 5) return false;
+  if (Array.isArray(v)) return v.length <= 80 && v.every((x) => plainValue(x, depth + 1));
+  if (typeof v === 'object') { const o = v as Record<string, unknown>; return Object.keys(o).length <= 40 && Object.values(o).every((x) => plainValue(x, depth + 1)); }
+  return false;
+};
 
 /** Reads and checks the stored drafts for one account. Anything malformed, forged, too old or too large is dropped, never trusted. */
 export const readDrafts = (storage: StorageLike | null, accountId: string, nowMs: number): Draft[] => {
@@ -100,7 +119,7 @@ export const readDrafts = (storage: StorageLike | null, accountId: string, nowMs
   for (const d of rec.drafts as unknown[]) {
     if (out.length >= LIMITS.drafts) break;
     const s = d as Partial<StoredDraft> | null;
-    if (!s || typeof s.scope !== 'string' || typeof s.label !== 'string' || typeof s.at !== 'string' || !s.fields || typeof s.fields !== 'object' || !s.resume || typeof s.resume !== 'object') continue;
+    if (!s || typeof s.scope !== 'string' || typeof s.label !== 'string' || typeof s.at !== 'string' || !s.state || typeof s.state !== 'object' || !s.resume || typeof s.resume !== 'object') continue;
     const at = Date.parse(s.at);
     if (!Number.isFinite(at) || nowMs - at > MAX_AGE_MS) continue;
     let info: ScopeInfo | null = null;
@@ -116,17 +135,36 @@ export const readDrafts = (storage: StorageLike | null, accountId: string, nowMs
       info = { id: s.scope, label: s.label.slice(0, 80), resume: { route }, page: route };
     }
     if (!info) continue;
-    const fields: Record<string, string> = {};
-    for (const [k, v] of Object.entries(s.fields as Record<string, unknown>)) {
-      if (Object.keys(fields).length >= LIMITS.fields) break;
-      if (typeof v === 'string' && v !== '' && k.length <= 120) fields[k] = clip(v);
+    const state: Record<string, Entry> = {};
+    let ok = true;
+    for (const [k, e] of Object.entries(s.state as Record<string, unknown>)) {
+      const en = e as { v?: unknown; t?: unknown } | null;
+      if (!KEY.test(k) || !en || typeof en !== 'object' || !('v' in en) || !plainValue(en.v)) { ok = false; break; }
+      if (Object.keys(state).length >= LIMITS.keys) { ok = false; break; }
+      state[k] = { v: en.v, text: en.t === true };
     }
-    const chars = charsOf(fields);
-    if (!Object.keys(fields).length || chars > LIMITS.draftChars || total + chars > LIMITS.totalChars) continue;
+    if (!ok) continue;
+    const chars = sizeOf(state);
+    if (!Object.keys(state).length || chars > LIMITS.draftChars || total + chars > LIMITS.totalChars) continue;
+    if (!Object.values(state).some((e) => e.text)) continue;                  // no typed text: not a draft
     total += chars;
-    out.push({ info, fields, at, interrupted: true });
+    out.push({ info, state, at, interrupted: true });
   }
   return out;
+};
+
+/** Two values of a form's state are the same (plain data, compared by content). */
+export const sameState = (a: unknown, b: unknown): boolean => a === b || JSON.stringify(a) === JSON.stringify(b);
+
+/** A put-back value is only used if it has the same shape as the form's own starting value (the same kind of thing, the same fields in each row). */
+export const shapeOk = (start: unknown, saved: unknown): boolean => {
+  if (start === null || start === undefined) return saved === null || ['string', 'number', 'boolean', 'object'].includes(typeof saved);
+  if (Array.isArray(start)) return Array.isArray(saved) && (start.length === 0 || saved.every((x) => shapeOk(start[0], x)));
+  if (typeof start === 'object') {
+    if (typeof saved !== 'object' || saved === null || Array.isArray(saved)) return false;
+    return Object.keys(start as object).every((k) => k in (saved as object) && shapeOk((start as Record<string, unknown>)[k], (saved as Record<string, unknown>)[k]));
+  }
+  return typeof saved === typeof start;
 };
 
 /**
@@ -140,7 +178,7 @@ export class DraftRegistry {
   private failed = false;
   private hidden = false;
   private dead = false;
-  private snap: DraftsSnapshot = { drafts: [], persistFailed: false, bannerHidden: false };
+  private snap: DraftsSnapshot = { drafts: [], held: 0, persistFailed: false, bannerHidden: false };
 
   constructor(readonly accountId: string, private readonly storage: StorageLike | null, private readonly now: () => number = Date.now) {
     for (const d of readDrafts(storage, accountId, this.now())) this.map.set(d.info.id, d);
@@ -148,23 +186,34 @@ export class DraftRegistry {
   }
 
   // ── what the forms use ──
-  /** The text last typed in this form (field key → text). Empty when there is none. */
-  fieldsOf(scope: string): Record<string, string> { return { ...(this.map.get(scope)?.fields ?? {}) }; }
+  /** What the form last held for this piece of state (a draft's text, a chosen option, the rows added), or undefined when there is none. */
+  stateOf(scope: string, key: string): unknown {
+    const e = this.map.get(scope)?.state[key];
+    return e === undefined ? undefined : JSON.parse(JSON.stringify(e.v));
+  }
 
-  /** Called as the person types. A field emptied again is forgotten; a form with nothing left in it has no draft. */
-  capture(info: ScopeInfo, field: string, value: string): void {
-    if (this.dead) return;
+  /**
+   * Called when a piece of a form's state changes. `dirty` says it differs from what the form starts with (an unchanged piece is forgotten);
+   * `text` says it is typed text. A form with no typed text left has no draft, whatever options it holds.
+   */
+  capture(info: ScopeInfo, key: string, value: unknown, text: boolean, dirty: boolean): void {
+    if (this.dead || !KEY.test(key)) return;
     let d = this.map.get(info.id);
-    const v = clip(value);
-    if (v === '') {
-      if (!d || !(field in d.fields)) return;
-      delete d.fields[field];
-      if (!Object.keys(d.fields).length) { this.map.delete(info.id); this.changed(d); return; }
-    } else {
-      if (!d) { d = { info, fields: {}, at: this.now(), interrupted: false }; this.map.set(info.id, d); }
-      if (!(field in d.fields) && Object.keys(d.fields).length >= LIMITS.fields) return;
-      d.fields[field] = v;
+    if (!dirty) {
+      if (!d || !(key in d.state)) return;
+      delete d.state[key];
+      if (!Object.keys(d.state).length) { this.map.delete(info.id); this.changed(d); return; }
+      d.at = this.now();
+      this.changed(d);
+      return;
     }
+    if (!plainValue(value)) return;                                  // plain data only (a NaN or a function would not survive being written down)
+    let v: unknown;
+    try { v = JSON.parse(JSON.stringify(value)); } catch { return; }
+    if (d && key in d.state && sameState(d.state[key].v, v) && d.state[key].text === text) return;      // nothing new (for instance, a value just put back)
+    if (!d) { d = { info, state: {}, at: this.now(), interrupted: false }; this.map.set(info.id, d); }
+    if (!(key in d.state) && Object.keys(d.state).length >= LIMITS.keys) return;
+    d.state[key] = { v, text };
     d.at = this.now();
     this.changed(d);
   }
@@ -179,16 +228,19 @@ export class DraftRegistry {
   dropSheet(sheet: { kind: string }): void { const s = scopeOfSheet(sheet); if (s) this.drop(s.id); }
   /**
    * Moving to another page on purpose ends the forms of the pages left behind (not called while the planner is closed). A draft that was kept
-   * because the planner closed is not ended by this: it stays until the person finishes it, discards it, or it expires.
+   * because the person left is not ended by this: it stays until they finish it, discard it, or it expires.
    */
   dropPagesExcept(route: string): void { for (const d of [...this.map.values()]) if (d.info.page !== null && d.info.page !== route && !d.interrupted) this.drop(d.info.id); }
 
-  // ── the gate ──
-  /** The planner closed: what is typed and unsaved is kept on this device, for this account, and listed on the screens that stay open. */
+  // ── leaving ──
+  /**
+   * The person is leaving: the planner closed, or this account's app is going away (sign-out, the session ended, the account changed). What is
+   * typed and unsaved is kept on this device, for this account, and listed on the screens that stay open and in the planner when it comes back.
+   */
   interrupt(): number {
     if (this.dead) return 0;
     let n = 0;
-    for (const d of this.map.values()) { if (Object.keys(d.fields).length) { d.interrupted = true; n++; } }
+    for (const d of this.map.values()) { if (isDraft(d)) { d.interrupted = true; n++; } }
     this.persist();
     this.publish();
     return n;
@@ -207,8 +259,10 @@ export class DraftRegistry {
   hideBanner(): void { this.hidden = true; this.publish(); }
 
   // ── plumbing ──
-  /** Writes pending changes now (page closing, account leaving). */
+  /** Writes pending changes now (page closing). */
   flush(): void { if (this.timer !== null) { this.cancelTimer(); this.persist(); } }
+  /** Starts (or, in development's double mount, restarts) the registry's life. */
+  activate(): void { this.dead = false; }
   /** After this, nothing is written or read: the account has gone. */
   dispose(): void { this.cancelTimer(); this.dead = true; this.listeners.clear(); }
 
@@ -229,14 +283,14 @@ export class DraftRegistry {
   private persist(force = false): void {
     if (this.dead) return;
     this.cancelTimer();
-    const kept = [...this.map.values()].filter((d) => d.interrupted && Object.keys(d.fields).length).sort((a, b) => b.at - a.at);
+    const kept = [...this.map.values()].filter((d) => d.interrupted && isDraft(d)).sort((a, b) => b.at - a.at);
     const out: StoredDraft[] = [];
     let total = 0;
     for (const d of kept) {
-      const chars = charsOf(d.fields);
+      const chars = sizeOf(d.state);
       if (out.length >= LIMITS.drafts || chars > LIMITS.draftChars || total + chars > LIMITS.totalChars) continue;
       total += chars;
-      out.push({ scope: d.info.id, label: d.info.label, resume: d.info.resume, fields: d.fields, at: new Date(d.at).toISOString() });
+      out.push({ scope: d.info.id, label: d.info.label, resume: d.info.resume, state: Object.fromEntries(Object.entries(d.state).map(([k, e]) => [k, { v: e.v, t: e.text }])), at: new Date(d.at).toISOString() });
     }
     try {
       if (!this.storage) { this.failed = out.length > 0; return; }
@@ -247,13 +301,13 @@ export class DraftRegistry {
   }
 
   private publish(): void {
-    const drafts = [...this.map.values()].filter((d) => d.interrupted && Object.keys(d.fields).length)
-      .sort((a, b) => b.at - a.at)
-      .map((d): DraftSummary => ({ scope: d.info.id, label: d.info.label, resume: d.info.resume, page: d.info.page, at: d.at, fieldCount: Object.keys(d.fields).length }));
-    this.snap = { drafts, persistFailed: this.failed, bannerHidden: this.hidden };
+    const all = [...this.map.values()].filter(isDraft);
+    const drafts = all.filter((d) => d.interrupted).sort((a, b) => b.at - a.at)
+      .map((d): DraftSummary => ({ scope: d.info.id, label: d.info.label, resume: d.info.resume, page: d.info.page, at: d.at }));
+    this.snap = { drafts, held: all.length, persistFailed: this.failed, bannerHidden: this.hidden };
     for (const l of [...this.listeners]) l();
   }
 }
 
 /** A fixed, empty snapshot for the places that look at drafts when there is no registry (local mode, or outside an account). */
-export const NO_DRAFTS: DraftsSnapshot = { drafts: [], persistFailed: false, bannerHidden: false };
+export const NO_DRAFTS: DraftsSnapshot = { drafts: [], held: 0, persistFailed: false, bannerHidden: false };

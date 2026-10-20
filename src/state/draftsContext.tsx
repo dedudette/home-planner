@@ -8,14 +8,19 @@ const browserStorage = () => { try { return typeof window !== 'undefined' ? wind
 /**
  * The drafts of the signed-in account (see state/drafts.ts). Mounted with the same key as the account's app, so the registry of one account
  * never exists while another account's app is on screen. With no account (local mode) there is no registry and nothing here does anything.
+ *
+ * When the account's app goes away (the person signs out, the session ends, the account changes) this is unmounted, and that is the moment
+ * what is typed and unsaved is written down, for that account only. (Deleting the account and choosing to delete drafts discard them first.)
+ * Closing the tab or reloading runs no code of ours, so nothing is written then.
  */
 export const DraftsProvider = ({ accountId, children }: { accountId: string | null; children: ReactNode }) => {
   const registry = useMemo(() => (accountId ? new DraftRegistry(accountId, browserStorage()) : null), [accountId]);
   useEffect(() => {
     if (!registry) return;
-    const onHide = () => registry.flush();
+    registry.activate();
+    const onHide = () => registry.flush();           // a pending write of drafts already kept; it never keeps anything new
     window.addEventListener('pagehide', onHide);
-    return () => { window.removeEventListener('pagehide', onHide); registry.flush(); registry.dispose(); };
+    return () => { window.removeEventListener('pagehide', onHide); registry.interrupt(); registry.dispose(); };
   }, [registry]);
   return <Ctx.Provider value={registry}>{children}</Ctx.Provider>;
 };

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { allRecipes, leftoverServings, mealMinutes, suggestRecipes } from '../../domain/meals/planner';
 import type { MealSlot, Recipe } from '../../domain/meals/types';
 import type { ISODate } from '../../domain/types';
@@ -28,12 +29,12 @@ export const RecipeRow = ({ r, onPick, onOpen, fav }: { r: Recipe; onPick?: () =
 export const MealPickerSheet = ({ date, slot: slot0, tab: tab0 }: { date: ISODate; slot: MealSlot; tab?: 'recipes' | 'log' }) => {
   const { data, today, closeSheet, openSheet } = useApp();
   const { add } = useMealActions();
-  const [tab, setTab] = useState<Tab>(tab0 ?? 'recipes');
-  const [slot, setSlot] = useState(slot0);
+  const [tab, setTab] = useDraftState<Tab>('tab', tab0 ?? 'recipes');
+  const [slot, setSlot] = useDraftState('slot', slot0);
   const [query, setQuery] = useState('');
-  const [everything, setEverything] = useState(false);
-  const [servings, setServings] = useState(data.meals.prefs.household);
-  const [text, setText] = useState('');
+  const [everything, setEverything] = useDraftState('everything', false);
+  const [servings, setServings] = useDraftState('servings', data.meals.prefs.household);
+  const [text, setText] = useDraftState('text', '', 'text');
   const prefs = data.meals.prefs;
   const all = useMemo(() => allRecipes(data), [data.meals.dishes]); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = useMemo(() => {

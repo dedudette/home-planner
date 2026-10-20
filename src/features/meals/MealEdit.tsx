@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { formatDay } from '../../domain/dates';
 import { leftoverServings, mealState, recipeOf } from '../../domain/meals/planner';
 import { MEAL_SLOTS } from '../../domain/meals/types';
@@ -13,8 +13,8 @@ export const MealEditSheet = ({ id }: { id: string }) => {
   const { data, today, closeSheet, openSheet, dispatch } = useApp();
   const e = data.meals.plan.find((x) => x.id === id);
   const { setStatus, remove } = useMealActions();
-  const [kcal, setKcal] = useState(e?.kcal ? String(e.kcal) : '');
-  const [note, setNote] = useState(e?.note ?? '');
+  const [kcal, setKcal] = useDraftState('kcal', e?.kcal ? String(e.kcal) : '', 'text');
+  const [note, setNote] = useDraftState('note', e?.note ?? '', 'text');
   if (!e) return <Sheet title="Meal" onClose={closeSheet}><p>This meal is no longer in your plan.</p></Sheet>;
   const r = recipeOf(data, e.ref);
   const state = mealState(data, e, today);

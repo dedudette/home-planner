@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useDraftState } from '../../state/DraftScope';
 import { uid } from '../../domain/appdata';
 import { starterOf } from '../../domain/interests/catalog';
 import type { Feedback, Interest, InterestSession } from '../../domain/interests/types';
@@ -20,12 +21,12 @@ export const LogSessionSheet = ({ interestId, starterId, bookId, minutes: m0, ta
   const interest = interestId ? data.interests.items.find((i) => i.id === interestId) : undefined;
   const starter = interest ? starterOf(interest.catalogId, starterId ?? null) : null;
   const book = bookId ? data.interests.books.find((b) => b.id === bookId) : undefined;
-  const [minutes, setMinutes] = useState(String(m0 ?? starter?.minutes ?? 15));
-  const [note, setNote] = useState('');
-  const [resource, setResource] = useState('');
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const [planned, setPlanned] = useState(taskId ?? '');
-  const [pages, setPages] = useState('');
+  const [minutes, setMinutes] = useDraftState('minutes', String(m0 ?? starter?.minutes ?? 15), 'text');
+  const [note, setNote] = useDraftState('note', '', 'text');
+  const [resource, setResource] = useDraftState('resource', '', 'text');
+  const [feedback, setFeedback] = useDraftState<Feedback | null>('feedback', null);
+  const [planned, setPlanned] = useDraftState('planned', taskId ?? '');
+  const [pages, setPages] = useDraftState('pages', '', 'text');
   const mins = Math.round(Number(minutes));
   const valid = Number.isFinite(mins) && mins >= 1 && mins <= 600;
   const waiting = useMemo(() => view.tasks.filter((t) => t.module === 'learning' && t.userPlanned && t.ref?.kind === 'interest' && t.ref.id === interestId && dueInfo(t, view.states[t.id], today).due === today), [view, interestId, today]);

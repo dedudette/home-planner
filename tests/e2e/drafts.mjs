@@ -1,6 +1,7 @@
-// Unsent text when the planner's access gate closes, in a real browser (issue #7 follow-up): text typed into a sheet or a form is kept for
-// the same account while the planner is closed, comes back when access returns, is never submitted or sent anywhere by itself, is never
-// shown to another account, and can be deleted on purpose.
+// Unsent text when the person leaves, in a real browser (issue #7 follow-ups): text typed into a sheet or a form, with the rows added and the
+// options chosen, is kept for the same account when the planner's access gate closes, when the session ends, and when the account changes
+// under an open form; it comes back when the person does, is never submitted or sent anywhere by itself, is never shown to another account,
+// and can be deleted on purpose. What closing the tab does not keep is asserted too, so the documentation cannot overstate it.
 //
 // Servers (tests/e2e/accountsServer.ts: the real API on a throwaway PostgreSQL database, real Better Auth, a mailbox instead of an email provider):
 //   B  accounts mode, billing on a MOCK payment provider (tests/support/fakeStripe.ts: the REAL Stripe SDK talking to a local stand-in).
@@ -117,7 +118,7 @@ const subscribed = async (page, email) => {
   const sid = r.json.url.split('/').pop();
   await fetch(`${B}__test/complete?session=${sid}`);
   await post(page, '/api/billing/sync', { sessionId: sid });
-  await patchPlan(page, 'd.modules.enabled.wellbeing = true; d.modules.enabled.water = true;');
+  await patchPlan(page, 'd.modules.enabled.wellbeing = true; d.modules.enabled.water = true; d.modules.enabled.meals = true;');
   await waitPlanner(page);
 };
 const closeGate = async (page, email) => { await provider(email, 'unpaid'); await recheck(page); await pausedVisible(page); };
@@ -388,6 +389,231 @@ if (want('delete')) {
     check('no drafts key remains', (await ls(page, draftsKey(id))) === null);
     check('while the plan key does, because the plan was not erased', (await ls(page, `cleanflow:v1@${id}`)) !== null);
     check('no draft key of any account is left behind', Object.keys(await lsAll(page)).filter((k) => k.startsWith('cleanflow:drafts@')).length === 0);
+  }, page);
+  await ctx.close();
+}
+
+
+// ───────────────────────────── 3b. structure: rows added, options chosen, so the text lands where it was typed ─────────────────────────────
+if (want('structure')) {
+  const { ctx, page } = await open({ label: 'structure' });
+  const email = 'drafts.structure@example.test';
+  const D = 'DISH-DRAFT-9e1f'; const STEPS = 'STEP-ONE-4b7\nSTEP-TWO-2d9';
+  await subscribed(page, email);
+  const id = await idOf(page);
+  await route(page, 'meals?tab=recipes');
+  await page.getByRole('button', { name: 'Write down a dish' }).first().click();
+  await page.getByRole('dialog', { name: 'Write down a dish' }).waitFor();
+  await page.locator('#d-name').fill(D);
+  await page.locator('#d-serv').fill('6');
+  await page.getByRole('button', { name: 'Add an ingredient' }).click();
+  await page.getByRole('button', { name: 'Add an ingredient' }).click();          // three starting rows, two added: five
+  await page.getByLabel('Ingredient 1 name').fill('flour');
+  await page.getByLabel('Ingredient 1 amount').fill('200');
+  await page.getByLabel('Ingredient 1 unit').selectOption('g');
+  await page.getByLabel('Ingredient 2 name').fill('cinnamon');
+  await page.getByLabel('Ingredient 2 name').locator('xpath=ancestor::div[contains(@class,"row")][1]').getByRole('checkbox', { name: 'Optional' }).check();
+  await page.getByLabel('Ingredient 5 name').fill('salt-pinch');                  // a row that only exists because a button was pressed
+  await page.locator('#d-steps').fill(STEPS);
+  const slotChip = page.getByRole('dialog').getByRole('checkbox', { name: 'Breakfast' });
+  const slotBefore = await slotChip.getAttribute('aria-checked');
+  await slotChip.click();                                                         // an option changed from its starting value
+  const slotAfter = await slotChip.getAttribute('aria-checked');
+  const dishState = async () => page.evaluate(() => ({
+    name: document.querySelector('#d-name').value, serves: document.querySelector('#d-serv').value, steps: document.querySelector('#d-steps').value,
+    rows: [1, 2, 3, 4, 5, 6].map((i) => { const n = document.querySelector(`[aria-label="Ingredient ${i} name"]`); if (!n) return null; const row = n.closest('.row'); return { name: n.value, qty: document.querySelector(`[aria-label="Ingredient ${i} amount"]`).value, unit: document.querySelector(`[aria-label="Ingredient ${i} unit"]`).value, optional: row.querySelector('input[type=checkbox]').checked }; }),
+    slots: [...document.querySelector('[role=dialog]').querySelectorAll('#d-slots + [role=group] [role=checkbox]')].map((e) => `${e.textContent.trim()}:${e.getAttribute('aria-checked')}`),
+  }));
+  const before = await dishState();
+  await step('before leaving, the form is as typed (five rows, a chosen unit, a ticked box, a changed option)', async () => {
+    check('five ingredient rows, row 5 filled, the option changed', before.rows.filter(Boolean).length === 5 && before.rows[4].name === 'salt-pinch' && before.rows[0].unit === 'g' && before.rows[1].optional === true && slotBefore !== slotAfter && before.slots.length >= 3 && before.slots.some((x) => /^Breakfast:/.test(x)), JSON.stringify(before));
+    check('nothing is kept yet', (await ls(page, draftsKey(id))) === null);
+  }, page);
+  await step('the planner closes and returns: every row, value and option is back exactly, and nothing was saved', async () => {
+    await closeGate(page, email);
+    await stored(page, draftsKey(id));
+    const raw = JSON.parse(await ls(page, draftsKey(id)));
+    check('what is kept names the rows and the options (and is only on this device)', raw.v === 2 && /salt-pinch/.test(JSON.stringify(raw)) && sentWith(page, 'salt-pinch').length === 0, JSON.stringify(raw).slice(0, 200));
+    await openGate(page, email);
+    await page.getByRole('dialog', { name: 'Write down a dish' }).waitFor();
+    await valueIs(page, '#d-name', D);
+    const after = await dishState();
+    check('the dish is exactly as it was typed, row for row', JSON.stringify(after) === JSON.stringify(before), JSON.stringify(after));
+    check('no dish was saved', !JSON.stringify(await planOf(page)).includes(D));
+  }, page);
+  await step('a whole page load while closed, then Resume, gives the same form again', async () => {
+    await closeGate(page, email);
+    await page.goto(`${B}?r=${Date.now()}#/account`);
+    await pausedVisible(page);
+    check('the closed screen lists a dish by kind, not its text', /a dish/i.test(await page.getByTestId('drafts-note').innerText()) && !(await page.locator('body').innerText()).includes('salt-pinch'));
+    await openGate(page, email, 'today');
+    await page.getByTestId('drafts-banner').waitFor();
+    await page.getByRole('button', { name: 'Resume' }).click();
+    await page.getByRole('dialog', { name: 'Write down a dish' }).waitFor();
+    await valueIs(page, '#d-name', D);
+    const after = await dishState();
+    check('five rows, every value and option, after a page load', JSON.stringify(after) === JSON.stringify(before), `before ${JSON.stringify(before)} after ${JSON.stringify(after)}`);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'detached' });
+    await gone(page, draftsKey(id));
+  }, page);
+  await step('a task: chosen area, frequency and priority come back with the text', async () => {
+    await openTaskSheet(page);
+    await page.locator('#t-name').fill('TASK-STRUCT-DRAFT-6a');
+    await page.locator('#t-area').selectOption('home');
+    await page.locator('#t-room').waitFor();
+    await page.locator('#t-freq').selectOption('weekly');
+    await page.getByRole('dialog').getByRole('radio', { name: 'High' }).click();
+    await closeGate(page, email);
+    await openGate(page, email);
+    await valueIs(page, '#t-name', 'TASK-STRUCT-DRAFT-6a');
+    check('the area, the room field it reveals, the frequency and the priority are as chosen', (await page.locator('#t-area').inputValue()) === 'home' && (await page.locator('#t-room').count()) === 1 && (await page.locator('#t-freq').inputValue()) === 'weekly' && (await page.getByRole('dialog').getByRole('radio', { name: 'High' }).getAttribute('aria-checked')) === 'true');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await gone(page, draftsKey(id));
+  }, page);
+  await step('a choice alone is not a draft: changing only an option keeps nothing', async () => {
+    await openTaskSheet(page);
+    await page.getByRole('dialog').getByRole('radio', { name: 'High' }).click();
+    await closeGate(page, email);
+    check('no key, no note', (await ls(page, draftsKey(id))) === null && (await page.getByTestId('drafts-note').count()) === 0);
+    await openGate(page, email);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+  }, page);
+  check('nothing was sent in this whole section', sentWith(page, 'DRAFT').length === 0 && sentWith(page, 'STEP-ONE').length === 0);
+  await ctx.close();
+}
+
+// ───────────────────────────── 3c. the session ends under an open form ─────────────────────────────
+if (want('expiry')) {
+  const { ctx, page } = await open({ label: 'expiry' });
+  const email = 'drafts.expiry@example.test';
+  const M = 'EXPIRY-DRAFT-71b3'; const N = 'EXPIRY-NOTES-5c20';
+  await subscribed(page, email);
+  const id = await idOf(page);
+  await openTaskSheet(page);
+  await page.locator('#t-name').fill(M);
+  await page.locator('#t-notes').fill(N);
+  await page.locator('#t-freq').selectOption('monthly');
+  await page.getByRole('dialog').getByRole('radio', { name: 'Low' }).click();
+  await step('while the form is open and the planner is open, nothing is written', async () => {
+    check('no drafts key', (await ls(page, draftsKey(id))) === null);
+    check('the plan holds nothing of it', !JSON.stringify(await planOf(page)).includes(M));
+  }, page);
+  await step('the session ends under the open form: the person is told, the text is kept for that account, and nothing is sent', async () => {
+    await ctx.clearCookies();                                                  // expired, or ended elsewhere
+    await recheck(page);
+    await page.getByText('Your session has ended. Sign in again to continue.').waitFor();
+    check('the sign-in screen is showing, and the form is gone', (await page.getByRole('heading', { name: 'Sign in', exact: true }).count()) === 1 && (await page.getByRole('dialog').count()) === 0);
+    await stored(page, draftsKey(id));
+    const raw = await ls(page, draftsKey(id));
+    check('the text and the options are kept under this account’s own key', raw.includes(M) && raw.includes(N) && raw.includes('monthly') && raw.includes('LOW'), raw.slice(0, 200));
+    check('it is not on the sign-in screen', !(await page.locator('body').innerText()).includes(M));
+    check('not in the plan', !JSON.stringify(JSON.parse(await ls(page, `cleanflow:v1@${id}`) ?? '{}')).includes(M));
+    check('no request carried it', sentWith(page, M).length === 0 && sentWith(page, N).length === 0);
+  }, page);
+  await step('signing in again: the planner opens, offers the draft, and Resume puts back the text and the options; nothing was saved', async () => {
+    await signIn(page, email);
+    await waitPlanner(page);
+    await page.getByTestId('drafts-banner').waitFor();
+    check('the banner says what it is and that nothing was sent', /Text you had not saved is still here/.test(await page.getByTestId('drafts-banner').innerText()) && /nothing was sent to the server/.test(await page.getByTestId('drafts-banner').innerText()));
+    await page.getByRole('button', { name: 'Resume' }).click();
+    await page.getByRole('dialog', { name: 'Add your own task' }).waitFor();
+    await valueIs(page, '#t-name', M);
+    await valueIs(page, '#t-notes', N);
+    check('the frequency and the priority are back too', (await page.locator('#t-freq').inputValue()) === 'monthly' && (await page.getByRole('dialog').getByRole('radio', { name: 'Low' }).getAttribute('aria-checked')) === 'true');
+    check('not saved, and nothing sent', !JSON.stringify(await planOf(page)).includes(M) && sentWith(page, M).length === 0);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'detached' });
+    await gone(page, draftsKey(id));
+    check('saved by the form’s own button, and the draft is gone', JSON.stringify(await planOf(page)).includes(M));
+  }, page);
+  await ctx.close();
+}
+
+// ───────────────────────────── 3d. the account changes under an open form (another tab signs in as someone else) ─────────────────────────────
+if (want('switch')) {
+  const { ctx, page } = await open({ label: 'switch' });
+  const e1 = 'drafts.sw1@example.test'; const e2 = 'drafts.sw2@example.test';
+  const S1 = 'SWITCH-ONE-DRAFT-3f8a'; const S2 = 'SWITCH-TWO-DRAFT-8c41';
+  await subscribed(page, e2);                                                   // account two exists, with a plan
+  const id2 = await idOf(page);
+  await post(page, '/api/auth/sign-out', {});
+  await subscribed(page, e1);
+  const id1 = await idOf(page);
+  /** Another tab or window of this browser signs in as someone else (the cookie is shared): this tab finds out at its next check. */
+  const elsewhere = async (email) => {
+    await ctx.request.post(`${B}api/auth/sign-out`, { data: {}, headers: { origin: B.slice(0, -1) } });
+    const r = await ctx.request.post(`${B}api/auth/sign-in/email`, { data: { email, password: PW }, headers: { origin: B.slice(0, -1) } });
+    if (!r.ok()) throw new Error(`sign-in elsewhere failed: ${r.status()}`);
+  };
+  await openTaskSheet(page);
+  await page.locator('#t-name').fill(S1);
+  await page.getByRole('dialog').getByRole('radio', { name: 'High' }).click();
+  await step('another tab signs in as account two: this tab switches, account one’s open form is kept for account one, and account two sees nothing of it', async () => {
+    check('nothing was written while the form was open', (await ls(page, draftsKey(id1))) === null);
+    await elsewhere(e2);
+    await recheck(page);
+    await page.waitForFunction((k) => localStorage.getItem(k) !== null, draftsKey(id1));
+    await waitPlanner(page);
+    check('this tab is now account two’s (its own plan key is the one in use)', (await idOf(page)) === id2);
+    check('account one’s form is gone and its text is not on the page', (await page.getByRole('dialog').count()) === 0 && !(await page.content()).includes(S1));
+    check('account one’s text is under account one’s key only', (await ls(page, draftsKey(id1))).includes(S1) && (await ls(page, draftsKey(id2))) === null);
+    check('account two gets no banner for it', (await page.getByTestId('drafts-banner').count()) === 0);
+    await openTaskSheet(page);
+    check('account two’s task form is empty (nothing restored, nothing from account one)', (await page.locator('#t-name').inputValue()) === '' && (await page.getByRole('dialog').getByRole('radio', { name: 'High' }).getAttribute('aria-checked')) !== 'true');
+    const all = await lsAll(page);
+    check('nothing stored under account two’s keys holds account one’s text', Object.entries(all).filter(([k, v]) => k.includes(id2) && String(v).includes(S1)).length === 0);
+    check('no request carried account one’s text', sentWith(page, S1).length === 0);
+  }, page);
+  await step('account two types in its own form; another tab signs account one back in: each gets its own draft and only its own', async () => {
+    await page.locator('#t-name').fill(S2);
+    await elsewhere(e1);
+    await recheck(page);
+    await page.waitForFunction((k) => localStorage.getItem(k) !== null, draftsKey(id2));
+    await waitPlanner(page);
+    check('this tab is account one’s again', (await idOf(page)) === id1);
+    await page.getByTestId('drafts-banner').waitFor();
+    check('account one is offered its own draft, and the page shows nothing of account two’s', !(await page.content()).includes(S2) && /A task/.test(await page.getByTestId('drafts-banner').innerText()));
+    await page.getByRole('button', { name: 'Resume' }).click();
+    await page.getByRole('dialog', { name: 'Add your own task' }).waitFor();
+    await valueIs(page, '#t-name', S1);
+    check('account one’s text and its chosen priority are back', (await page.getByRole('dialog').getByRole('radio', { name: 'High' }).getAttribute('aria-checked')) === 'true');
+    check('both drafts are under their own accounts’ keys, each holding only its own text', (await ls(page, draftsKey(id1))).includes(S1) && !(await ls(page, draftsKey(id1))).includes(S2) && (await ls(page, draftsKey(id2))).includes(S2) && !(await ls(page, draftsKey(id2))).includes(S1));
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await gone(page, draftsKey(id1));
+  }, page);
+  await step('deleting is deliberate and per account: account one’s Discard leaves account two’s draft alone', async () => {
+    check('account two’s draft is still stored after account one finished with its own', (await ls(page, draftsKey(id2))) !== null && (await ls(page, draftsKey(id2))).includes(S2));
+    await elsewhere(e2);
+    await recheck(page);
+    await waitPlanner(page);
+    await page.getByTestId('drafts-banner').waitFor();
+    check('account two sees only its own', !(await page.content()).includes(S1));
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await gone(page, draftsKey(id2));
+    check('discarded: gone, and nothing was saved', !JSON.stringify(await planOf(page)).includes(S2));
+  }, page);
+  check('nothing was sent in this whole section', sentWith(page, 'SWITCH-').length === 0);
+  await ctx.close();
+}
+
+// ───────────────────────────── 3e. what closing the tab does NOT keep (the documented limit) ─────────────────────────────
+if (want('tabclose')) {
+  const { ctx, page } = await open({ label: 'tabclose' });
+  const email = 'drafts.tab@example.test';
+  const T = 'TAB-CLOSE-DRAFT-0e55';
+  await subscribed(page, email);
+  const id = await idOf(page);
+  await openTaskSheet(page);
+  await page.locator('#t-name').fill(T);
+  await step('reloading (or closing) the tab with the planner open keeps nothing: no code of ours runs, and the text is gone', async () => {
+    await page.reload();
+    await waitPlanner(page);
+    check('no drafts key, no banner, no note, and the form is not open', (await ls(page, draftsKey(id))) === null && (await page.getByTestId('drafts-banner').count()) === 0 && (await page.getByRole('dialog').count()) === 0);
+    check('the text is not anywhere in this browser’s storage', Object.values(await lsAll(page)).every((v) => !String(v).includes(T)));
+    await openTaskSheet(page);
+    check('the form opens empty', (await page.locator('#t-name').inputValue()) === '');
+    await page.getByRole('button', { name: 'Cancel' }).click();
   }, page);
   await ctx.close();
 }
