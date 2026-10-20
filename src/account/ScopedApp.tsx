@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { App } from '../App';
+import { DraftsProvider } from '../state/draftsContext';
 import { AppProvider } from '../state/store';
 import { navigate } from '../ui/router';
 import { AccessGateHost } from './AccessGate';
@@ -49,11 +50,13 @@ const BillingReturnRouter = () => {
 export const ScopedApp = () => (
   <AccountProvider>
     {({ repo, scopeKey }) => (
-      <AppProvider key={scopeKey} repo={repo}>
-        <Flash />
-        <BillingReturnRouter />
-        <AccessGateHost><App /></AccessGateHost>
-      </AppProvider>
+      <DraftsProvider key={scopeKey} accountId={scopeKey === 'local' ? null : scopeKey}>
+        <AppProvider key={scopeKey} repo={repo}>
+          <Flash />
+          <BillingReturnRouter />
+          <AccessGateHost><App /></AccessGateHost>
+        </AppProvider>
+      </DraftsProvider>
     )}
   </AccountProvider>
 );

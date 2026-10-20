@@ -254,15 +254,8 @@ for (const cfg of CONFIGS) {
     await page.route('**/api/account', (r) => r.abort('connectionfailed'));
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     await page.locator('.access-note').waitFor();
-    if (cfg.large) {
-      // KNOWN, not Stage 6: at 200% text on a 320px phone the planner's bottom navigation makes the page 6px wider than the screen (the layout
-      // viewport grows to 326px). It was seen on the Today screen of the planner shell, which this issue did not change; it is listed in
-      // docs/implementation-checklist.md. What this step can honestly check is that the offline note itself fits and wraps.
-      await step(`${cfg.name} · the offline note fits the screen and can be read`, async () => {
-        const box = await page.locator('.access-note').boundingBox();
-        check(`${cfg.name} · the offline note stays inside the screen`, !!box && box.x >= 0 && box.x + box.width <= cfg.w + 0.5, JSON.stringify(box));
-      }, page);
-    } else await tick(page, 'planner open with the offline note', cfg);
+    await tick(page, 'planner open with the offline note', cfg);               // every configuration, 320 px with 200% text included
+
     await page.unroute('**/api/account');
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     await page.locator('.access-note').waitFor({ state: 'detached' });

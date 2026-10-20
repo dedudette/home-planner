@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useDrafts } from '../state/draftsContext';
 import { useApp } from '../state/store';
 import { nsKey } from '../storage/namespace';
 import { Button } from '../ui/primitives';
@@ -18,6 +19,7 @@ import { checkCurrentPassword } from './validation';
 export const DeleteAccountBox = ({ warning }: { warning?: string }) => {
   const { accountDeleted, user } = useAccount();
   const { repo } = useApp();
+  const drafts = useDrafts();
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [erase, setErase] = useState(false);
@@ -38,6 +40,7 @@ export const DeleteAccountBox = ({ warning }: { warning?: string }) => {
         await repo.clear();
         try { for (const k of ['cleanflow:onb-step', 'cleanflow:timer', 'cleanflow:workout', 'cleanflow:scheduled', 'cleanflow:legacy-seen']) window.localStorage.removeItem(nsKey(k)); } catch { /* ignore */ }
       }
+      drafts?.discardAll();                                           // unsent text of an account that no longer exists is never kept, whatever is chosen about the plan
       if (user) forgetAccountOnDevice(user.id, erase);
       accountDeleted();
     } catch (er) { setFail(describeAuthError(er, 'delete')); setBusy(false); }

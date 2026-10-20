@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { DraftScope } from '../../state/DraftScope';
+import { pageScope } from '../../state/drafts';
+import { useDrafts } from '../../state/draftsContext';
 import { uid } from '../../domain/appdata';
 import { formatDay } from '../../domain/dates';
 import { dayEnergyOf } from '../../domain/safety';
@@ -15,8 +18,11 @@ const timeOf = (at: string) => new Date(at).toLocaleTimeString(undefined, { hour
  * A self-report. Energy is the same answer Today already asks for, so saying it here adjusts today's list, and the screen says so before
  * you save. Mood is only what you say it is. Nothing is scored, interpreted or compared with anyone, and nothing here is a diagnosis.
  */
+const NOTE_SCOPE = pageScope('checkin-note', 'wellbeing', 'A check-in note');
+
 export const CheckinForm = ({ compact }: { compact?: boolean }) => {
   const { data, today, dispatch, toast, stamp } = useApp();
+  const drafts = useDrafts();
   const [energy, setEnergy] = useState<CheckinEnergy | null>(null);
   const [mood, setMood] = useState<Checkin['mood']>(null);
   const [note, setNote] = useState('');
@@ -30,8 +36,9 @@ export const CheckinForm = ({ compact }: { compact?: boolean }) => {
     if (energy && energy !== current) dispatch({ type: 'DAY_ENERGY', level: energy, stamp: st });
     toast(energy && energy !== current ? 'Check-in saved. Today\'s list was adjusted for your energy.' : 'Check-in saved.', { label: 'Undo', run: () => dispatch({ type: 'CHECKIN_DELETE', id: c.id }) });
     setEnergy(null); setMood(null); setNote('');
+    drafts?.drop(NOTE_SCOPE.id);                                    // saved: the typed text has done its job
   };
-  return (
+  const form = (
     <div className="stack">
       <div className="field"><span className="label" id={`ck-e-${compact ? 'c' : 'f'}`}>Energy right now</span>
         <div className="chips" role="radiogroup" aria-labelledby={`ck-e-${compact ? 'c' : 'f'}`}>{(['low', 'ok', 'high'] as const).map((e) => <Chip key={e} role="radio" on={energy === e} onClick={() => setEnergy(energy === e ? null : e)}>{ENERGY_LABEL[e]}</Chip>)}</div>
@@ -42,6 +49,8 @@ export const CheckinForm = ({ compact }: { compact?: boolean }) => {
       <div><Button icon={I.check} onClick={save} disabled={nothing}>Save check-in</Button></div>
     </div>
   );
+  // The note is private text typed on a page: kept through the planner closing, like the sheets' text (state/drafts.ts). The compact form has no note.
+  return compact ? form : <DraftScope scope={NOTE_SCOPE}>{form}</DraftScope>;
 };
 
 export const TodayCheckin = () => {

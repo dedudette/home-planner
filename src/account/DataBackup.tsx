@@ -6,6 +6,7 @@ import { Button } from '../ui/primitives';
 import { useAccount } from './AccountProvider';
 import { CloudBackupCard } from './CloudBackupCard';
 import { DeviceDataCard } from './DeviceDataCard';
+import { DraftsNote } from './Drafts';
 import { AuthFrame, Notice } from './Screens';
 
 /**
@@ -28,6 +29,7 @@ export const DataBackup = () => {
     <AuthFrame title="Your data and backup" lead="What stays on this device, what you can copy to your account, and what you can back up to the cloud. You choose each one." footer={back} wide>
       <WhereDataLives />
       <ThisDevice />
+      <DraftsNote />
       <DeviceDataCard />
       <CloudBackupCard />
     </AuthFrame>

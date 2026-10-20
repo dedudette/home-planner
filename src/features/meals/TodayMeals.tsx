@@ -27,8 +27,8 @@ export const TodayMeals = () => {
         const time = data.meals.prefs.slots[slot].time;
         return (
           <div className="stack" key={slot} style={{ gap: 6 }} data-slot={slot}>
-            <div className="row between"><span className="small strong">{SLOT_LABEL[slot]}{time ? <span className="muted"> · {time}</span> : null}</span>
-              <span className="row" style={{ gap: 4 }}>
+            <div className="row between wrap"><span className="small strong">{SLOT_LABEL[slot]}{time ? <span className="muted"> · {time}</span> : null}</span>
+              <span className="row wrap" style={{ gap: 4 }}>
                 <Button size="sm" variant="ghost" onClick={() => openSheet({ kind: 'mealPicker', date: today, slot, tab: 'log' })} aria-label={`Log ${SLOT_LABEL[slot].toLowerCase()} without a recipe`}>Log</Button>
                 <Button size="sm" variant="ghost" icon={I.plus} onClick={() => openSheet({ kind: 'mealPicker', date: today, slot })} aria-label={`Plan ${SLOT_LABEL[slot].toLowerCase()}`}>Plan</Button>
               </span></div>

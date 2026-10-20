@@ -59,7 +59,7 @@ export const Progress = () => {
           <BarChart label="Tasks completed per week" unit="tasks" data={p.weeks.map((w) => ({ label: w.label, value: w.tasks }))} />
         </section>
         {(homeOn || p.rooms.length > 0) && <section className="card stack" aria-labelledby="rm">
-          <div className="row between"><h2 id="rm" className="h3">Rooms completed</h2><span className="small muted">{p.roomsRefreshedThisWeek} refreshed this week</span></div>
+          <div className="row between wrap"><h2 id="rm" className="h3">Rooms completed</h2><span className="small muted">{p.roomsRefreshedThisWeek} refreshed this week</span></div>
           {p.rooms.length === 0 ? <p className="small muted">Rooms will appear as you finish tasks.</p> : p.rooms.slice(0, 7).map((r) => {
             const R = ROOM_ICON[r.kind];
             return (

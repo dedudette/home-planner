@@ -3,7 +3,9 @@ import { syncReminders } from '../domain/reminders/sync';
 import { getPlatform, readScheduled, writeScheduled } from '../state/reminderPlatform';
 import { useRoute } from '../ui/router';
 import { Button } from '../ui/primitives';
+import { useDrafts } from '../state/draftsContext';
 import { routeStaysOpen, UNCONFIRMED_COPY } from './access';
+import { DraftsNote } from './Drafts';
 import { useAccount } from './AccountProvider';
 import { AuthFrame } from './Screens';
 
@@ -25,6 +27,7 @@ export const AccessGateHost = ({ children }: { children: ReactNode }) => {
   const open = access.status.kind === 'allowed';
   const wasOpen = useRef(true);
   const gated = mode === 'accounts' && !!user;
+  const drafts = useDrafts();
 
   // Closing the planner: write out what the app holds before anything else happens (the same path the browser uses when the page closes).
   useEffect(() => {
@@ -47,6 +50,12 @@ export const AccessGateHost = ({ children }: { children: ReactNode }) => {
     })().catch(() => undefined);
     return () => { alive = false; };
   }, [gated, closed]);
+
+  // Typed, unsaved text is kept (on this device, for this account) when the planner closes, so access coming back, or a trip to the payment page
+  // and back, does not cost it. The registry holds the text itself, so this does not depend on the forms still being on screen.
+  useEffect(() => { if (gated && closed) drafts?.interrupt(); }, [gated, closed, drafts]);
+  // Moving to another page while the planner is open is the person finishing with the forms left behind; while it is closed, it is not.
+  useEffect(() => { if (gated && open) drafts?.dropPagesExcept(route.path.split('/')[0]); }, [gated, open, route.path, drafts]);
 
   useEffect(() => {
     if (!gated || open || routeStaysOpen(route.path) || access.status.kind === 'blocked') return;
@@ -77,6 +86,7 @@ const Unconfirmed = () => {
   const { access } = useAccount();
   return (
     <AuthFrame title={UNCONFIRMED_COPY.title} lead={UNCONFIRMED_COPY.lead} footer={<a href="#/account/data">Data &amp; backup</a>}>
+      <DraftsNote />
       <div className="row wrap">
         <Button onClick={() => void access.recheck()}>Try again</Button>
         <a className="btn secondary" href="#/account/data">Download my data</a>

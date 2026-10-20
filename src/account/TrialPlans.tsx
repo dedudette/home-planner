@@ -9,6 +9,7 @@ import { describeAuthError, type Described } from './errors';
 import { canSubmitTrial, describeBillingUnavailable, formatDate, pricingOptions, safeCheckoutUrl, trialSummary, TRIAL_PROMISE } from './planView';
 import { gateCopy } from './access';
 import { GateAccountCard } from './GateAccountCard';
+import { DraftsNote } from './Drafts';
 import { AuthFrame, Notice } from './Screens';
 import { AllowanceCard, SubscriptionCard, YourDataCard } from './SubscriptionCards';
 import { useAccountView } from './useAccountView';
@@ -84,6 +85,7 @@ const Signed = ({ billingMode, back, paused, announce }: { billingMode: 'test' |
           <p>{copy.lead}</p>
         </section>
       )}
+      {paused && <DraftsNote />}
       {billingMode === 'test' && <Notice>This server is connected to the payment provider's test mode. No real money is taken, and test card numbers are used.</Notice>}
       {note && <Notice kind={note.kind}>{note.text}</Notice>}
       {(ret.kind === 'success' || ret.kind === 'returned') && !checking && note?.kind !== 'good' && (

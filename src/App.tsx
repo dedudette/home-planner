@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { ConfirmSheet } from './features/common/ConfirmSheet';
 import { RecoveryScreen } from './features/recovery/Recovery';
 import { ErrorBoundary } from './ui/ErrorBoundary';
@@ -43,8 +43,11 @@ import { PRIMARY, SETTINGS_ITEM, sectionsFor } from './features/nav';
 import { routeStaysOpen } from './account/access';
 import { useAccount } from './account/AccountProvider';
 import { DataBackup } from './account/DataBackup';
+import { DraftsBanner } from './account/Drafts';
 import { TrialPlans } from './account/TrialPlans';
-import { useApp } from './state/store';
+import { DraftScope } from './state/DraftScope';
+import { scopeOfSheet } from './state/drafts';
+import { useApp, type Sheet } from './state/store';
 import { I } from './ui/icons';
 import { navigate, useRoute } from './ui/router';
 
@@ -66,6 +69,13 @@ const SheetHost = () => {
   const { sheets } = useApp();
   const top = sheets[sheets.length - 1];
   if (!top) return null;
+  // Text typed into a sheet is kept with the sheet (per account, accounts mode only) so it survives the planner closing. See state/drafts.ts.
+  const scope = scopeOfSheet(top);
+  const sheet = renderSheet(top);
+  return scope ? <DraftScope key={scope.id} scope={scope}>{sheet}</DraftScope> : sheet;
+};
+
+const renderSheet = (top: Sheet) => {
   switch (top.kind) {
     case 'task': return <TaskDetailSheet id={top.id} fallback={top.task} />;
     case 'timerPick': return <TimerPickSheet task={top.task} />;
@@ -100,6 +110,29 @@ const SheetHost = () => {
   }
 };
 
+/**
+ * The bottom navigation wraps onto a second row when large text leaves no room for five whole labels in one. The page padding, the toasts and
+ * the timer bar all sit above it, so they follow its real height (--nav-h) instead of assuming one row.
+ */
+const NavHeightSync = () => {
+  useLayoutEffect(() => {
+    const nav = document.querySelector<HTMLElement>('.bottomnav');
+    const root = document.documentElement;
+    if (!nav || typeof ResizeObserver === 'undefined') return;
+    const apply = () => {
+      const cs = getComputedStyle(nav);
+      const row = parseFloat(getComputedStyle(root).getPropertyValue('--nav-row')) || 68;
+      const h = cs.display === 'none' ? 0 : nav.getBoundingClientRect().height - (parseFloat(cs.paddingBottom) || 0) - (parseFloat(cs.borderTopWidth) || 0);
+      if (h > row + 1) root.style.setProperty('--nav-h', `${Math.round(h)}px`); else root.style.removeProperty('--nav-h');
+    };
+    const ro = new ResizeObserver(apply);
+    ro.observe(nav);
+    apply();
+    return () => { ro.disconnect(); root.style.removeProperty('--nav-h'); };
+  }, []);
+  return null;
+};
+
 const Toasts = () => {
   const { toasts } = useApp();
   return (
@@ -118,6 +151,7 @@ const Banners = () => {
   const { loadNotice, dismissNotice, saveError } = useApp();
   return (
     <>
+      <DraftsBanner />
       {saveError && (
         <div className="banner warn" role="alert">
           <I.info size={18} aria-hidden />
@@ -217,6 +251,7 @@ export const App = () => {
         <a href="#/more" aria-current={moreActive ? 'page' : undefined}><I.menu size={22} aria-hidden />More</a>
       </nav>
 
+      <NavHeightSync />
       <TimerBar />
       <SheetHost />
       <Toasts />

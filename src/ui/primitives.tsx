@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { I, type IconType } from './icons';
 
 export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ');
@@ -130,8 +130,23 @@ export const RingStat = ({ value, label, sub, size = 84 }: { value: number; labe
 
 export const BarChart = ({ data, unit, label }: { data: { label: string; value: number }[]; unit: string; label: string }) => {
   const max = Math.max(1, ...data.map((d) => d.value));
+  // With large text the labelled columns need more room than a phone has, so the chart scrolls inside its own card. It is only a tab stop
+  // while it really scrolls, so a keyboard user can reach the columns that are off to the side (and nobody gets an extra stop otherwise).
+  const ref = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setScrolls(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    for (const c of el.children) ro.observe(c);
+    return () => ro.disconnect();
+  }, [data.length]);
   return (
-    <div className="bars" role="img" aria-label={`${label}: ${data.map((d) => `${d.label} ${d.value} ${unit}`).join(', ')}`}>
+    <div ref={ref} tabIndex={scrolls ? 0 : undefined} className="bars" role="img" aria-label={`${label}: ${data.map((d) => `${d.label} ${d.value} ${unit}`).join(', ')}`}>
       {data.map((d) => (
         <div className="b" key={d.label}>
           <span className="val">{d.value > 0 ? d.value : ''}</span>
